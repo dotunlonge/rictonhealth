@@ -1,0 +1,110 @@
+import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
+import bcrypt from 'bcrypt';
+
+const prisma = new PrismaClient();
+
+async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('ERROR: Refusing to run seed script in production environment!');
+    process.exit(1);
+  }
+
+  console.log('Starting DB seed...');
+
+  const salt = await bcrypt.genSalt(10);
+  const passwordHash = await bcrypt.hash('password123', salt);
+
+  // Clean existing users (cascade will handle profiles)
+  await prisma.user.deleteMany({});
+  console.log('Cleaned existing users.');
+
+  // Create Admin
+  const admin = await prisma.user.create({
+    data: {
+      email: 'admin@ricton.health',
+      passwordHash,
+      role: UserRole.SUPER_ADMIN,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+    },
+  });
+  console.log(`Created Super Admin: ${admin.email}`);
+
+  // Create Patient
+  const patient = await prisma.user.create({
+    data: {
+      email: 'patient@ricton.health',
+      phone: '+2348000000001',
+      passwordHash,
+      role: UserRole.PATIENT,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      patientProfile: {
+        create: {
+          firstName: 'John',
+          lastName: 'Doe',
+          gender: 'Male',
+          bloodType: 'O+',
+        },
+      },
+    },
+  });
+  console.log(`Created Patient: ${patient.email}`);
+
+  // Create Consultant
+  const consultant = await prisma.user.create({
+    data: {
+      email: 'doctor@ricton.health',
+      phone: '+2348000000002',
+      passwordHash,
+      role: UserRole.CONSULTANT,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      providerProfile: {
+        create: {
+          firstName: 'Jane',
+          lastName: 'Smith',
+          title: 'Dr.',
+          specialty: 'Cardiology',
+          isVerified: true,
+          consultationFee: 15000.0,
+        },
+      },
+    },
+  });
+  console.log(`Created Consultant: ${consultant.email}`);
+
+  // Create Pharmacist
+  const pharmacist = await prisma.user.create({
+    data: {
+      email: 'pharmacy@ricton.health',
+      phone: '+2348000000003',
+      passwordHash,
+      role: UserRole.PHARMACIST,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      pharmacyProfile: {
+        create: {
+          pharmacyName: 'Ricton Central Pharmacy',
+          isVerified: true,
+          address: {
+            street: '123 Health Ave',
+            city: 'Lagos',
+          },
+        },
+      },
+    },
+  });
+  console.log(`Created Pharmacist: ${pharmacist.email}`);
+
+  console.log('Seed completed successfully.');
+}
+
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -1,0 +1,547 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// CORE MODELS
+// -----------------------------------------------------------------------------
+
+enum UserRole {
+  PATIENT
+  CONSULTANT
+  PHARMACIST
+  HOSPITAL_ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id               String      @id @default(uuid()) @db.Uuid
+  email            String?     @unique
+  phone            String?     @unique
+  passwordHash     String?
+  role             UserRole
+  status           UserStatus  @default(PENDING)
+  emailVerified    Boolean     @default(false)
+  phoneVerified    Boolean     @default(false)
+  oauthProvider    String?
+  oauthId          String?
+  createdAt        DateTime    @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime    @updatedAt @db.Timestamptz(6)
+
+  // Profiles
+  patientProfile   PatientProfile?
+  providerProfile  ProviderProfile?
+  pharmacyProfile  PharmacyProfile?
+
+  // Relations
+  appointmentsAsPatient   Appointment[] @relation("PatientAppointments")
+  appointmentsAsProvider  Appointment[] @relation("ProviderAppointments")
+  prescriptionsAsPatient  Prescription[] @relation("PatientPrescriptions")
+  prescriptionsAsProvider Prescription[] @relation("ProviderPrescriptions")
+  prescriptionsAsPharmacy Prescription[] @relation("PharmacyPrescriptions")
+  pharmacyOrdersAsPatient PharmacyOrder[] @relation("PatientOrders")
+  pharmacyOrdersAsPharmacy PharmacyOrder[] @relation("PharmacyOrders")
+  payments                Payment[]
+  wallet                  Wallet?
+  notifications           Notification[]
+  notificationPreferences NotificationPreference?
+  telemedicineRoomsAsHost TelemedicineRoom[]
+  telemedicineParticipants TelemedicineParticipant[]
+  auditLogsAsActor        AuditLog[]
+  providerEarnings        ProviderEarning[]
+  rewardPoints            RewardPoint[]
+  subscriptions           Subscription[]
+  providerAvailabilities  ProviderAvailability[]
+
+  @@map("users")
+}
+
+model PatientProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime? @db.Date
+  gender           String?
+  bloodType        String?
+  allergies        Json?     // Array of strings
+  medicalHistory   Json?     // Structured history
+  emergencyContact Json?     // { name, phone, relationship }
+  avatarUrl        String?
+
+  @@map("patient_profiles")
+}
+
+model ProviderProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName        String
+  lastName         String
+  title            String?  // Dr., Prof., etc.
+  specialty        String?
+  licenseNumber    String?
+  hospitalId       String?  @db.Uuid
+  hospital         Hospital? @relation(fields: [hospitalId], references: [id])
+  bio              String?
+  consultationFee  Decimal? @db.Decimal(10, 2)
+  yearsExperience  Int?
+  isVerified       Boolean  @default(false)
+  avatarUrl        String?
+  rating           Decimal? @db.Decimal(3, 2)
+
+  @@map("provider_profiles")
+}
+
+model PharmacyProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pharmacyName     String
+  licenseNumber    String?
+  address          Json?
+  location         Json? // { lat: number, lng: number }
+  operatingHours   Json?
+  isVerified       Boolean  @default(false)
+
+  @@map("pharmacy_profiles")
+}
+
+// -----------------------------------------------------------------------------
+// CLINICAL MODELS
+// -----------------------------------------------------------------------------
+
+model Hospital {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String
+  address          Json?
+  phone            String?
+  email            String?
+  logoUrl          String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  providers        ProviderProfile[]
+  appointments     Appointment[]
+
+  @@map("hospitals")
+}
+
+model ProviderAvailability {
+  id                  String   @id @default(uuid()) @db.Uuid
+  providerId          String   @db.Uuid
+  provider            User     @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  dayOfWeek           Int      // 0=Mon, 6=Sun
+  startTime           String   // "09:00:00"
+  endTime             String   // "17:00:00"
+  slotDurationMinutes Int      @default(30)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("provider_availability")
+}
+
+enum AppointmentType {
+  IN_PERSON
+  VIDEO
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id                  String   @id @default(uuid()) @db.Uuid
+  patientId           String   @db.Uuid
+  patient             User     @relation("PatientAppointments", fields: [patientId], references: [id])
+  providerId          String   @db.Uuid
+  provider            User     @relation("ProviderAppointments", fields: [providerId], references: [id])
+  hospitalId          String?  @db.Uuid
+  hospital            Hospital? @relation(fields: [hospitalId], references: [id])
+  scheduledAt         DateTime @db.Timestamptz(6)
+  durationMinutes     Int
+  type                AppointmentType
+  status              AppointmentStatus @default(PENDING)
+  cancellationReason  String?
+  notes               String?
+  paymentId           String?  @unique @db.Uuid
+  payment             Payment? @relation("AppointmentPayment", fields: [paymentId], references: [id])
+  telemedicineRoomId  String?  @unique @db.Uuid
+  telemedicineRoom    TelemedicineRoom? @relation(fields: [telemedicineRoomId], references: [id])
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(6)
+
+  prescriptions       Prescription[]
+  providerEarnings    ProviderEarning[]
+
+  @@map("appointments")
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  SIGNED
+  SENT_TO_PHARMACY
+  DISPENSED
+  CANCELLED
+}
+
+model Prescription {
+  id               String   @id @default(uuid()) @db.Uuid
+  appointmentId    String?  @db.Uuid
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id])
+  patientId        String   @db.Uuid
+  patient          User     @relation("PatientPrescriptions", fields: [patientId], references: [id])
+  providerId       String   @db.Uuid
+  provider         User     @relation("ProviderPrescriptions", fields: [providerId], references: [id])
+  pharmacyId       String?  @db.Uuid
+  pharmacy         User?    @relation("PharmacyPrescriptions", fields: [pharmacyId], references: [id])
+  status           PrescriptionStatus @default(DRAFT)
+  signedAt         DateTime? @db.Timestamptz(6)
+  notes            String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  items            PrescriptionItem[]
+  pharmacyOrders   PharmacyOrder[]
+
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  prescriptionId   String   @db.Uuid
+  prescription     Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+  drugName         String
+  dosage           String
+  quantity         Int
+  frequency        String
+  duration         String
+  instructions     String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("prescription_items")
+}
+
+enum TelemedicineRoomType {
+  ONE_ON_ONE
+  MDT
+}
+
+enum TelemedicineRoomStatus {
+  CREATED
+  ACTIVE
+  ENDED
+}
+
+model TelemedicineRoom {
+  id               String   @id @default(uuid()) @db.Uuid
+  appointmentId    String?  @unique @db.Uuid
+  appointment      Appointment? // Relation handled from Appointment side
+  providerId       String   @db.Uuid
+  provider         User     @relation(fields: [providerId], references: [id])
+  roomType         TelemedicineRoomType @default(ONE_ON_ONE)
+  externalRoomId   String   // Twilio SID
+  externalRoomUrl  String?
+  status           TelemedicineRoomStatus @default(CREATED)
+  startedAt        DateTime? @db.Timestamptz(6)
+  endedAt          DateTime? @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  participants     TelemedicineParticipant[]
+
+  @@map("telemedicine_rooms")
+}
+
+enum ParticipantRole {
+  HOST
+  PARTICIPANT
+}
+
+model TelemedicineParticipant {
+  id               String   @id @default(uuid()) @db.Uuid
+  roomId           String   @db.Uuid
+  room             TelemedicineRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id])
+  role             ParticipantRole @default(PARTICIPANT)
+  joinedAt         DateTime? @db.Timestamptz(6)
+  leftAt           DateTime? @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("telemedicine_participants")
+}
+
+// -----------------------------------------------------------------------------
+// COMMERCE MODELS
+// -----------------------------------------------------------------------------
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryType {
+  PICKUP
+  DELIVERY
+}
+
+model PharmacyOrder {
+  id               String   @id @default(uuid()) @db.Uuid
+  patientId        String   @db.Uuid
+  patient          User     @relation("PatientOrders", fields: [patientId], references: [id])
+  pharmacyId       String   @db.Uuid
+  pharmacy         User     @relation("PharmacyOrders", fields: [pharmacyId], references: [id])
+  prescriptionId   String?  @db.Uuid
+  prescription     Prescription? @relation(fields: [prescriptionId], references: [id])
+  status           OrderStatus @default(PLACED)
+  deliveryAddress  Json?
+  deliveryType     DeliveryType @default(PICKUP)
+  totalAmount      Decimal  @db.Decimal(10, 2)
+  paymentId        String?  @unique @db.Uuid
+  payment          Payment? @relation("OrderPayment", fields: [paymentId], references: [id])
+  notes            String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  items            OrderItem[]
+
+  @@map("pharmacy_orders")
+}
+
+model OrderItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @db.Uuid
+  order            PharmacyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  drugName         String
+  quantity         Int
+  unitPrice        Decimal  @db.Decimal(10, 2)
+  subtotal         Decimal  @db.Decimal(10, 2)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("order_items")
+}
+
+enum PaymentType {
+  APPOINTMENT
+  PHARMACY_ORDER
+  SUBSCRIPTION
+  WALLET_TOPUP
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentProvider {
+  PAYSTACK
+  WALLET
+}
+
+model Payment {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id])
+  amount           Decimal  @db.Decimal(10, 2)
+  currency         String   @default("NGN")
+  type             PaymentType
+  status           PaymentStatus @default(PENDING)
+  provider         PaymentProvider
+  providerReference String  @unique // Paystack reference
+  providerTxId     String?
+  metadata         Json?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  appointment      Appointment? @relation("AppointmentPayment")
+  order            PharmacyOrder? @relation("OrderPayment")
+  subscription     Subscription? @relation("SubscriptionPayment")
+
+  @@map("payments")
+}
+
+model Wallet {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @unique @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  virtualAccountNumber String?
+  virtualBankName      String?
+  currency             String   @default("NGN")
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(6)
+
+  transactions         WalletTransaction[]
+
+  @@map("wallets")
+}
+
+enum WalletTransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum WalletReferenceType {
+  TOPUP
+  PAYMENT
+  REFUND
+  PAYOUT
+}
+
+model WalletTransaction {
+  id               String   @id @default(uuid()) @db.Uuid
+  walletId         String   @db.Uuid
+  wallet           Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type             WalletTransactionType
+  amount           Decimal  @db.Decimal(10, 2)
+  balanceAfter     Decimal  @db.Decimal(10, 2)
+  description      String
+  referenceType    WalletReferenceType
+  referenceId      String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("wallet_transactions")
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+model Subscription {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan @default(FREE)
+  status           SubscriptionStatus @default(ACTIVE)
+  startsAt         DateTime @db.Timestamptz(6)
+  expiresAt        DateTime @db.Timestamptz(6)
+  paymentId        String?  @unique @db.Uuid
+  payment          Payment? @relation("SubscriptionPayment", fields: [paymentId], references: [id])
+  autoRenew        Boolean  @default(true)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("subscriptions")
+}
+
+// -----------------------------------------------------------------------------
+// PLATFORM MODELS
+// -----------------------------------------------------------------------------
+
+enum NotificationChannel {
+  IN_APP
+  SMS
+  EMAIL
+  PUSH
+}
+
+model Notification {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type             String
+  title            String
+  body             String
+  channel          NotificationChannel
+  isRead           Boolean  @default(false)
+  metadata         Json?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  readAt           DateTime? @db.Timestamptz(6)
+
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @unique @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailEnabled     Boolean  @default(true)
+  smsEnabled       Boolean  @default(true)
+  pushEnabled      Boolean  @default(true)
+  quietHoursStart  String?  // "22:00:00"
+  quietHoursEnd    String?  // "07:00:00"
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("notification_preferences")
+}
+
+model AuditLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  actorId          String?  @db.Uuid
+  actor            User?    @relation(fields: [actorId], references: [id])
+  action           String
+  resourceType     String
+  resourceId       String?
+  metadata         Json?
+  ipAddress        String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("audit_logs")
+}
+
+enum ProviderEarningStatus {
+  PENDING
+  AVAILABLE
+  PAID_OUT
+}
+
+model ProviderEarning {
+  id               String   @id @default(uuid()) @db.Uuid
+  providerId       String   @db.Uuid
+  provider         User     @relation(fields: [providerId], references: [id])
+  appointmentId    String   @db.Uuid
+  appointment      Appointment @relation(fields: [appointmentId], references: [id])
+  amount           Decimal  @db.Decimal(10, 2)
+  status           ProviderEarningStatus @default(PENDING)
+  payoutReference  String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("provider_earnings")
+}
+
+model RewardPoint {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points           Int
+  reason           String
+  referenceType    String?
+  referenceId      String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("reward_points")
+}

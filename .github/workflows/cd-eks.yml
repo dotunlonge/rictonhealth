@@ -1,0 +1,70 @@
+name: CD to AWS EKS
+
+on:
+  push:
+    branches: ['main']
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_AUTH: ricton-auth-service
+  ECR_REPOSITORY_USER: ricton-user-service
+  EKS_CLUSTER_NAME: ricton-prod-cluster
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-eks-role # Placeholder: Update when AWS account is created
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        continue-on-error: true # Allow continuing while AWS is unconfigured
+
+      - name: Build, tag, and push Auth image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry || 'placeholder.dkr.ecr.us-east-1.amazonaws.com' }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building Auth Docker Image..."
+          docker build -f services/auth/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_AUTH:$IMAGE_TAG .
+          echo "Placeholder: docker push $ECR_REGISTRY/$ECR_REPOSITORY_AUTH:$IMAGE_TAG"
+
+      - name: Build, tag, and push User image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry || 'placeholder.dkr.ecr.us-east-1.amazonaws.com' }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "Building User Docker Image..."
+          docker build -f services/user/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY_USER:$IMAGE_TAG .
+          echo "Placeholder: docker push $ECR_REGISTRY/$ECR_REPOSITORY_USER:$IMAGE_TAG"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Deploy Auth Service to EKS
+        run: |
+          echo "Placeholder: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}"
+          echo "Placeholder: helm upgrade --install auth-service infra/helm/ricton-service \\"
+          echo "             --set image.repository=${{ steps.login-ecr.outputs.registry || 'placeholder' }}/${{ env.ECR_REPOSITORY_AUTH }} \\"
+          echo "             --set image.tag=${{ github.sha }} \\"
+          echo "             --set service.targetPort=3001"
+
+      - name: Deploy User Service to EKS
+        run: |
+          echo "Placeholder: helm upgrade --install user-service infra/helm/ricton-service \\"
+          echo "             --set image.repository=${{ steps.login-ecr.outputs.registry || 'placeholder' }}/${{ env.ECR_REPOSITORY_USER }} \\"
+          echo "             --set image.tag=${{ github.sha }} \\"
+          echo "             --set service.targetPort=3002"

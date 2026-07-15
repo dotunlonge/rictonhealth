@@ -1,0 +1,217 @@
+openapi: 3.0.0
+info:
+  title: Ricton API
+  version: 1.0.0
+  description: API documentation for the Ricton Backend
+servers:
+  - url: http://localhost:8000
+    description: Local Gateway
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RegisterInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        password:
+          type: string
+          minLength: 8
+        role:
+          type: string
+          enum:
+            - PATIENT
+            - CONSULTANT
+            - PHARMACIST
+            - HOSPITAL_ADMIN
+            - SUPER_ADMIN
+        firstName:
+          type: string
+        lastName:
+          type: string
+      required:
+        - password
+        - role
+    LoginInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        password:
+          type: string
+      required:
+        - password
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                email:
+                  type: string
+                  nullable: true
+                phone:
+                  type: string
+                  nullable: true
+                role:
+                  type: string
+                status:
+                  type: string
+              required:
+                - id
+                - email
+                - phone
+                - role
+                - status
+          required:
+            - token
+            - user
+      required:
+        - success
+        - data
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        role:
+          type: string
+        status:
+          type: string
+        patientProfile:
+          type: object
+          nullable: true
+          properties:
+            firstName:
+              type: string
+              nullable: true
+            lastName:
+              type: string
+              nullable: true
+            dateOfBirth:
+              type: string
+              nullable: true
+            gender:
+              type: string
+              nullable: true
+            bloodType:
+              type: string
+              nullable: true
+            allergies:
+              nullable: true
+          required:
+            - firstName
+            - lastName
+            - dateOfBirth
+            - gender
+            - bloodType
+        providerProfile:
+          type: object
+          nullable: true
+          properties:
+            firstName:
+              type: string
+              nullable: true
+            lastName:
+              type: string
+              nullable: true
+            specialty:
+              type: string
+              nullable: true
+            consultationFee:
+              type: number
+              nullable: true
+          required:
+            - firstName
+            - lastName
+            - specialty
+            - consultationFee
+      required:
+        - id
+        - email
+        - phone
+        - role
+        - status
+    GetUserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/UserProfile'
+      required:
+        - success
+        - data
+  parameters: {}
+paths:
+  /api/auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterInput'
+      responses:
+        '201':
+          description: User registered successfully
+        '400':
+          description: Validation Error
+  /api/auth/login:
+    post:
+      summary: Login a user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+      responses:
+        '200':
+          description: User logged in successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Unauthorized
+  /api/users/me:
+    get:
+      summary: Get current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetUserResponse'
+        '401':
+          description: Unauthorized

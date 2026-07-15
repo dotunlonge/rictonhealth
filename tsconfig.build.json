@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/db" },
+    { "path": "./packages/shared" },
+    { "path": "./packages/auth-middleware" },
+    { "path": "./services/auth" },
+    { "path": "./services/user" },
+    { "path": "./services/docs" },
+    { "path": "./services/payment" },
+    { "path": "./services/wallet" }
+  ]
+}
