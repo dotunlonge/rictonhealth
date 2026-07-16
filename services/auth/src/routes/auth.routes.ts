@@ -9,9 +9,16 @@ import {
   OAuthInputSchema,
   RefreshTokenInputSchema,
   PasswordResetInputSchema,
+  VerifyEmailInputSchema,
+  VerifyPhoneInputSchema,
+  VerifyConfirmInputSchema,
 } from '@ricton/shared';
+import { rateLimit } from '@ricton/shared';
 
 const router = Router();
+
+const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'auth' });
+const otpRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3, keyPrefix: 'otp' });
 
 /**
  * @openapi
@@ -92,21 +99,51 @@ router.post('/register', validateRequest(RegisterInputSchema), authController.re
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', validateRequest(LoginInputSchema), authController.login);
+router.post('/login', authRateLimit, validateRequest(LoginInputSchema), authController.login);
 
-router.post('/otp/send', validateRequest(SendOtpInputSchema), authController.sendOtp);
-router.post('/otp/verify', validateRequest(VerifyOtpInputSchema), authController.verifyOtp);
+router.post('/otp/send', otpRateLimit, validateRequest(SendOtpInputSchema), authController.sendOtp);
+router.post(
+  '/otp/verify',
+  otpRateLimit,
+  validateRequest(VerifyOtpInputSchema),
+  authController.verifyOtpCode
+);
 
 router.post('/oauth/google', validateRequest(OAuthInputSchema), authController.oauthGoogle);
 router.post('/oauth/apple', validateRequest(OAuthInputSchema), authController.oauthApple);
 
 router.post('/refresh', validateRequest(RefreshTokenInputSchema), authController.refresh);
 router.post('/logout', validateRequest(RefreshTokenInputSchema), authController.logout);
-router.post('/password/forgot', validateRequest(SendOtpInputSchema), authController.passwordForgot);
+router.post(
+  '/password/forgot',
+  otpRateLimit,
+  validateRequest(SendOtpInputSchema),
+  authController.passwordForgot
+);
 router.post(
   '/password/reset',
+  otpRateLimit,
   validateRequest(PasswordResetInputSchema),
   authController.passwordReset
+);
+
+router.post(
+  '/verify-email',
+  otpRateLimit,
+  validateRequest(VerifyEmailInputSchema),
+  authController.verifyEmail
+);
+router.post(
+  '/verify-phone',
+  otpRateLimit,
+  validateRequest(VerifyPhoneInputSchema),
+  authController.verifyPhone
+);
+router.post(
+  '/verify/confirm',
+  otpRateLimit,
+  validateRequest(VerifyConfirmInputSchema),
+  authController.verifyContact
 );
 
 export default router;

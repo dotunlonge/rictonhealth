@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+# Install OpenSSL for Prisma and curl for healthchecks
+RUN apk add --no-cache openssl curl
 
 WORKDIR /app
 
@@ -26,7 +26,8 @@ RUN npm run build --workspace=@ricton/payment-service
 # --- Runner Stage ---
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache openssl
+# Install curl for healthchecks
+RUN apk add --no-cache curl
 
 WORKDIR /app
 
@@ -38,6 +39,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/services/payment ./services/payment
 
-EXPOSE 3004
+EXPOSE 3007
 
 CMD ["node", "services/payment/dist/src/index.js"]

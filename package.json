@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Ricton Healthcare Platform Backend Monorepo",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "workspaces": [
     "packages/*",
     "services/*"
@@ -10,11 +14,12 @@
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",
     "services:dev": "concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service",
+    "test": "./scripts/test-e2e.sh",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,json,md}\"",
     "typecheck": "tsc -b tsconfig.build.json",
     "db:push": "npm run push --workspace=@ricton/db",
     "db:migrate": "npm run migrate --workspace=@ricton/db",

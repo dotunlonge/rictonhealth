@@ -4,7 +4,7 @@ import { Server } from 'http';
 import { logger } from './logger';
 
 export interface ServerShutdownOptions {
-  app: Application;
+  app?: Application;
   server: Server;
   serviceName: string;
   onShutdown?: () => Promise<void>;

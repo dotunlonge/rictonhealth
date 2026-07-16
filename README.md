@@ -23,7 +23,7 @@ We utilize **Pure OpenAPI Routes** strictly typed at the backend layer. There ar
 
 ### How to test and explore the API:
 
-1. Boot up the platform: `yarn dev`
+1. Boot up the platform: `npm run dev`
 2. Navigate to the interactive **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
 3. The raw `openapi.yaml` spec is available at the root of this repository if you wish to pipe it into your own local tooling (like `openapi-typescript` on the frontend side).
 
@@ -62,10 +62,13 @@ All incoming traffic is managed by **Kong API Gateway**. Kong natively handles:
 
 ### Services
 
-| Service        | Port   | Description                                                                                    |
-| -------------- | ------ | ---------------------------------------------------------------------------------------------- |
-| `auth-service` | `3001` | Handles user registration, OTP generation (SMS/Email), OAuth (Google/Apple), and JWT issuance. |
-| `user-service` | `3002` | Manages role-based profiles (Patient, Consultant, Pharmacist, Admin) and medical histories.    |
+| Service           | Port   | Description                                                                                    |
+| ----------------- | ------ | ---------------------------------------------------------------------------------------------- |
+| `auth-service`    | `3001` | Handles user registration, OTP generation (SMS/Email), OAuth (Google/Apple), and JWT issuance. |
+| `user-service`    | `3002` | Manages role-based profiles (Patient, Consultant, Pharmacist, Admin) and medical histories.    |
+| `payment-service` | `3007` | Handles Paystack payment initialization, verification, and webhooks.                           |
+| `wallet-service`  | `3008` | Manages user wallets, virtual accounts (Paystack DVA), and wallet transactions.                |
+| `docs-service`    | `3003` | Serves interactive Swagger UI and OpenAPI documentation.                                       |
 
 ### Shared Packages
 
@@ -83,7 +86,7 @@ All incoming traffic is managed by **Kong API Gateway**. Kong natively handles:
 
 - Docker & Docker Compose
 - Node.js (v20+)
-- npm or yarn
+- npm
 
 ### 1. Installation
 
@@ -125,7 +128,7 @@ npm run db:generate
 To spin up the entire suite—Kong Gateway, Redis, Postgres, Auth Service, and User Service—run:
 
 ```bash
-yarn dev
+npm run dev
 # or
 docker-compose up --build
 ```

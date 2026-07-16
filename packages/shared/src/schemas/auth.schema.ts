@@ -277,3 +277,68 @@ registry.registerPath({
     200: { description: 'Password reset successful' },
   },
 });
+
+export const VerifyEmailInputSchema = registry.register(
+  'VerifyEmailInput',
+  z.object({
+    email: z.string().email(),
+  })
+);
+
+export const VerifyPhoneInputSchema = registry.register(
+  'VerifyPhoneInput',
+  z.object({
+    phone: z.string(),
+  })
+);
+
+export const VerifyConfirmInputSchema = registry.register(
+  'VerifyConfirmInput',
+  z.object({
+    email: z.string().email().optional(),
+    phone: z.string().optional(),
+    otp: z.string().length(6),
+  })
+);
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/auth/verify-email',
+  summary: 'Send email verification OTP',
+  request: {
+    body: {
+      content: { 'application/json': { schema: VerifyEmailInputSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Verification OTP sent' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/auth/verify-phone',
+  summary: 'Send phone verification OTP',
+  request: {
+    body: {
+      content: { 'application/json': { schema: VerifyPhoneInputSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Verification OTP sent' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/auth/verify/confirm',
+  summary: 'Verify OTP and mark contact as verified',
+  request: {
+    body: {
+      content: { 'application/json': { schema: VerifyConfirmInputSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Contact verified successfully' },
+  },
+});

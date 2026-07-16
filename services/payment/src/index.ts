@@ -1,6 +1,11 @@
-import 'dd-trace/init';
+import ddTrace from 'dd-trace';
+
+ddTrace.init({
+  service: 'payment-service',
+  env: process.env.NODE_ENV || 'development',
+});
+
 import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
@@ -11,6 +16,8 @@ import {
   logger,
   initSentry,
   setupGracefulShutdown,
+  createCors,
+  checkDatabase,
 } from '@ricton/shared';
 import paymentRoutes from './routes/payment.routes';
 
@@ -19,11 +26,12 @@ dotenv.config({ path: '../../.env' });
 initSentry('payment-service');
 
 const app = express();
-const PORT = process.env.PORT_PAYMENT || 3004;
+const PORT = process.env.PORT_PAYMENT || 3007;
 
+app.set('trust proxy', true);
 app.use(helmet());
-app.use(cors());
-app.use(express.json());
+app.use(createCors());
+app.use(express.json({ limit: '1mb' }));
 app.use(httpLogger);
 
 /**
@@ -37,8 +45,15 @@ app.use(httpLogger);
  *       200:
  *         description: OK
  */
-app.get('/health', (_req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', service: 'payment-service' });
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    await checkDatabase(prisma);
+    res.status(200).json({ status: 'ok', service: 'payment-service' });
+  } catch (error) {
+    res
+      .status(503)
+      .json({ status: 'error', service: 'payment-service', message: 'Dependency check failed' });
+  }
 });
 
 app.use('/api/payments', paymentRoutes);
@@ -59,6 +74,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const server = app.listen(PORT, () => {
   logger.info(`Payment service listening on port ${PORT}`);
 });
+
+server.timeout = 30000;
 
 setupGracefulShutdown({
   app,

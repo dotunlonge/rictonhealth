@@ -1,9 +1,15 @@
-import 'dd-trace/init';
+import ddTrace from 'dd-trace';
+
+ddTrace.init({
+  service: 'auth-service',
+  env: process.env.NODE_ENV || 'development',
+});
+
 import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
+import { redis } from '@ricton/shared';
 import {
   errorResponse,
   AppError,
@@ -11,6 +17,7 @@ import {
   logger,
   initSentry,
   setupGracefulShutdown,
+  createCors,
 } from '@ricton/shared';
 import authRoutes from './routes/auth.routes';
 
@@ -21,14 +28,10 @@ initSentry('auth-service');
 const app = express();
 const PORT = process.env.PORT_AUTH || 3001;
 
+app.set('trust proxy', true);
 app.use(helmet());
-app.use(
-  cors({
-    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-    credentials: true,
-  })
-);
-app.use(express.json());
+app.use(createCors());
+app.use(express.json({ limit: '1mb' }));
 app.use(httpLogger);
 
 /**
@@ -42,8 +45,6 @@ app.use(httpLogger);
  *       200:
  *         description: OK
  */
-import { redis } from './config/redis';
-
 app.get('/health', async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -74,6 +75,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 const server = app.listen(PORT, () => {
   logger.info(`Auth service listening on port ${PORT}`);
 });
+
+server.timeout = 30000;
 
 setupGracefulShutdown({
   app,

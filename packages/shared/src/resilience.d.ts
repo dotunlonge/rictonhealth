@@ -1,10 +1,10 @@
 import { Application } from 'express';
 import { Server } from 'http';
 export interface ServerShutdownOptions {
-  app: Application;
-  server: Server;
-  serviceName: string;
-  onShutdown?: () => Promise<void>;
+    app?: Application;
+    server: Server;
+    serviceName: string;
+    onShutdown?: () => Promise<void>;
 }
 /**
  * Initializes Sentry if the DSN is provided.

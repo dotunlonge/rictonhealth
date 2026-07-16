@@ -713,30 +713,20 @@ Explicitly out of scope for backend:
 
 ### What I Deliver To Them
 
-1. **`@ricton/api-client` npm package** (via GitHub Packages)
-   - Full TypeScript types for every request/response
-   - Pre-configured axios instance with interceptors (auth header injection, token refresh)
-   - Error types that match the standardized error response
-   - Published after each sprint/milestone
+1. **`openapi.yaml`** file in the repo
+   - Machine-readable API contract (generated on build)
+   - They can generate mocks: `npx @stoplight/prism-cli mock openapi.yaml`
+   - They can generate their own clients in any language if they prefer
 
 2. **Swagger UI** at `https://api.ricton.health/docs` (or `localhost:8000/docs` locally)
    - Every endpoint testable in-browser
    - Request/response examples
    - Auth flow documented (paste JWT, test protected routes)
 
-3. **`openapi.yaml`** file in the repo
-   - They can generate mocks: `npx @stoplight/prism-cli mock openapi.yaml`
-   - They can generate their own clients in any language if they prefer
-
-4. **Postman collection** exported from OpenAPI
-   - Environment variables for local/staging/production
-   - Pre-configured auth
-
-5. **`INTEGRATION_GUIDE.md`**
+3. **`INTEGRATION_GUIDE.md`**
    - Auth flow walkthrough (register → OTP → login → use token → refresh)
    - Webhook handling (if they need to listen to payment events)
    - File upload guide (S3 presigned URLs)
-   - WebSocket guide (if we add real-time notifications)
    - Error code reference
 
 ### What I Need From Them

@@ -1,18 +1,20 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.REFRESH_SECRET = 'test-refresh-secret';
+process.env.OTP_SECRET = 'test-otp-secret';
 import request from 'supertest';
 import express from 'express';
 import authRoutes from '../src/routes/auth.routes';
 import { prisma, UserStatus } from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
+import { errorResponse, redis } from '@ricton/shared';
 import bcrypt from 'bcrypt';
-import { redis } from '../src/config/redis';
 import jwt from 'jsonwebtoken';
 
 // Mock Redis
 const redisStore: Record<string, string | Set<string>> = {};
-jest.mock('../src/config/redis', () => {
+jest.mock('@ricton/shared', () => {
+  const actual = jest.requireActual('@ricton/shared');
   return {
+    ...actual,
     redis: {
       ping: jest.fn().mockResolvedValue('PONG'),
       get: jest.fn().mockImplementation(async (key: string) => {
@@ -34,11 +36,6 @@ jest.mock('../src/config/redis', () => {
       sismember: jest.fn().mockImplementation(async (key: string, val: string) => {
         if (!redisStore[key]) return 0;
         return (redisStore[key] as Set<string>).has(val) ? 1 : 0;
-      }),
-      srem: jest.fn().mockImplementation(async (key: string, val: string) => {
-        if (!redisStore[key]) return 0;
-        const deleted = (redisStore[key] as Set<string>).delete(val);
-        return deleted ? 1 : 0;
       }),
       expire: jest.fn().mockResolvedValue(1),
       ttl: jest.fn().mockResolvedValue(600),

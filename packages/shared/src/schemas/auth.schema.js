@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AuthResponseSchema = exports.PasswordResetInputSchema = exports.RefreshTokenInputSchema = exports.OAuthInputSchema = exports.VerifyOtpInputSchema = exports.SendOtpInputSchema = exports.LoginInputSchema = exports.RegisterInputSchema = void 0;
+exports.VerifyConfirmInputSchema = exports.VerifyPhoneInputSchema = exports.VerifyEmailInputSchema = exports.AuthResponseSchema = exports.PasswordResetInputSchema = exports.RefreshTokenInputSchema = exports.OAuthInputSchema = exports.VerifyOtpInputSchema = exports.SendOtpInputSchema = exports.LoginInputSchema = exports.RegisterInputSchema = void 0;
 const zod_1 = require("./zod");
 const openapi_registry_1 = require("./openapi.registry");
 exports.RegisterInputSchema = openapi_registry_1.registry.register('RegisterInput', zod_1.z.object({
@@ -230,6 +230,56 @@ openapi_registry_1.registry.registerPath({
     },
     responses: {
         200: { description: 'Password reset successful' },
+    },
+});
+exports.VerifyEmailInputSchema = openapi_registry_1.registry.register('VerifyEmailInput', zod_1.z.object({
+    email: zod_1.z.string().email(),
+}));
+exports.VerifyPhoneInputSchema = openapi_registry_1.registry.register('VerifyPhoneInput', zod_1.z.object({
+    phone: zod_1.z.string(),
+}));
+exports.VerifyConfirmInputSchema = openapi_registry_1.registry.register('VerifyConfirmInput', zod_1.z.object({
+    email: zod_1.z.string().email().optional(),
+    phone: zod_1.z.string().optional(),
+    otp: zod_1.z.string().length(6),
+}));
+openapi_registry_1.registry.registerPath({
+    method: 'post',
+    path: '/api/auth/verify-email',
+    summary: 'Send email verification OTP',
+    request: {
+        body: {
+            content: { 'application/json': { schema: exports.VerifyEmailInputSchema } },
+        },
+    },
+    responses: {
+        200: { description: 'Verification OTP sent' },
+    },
+});
+openapi_registry_1.registry.registerPath({
+    method: 'post',
+    path: '/api/auth/verify-phone',
+    summary: 'Send phone verification OTP',
+    request: {
+        body: {
+            content: { 'application/json': { schema: exports.VerifyPhoneInputSchema } },
+        },
+    },
+    responses: {
+        200: { description: 'Verification OTP sent' },
+    },
+});
+openapi_registry_1.registry.registerPath({
+    method: 'post',
+    path: '/api/auth/verify/confirm',
+    summary: 'Verify OTP and mark contact as verified',
+    request: {
+        body: {
+            content: { 'application/json': { schema: exports.VerifyConfirmInputSchema } },
+        },
+    },
+    responses: {
+        200: { description: 'Contact verified successfully' },
     },
 });
 //# sourceMappingURL=auth.schema.js.map

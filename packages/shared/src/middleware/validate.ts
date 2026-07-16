@@ -27,3 +27,55 @@ export const validateRequest = (schema: AnyZodObject) => {
     }
   };
 };
+
+export const validateQuery = (schema: AnyZodObject) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      schema.parse(req.query);
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const details = error.errors.reduce(
+          (acc, curr) => {
+            const path = curr.path.join('.');
+            if (!acc[path]) {
+              acc[path] = [];
+            }
+            acc[path].push(curr.message);
+            return acc;
+          },
+          {} as Record<string, string[]>
+        );
+
+        return res.status(400).json(errorResponse('Validation error', 'VALIDATION_ERROR', details));
+      }
+      next(error);
+    }
+  };
+};
+
+export const validateParams = (schema: AnyZodObject) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    try {
+      schema.parse(req.params);
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const details = error.errors.reduce(
+          (acc, curr) => {
+            const path = curr.path.join('.');
+            if (!acc[path]) {
+              acc[path] = [];
+            }
+            acc[path].push(curr.message);
+            return acc;
+          },
+          {} as Record<string, string[]>
+        );
+
+        return res.status(400).json(errorResponse('Validation error', 'VALIDATION_ERROR', details));
+      }
+      next(error);
+    }
+  };
+};

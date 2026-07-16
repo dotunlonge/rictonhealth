@@ -8,12 +8,14 @@ import {
   UnauthorizedError,
   ValidationError,
   NotFoundError,
+  redis,
+  hashOtp,
+  verifyOtp,
 } from '@ricton/shared';
 import twilio from 'twilio';
 import sgMail from '@sendgrid/mail';
 import { OAuth2Client } from 'google-auth-library';
 import appleSigninAuth from 'apple-signin-auth';
-import { redis } from '../config/redis';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
@@ -152,6 +154,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
 
     const key = email || phone;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = hashOtp(otp);
 
     if (phone) {
       if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
@@ -180,7 +183,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     }
 
     // Store in Redis only after successful dispatch
-    await redis.set(`otp:${key}`, JSON.stringify({ otp, attempts: 0 }), 'EX', 600); // 10 minutes expiry
+    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 minutes expiry
 
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
   } catch (error) {
@@ -188,7 +191,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
   }
 };
 
-export const verifyOtp = async (req: Request, res: Response, next: NextFunction) => {
+export const verifyOtpCode = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, phone, otp } = req.body;
     if (!email && !phone) throw new ValidationError('Email or phone is required');
@@ -203,7 +206,7 @@ export const verifyOtp = async (req: Request, res: Response, next: NextFunction)
 
     const parsedData = JSON.parse(storedData);
 
-    if (parsedData.otp !== otp) {
+    if (!verifyOtp(parsedData.hash, otp)) {
       parsedData.attempts += 1;
       if (parsedData.attempts >= 3) {
         await redis.del(`otp:${key}`);
@@ -365,6 +368,9 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
+    // Rotate refresh token: remove old one before issuing new one
+    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) throw new NotFoundError('User not found');
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
@@ -420,6 +426,7 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
 
     const key = email || phone;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = hashOtp(otp);
 
     // Fire-and-forget user lookup
     const user = await prisma.user.findFirst({
@@ -444,7 +451,7 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
       }
 
       // Store in Redis only after dispatch
-      await redis.set(`reset:${key}`, JSON.stringify({ otp, attempts: 0 }), 'EX', 600); // 10 mins
+      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 mins
     }
 
     res
@@ -470,7 +477,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
 
     const parsedData = JSON.parse(storedData);
 
-    if (parsedData.otp !== otp) {
+    if (!verifyOtp(parsedData.hash, otp)) {
       parsedData.attempts += 1;
       if (parsedData.attempts >= 3) {
         await redis.del(`reset:${key}`);
@@ -499,6 +506,119 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     await redis.del(`reset:${key}`);
 
     res.status(200).json(successResponse({ message: 'Password reset successfully' }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+const sendVerificationOtp = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  channel: 'email' | 'phone'
+) => {
+  try {
+    const value = req.body[channel];
+    if (!value) throw new ValidationError(`${channel === 'email' ? 'Email' : 'Phone'} is required`);
+
+    const user = await prisma.user.findFirst({
+      where: { [channel]: value },
+    });
+
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = hashOtp(otp);
+
+    if (channel === 'phone') {
+      if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
+        throw new Error(
+          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER'
+        );
+      }
+      await twilioClient.messages.create({
+        body: `Your Ricton Health verification code is: ${otp}`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: value,
+      });
+    } else {
+      if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
+        throw new Error(
+          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL'
+        );
+      }
+      await sgMail.send({
+        to: value,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        subject: 'Ricton Health - Verification Code',
+        text: `Your Ricton Health verification code is: ${otp}`,
+        html: `<strong>Your Ricton Health verification code is: ${otp}</strong>`,
+      });
+    }
+
+    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+
+    res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verifyEmail = async (req: Request, res: Response, next: NextFunction) => {
+  return sendVerificationOtp(req, res, next, 'email');
+};
+
+export const verifyPhone = async (req: Request, res: Response, next: NextFunction) => {
+  return sendVerificationOtp(req, res, next, 'phone');
+};
+
+export const verifyContact = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, phone, otp } = req.body;
+    if (!email && !phone) throw new ValidationError('Email or phone is required');
+    if (!otp) throw new ValidationError('OTP is required');
+
+    const key = email || phone;
+    const storedData = await redis.get(`verify:${key}`);
+
+    if (!storedData) {
+      throw new UnauthorizedError('Invalid or expired verification code');
+    }
+
+    const parsedData = JSON.parse(storedData);
+
+    if (!verifyOtp(parsedData.hash, otp)) {
+      parsedData.attempts += 1;
+      if (parsedData.attempts >= 3) {
+        await redis.del(`verify:${key}`);
+        throw new UnauthorizedError('Too many failed attempts. Please request a new code.');
+      } else {
+        const ttl = await redis.ttl(`verify:${key}`);
+        if (ttl > 0) {
+          await redis.set(`verify:${key}`, JSON.stringify(parsedData), 'EX', ttl);
+        }
+        throw new UnauthorizedError('Invalid OTP');
+      }
+    }
+
+    const updateData: Record<string, boolean> = {};
+    if (email) updateData.emailVerified = true;
+    if (phone) updateData.phoneVerified = true;
+
+    const updateResult = await prisma.user.updateMany({
+      where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
+      data: updateData,
+    });
+
+    if (updateResult.count === 0) {
+      throw new NotFoundError('User not found');
+    }
+
+    await redis.del(`verify:${key}`);
+
+    res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
   } catch (error) {
     next(error);
   }

@@ -1,22 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UnauthorizedError, ForbiddenError } from '@ricton/shared';
+import { UnauthorizedError, ForbiddenError, redis } from '@ricton/shared';
 import { UserRole, UserStatus } from '@ricton/db';
-import Redis from 'ioredis';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   throw new Error('FATAL: JWT_SECRET environment variable is missing.');
 }
 
-// In a real microservices architecture, REDIS_URL might be injected.
-// Here we default to the standard docker-compose hostname/port.
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
-
 export interface JwtPayload {
   userId: string;
   role: UserRole;
   status: UserStatus;
+  iss: string;
   iat?: number;
   exp?: number;
 }
@@ -44,6 +40,10 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+
+    if (decoded.iss !== 'ricton-issuer') {
+      return next(new UnauthorizedError('Invalid issuer'));
+    }
 
     // 1. Check if token is explicitly blacklisted (e.g. from logout)
     const isBlacklisted = await redis.get(`blacklist:token:${token}`);

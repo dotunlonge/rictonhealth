@@ -8,30 +8,6 @@ consumers:
         algorithm: HS256
 
 plugins:
-  - name: cors
-    config:
-      origins:
-        - '*'
-      methods:
-        - GET
-        - POST
-        - PUT
-        - PATCH
-        - DELETE
-        - OPTIONS
-      headers:
-        - Accept
-        - Accept-Version
-        - Content-Length
-        - Content-MD5
-        - Content-Type
-        - Date
-        - Authorization
-      exposed_headers:
-        - X-Auth-Token
-      credentials: true
-      max_age: 3600
-
   - name: rate-limiting
     config:
       minute: 60
@@ -40,7 +16,7 @@ plugins:
       redis_port: 6379
 services:
   - name: auth-service
-    url: http://host.docker.internal:3001
+    url: http://auth-service:3001
     routes:
       - name: auth-routes
         paths:
@@ -48,7 +24,7 @@ services:
         strip_path: false
 
   - name: user-service
-    url: http://host.docker.internal:3002
+    url: http://user-service:3002
     plugins:
       - name: jwt
         config:
@@ -62,7 +38,7 @@ services:
         strip_path: false
 
   - name: docs-service
-    url: http://host.docker.internal:3003
+    url: http://docs-service:3003
     routes:
       - name: docs-routes
         paths:
@@ -70,7 +46,7 @@ services:
         strip_path: false
 
   - name: payment-service
-    url: http://host.docker.internal:3007
+    url: http://payment-service:3007
     routes:
       - name: payment-routes
         paths:
@@ -78,7 +54,7 @@ services:
         strip_path: false
 
   - name: wallet-service
-    url: http://host.docker.internal:3008
+    url: http://wallet-service:3008
     routes:
       - name: wallet-routes
         paths:
