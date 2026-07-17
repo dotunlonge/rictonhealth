@@ -16,6 +16,7 @@ import twilio from 'twilio';
 import sgMail from '@sendgrid/mail';
 import { OAuth2Client } from 'google-auth-library';
 import appleSigninAuth from 'apple-signin-auth';
+import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
@@ -40,7 +41,14 @@ const googleClient = process.env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
   : null;
 
-const generateTokens = async (user: { id: string; role: string; status: string }) => {
+const hashToken = (token: string): string => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const generateTokens = async (
+  user: { id: string; role: string; status: string },
+  req?: Request
+) => {
   const token = jwt.sign(
     { userId: user.id, role: user.role, status: user.status, iss: 'ricton-issuer' },
     JWT_SECRET,
@@ -48,16 +56,35 @@ const generateTokens = async (user: { id: string; role: string; status: string }
   );
   const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
 
+  const tokenHash = hashToken(refreshToken);
+
+  // Store token in Redis set
   const refreshKey = `refresh:${user.id}`;
   await redis.sadd(refreshKey, refreshToken);
   await redis.expire(refreshKey, 7 * 24 * 60 * 60); // 7 days
+
+  // Store session in DB for NDPA tracking
+  const deviceIp = req
+    ? (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress
+    : null;
+  const userAgent = req ? req.headers['user-agent'] : null;
+
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash,
+      deviceIp,
+      userAgent,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
 
   return { token, refreshToken };
 };
 
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, phone, password, role, firstName, lastName } = req.body;
+    const { email, phone, password, role, firstName, lastName, consentVersion } = req.body;
 
     if (!email && !phone) {
       throw new ValidationError('Email or phone is required');
@@ -84,6 +111,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
           passwordHash,
           role,
           status: UserStatus.PENDING,
+          consentVersion: consentVersion || null,
+          consentAt: consentVersion ? new Date() : null,
         },
       });
 
@@ -127,7 +156,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       throw new UnauthorizedError('Account is disabled');
     }
 
-    const { token, refreshToken } = await generateTokens(user);
+    const { token, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -230,7 +259,7 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     // Delete OTP only after DB lookup succeeds
     await redis.del(`otp:${key}`);
 
-    const { token, refreshToken } = await generateTokens(user);
+    const { token, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -281,7 +310,7 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    const { token: jwtToken, refreshToken } = await generateTokens(user);
+    const { token: jwtToken, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -336,7 +365,7 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
       });
     }
 
-    const { token: jwtToken, refreshToken } = await generateTokens(user);
+    const { token: jwtToken, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -368,6 +397,21 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
+    const tokenHash = hashToken(refreshToken);
+    const dbToken = await prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!dbToken || !dbToken.isActive) {
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
+
+    // Mark old db token as inactive
+    await prisma.refreshToken.update({
+      where: { tokenHash },
+      data: { isActive: false },
+    });
+
     // Rotate refresh token: remove old one before issuing new one
     await redis.srem(`refresh:${decoded.userId}`, refreshToken);
 
@@ -377,7 +421,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Account is disabled');
     }
 
-    const tokens = await generateTokens(user);
+    const tokens = await generateTokens(user, req);
 
     res.status(200).json(successResponse(tokens));
   } catch (error) {
@@ -399,6 +443,12 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
     await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+
+    const tokenHash = hashToken(refreshToken);
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash },
+      data: { isActive: false },
+    });
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {

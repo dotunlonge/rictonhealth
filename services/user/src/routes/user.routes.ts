@@ -73,4 +73,38 @@ router.put(
 router.get('/providers', userController.getProviders);
 router.get('/providers/:id', userController.getProviderById);
 
+/**
+ * @openapi
+ * /api/users/dashboard/hospital:
+ *   get:
+ *     summary: Get dashboard statistics for Hospital Admin portal
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Hospital Admin dashboard analytics
+ *       403:
+ *         description: Forbidden
+ */
+router.get('/dashboard/hospital', userController.getHospitalDashboard);
+
+/**
+ * @openapi
+ * /api/users/dashboard/provider:
+ *   get:
+ *     summary: Get dashboard analytics and schedule for Consultant/Doctor portal
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Provider dashboard analytics and schedule queue
+ *       403:
+ *         description: Forbidden
+ */
+router.get('/dashboard/provider', userController.getProviderDashboard);
+
 export default router;

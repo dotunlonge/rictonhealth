@@ -24,6 +24,7 @@ components:
         password:
           type: string
           minLength: 8
+          pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$
         role:
           type: string
           enum:
@@ -35,6 +36,8 @@ components:
         firstName:
           type: string
         lastName:
+          type: string
+        consentVersion:
           type: string
       required:
         - password
@@ -51,6 +54,66 @@ components:
           type: string
       required:
         - password
+    SendOtpInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+    VerifyOtpInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otp
+    OAuthInput:
+      type: object
+      properties:
+        token:
+          type: string
+        role:
+          type: string
+          enum:
+            - PATIENT
+            - CONSULTANT
+      required:
+        - token
+    RefreshTokenInput:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+    PasswordResetInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+        newPassword:
+          type: string
+          minLength: 8
+          pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$
+      required:
+        - otp
+        - newPassword
     AuthResponse:
       type: object
       properties:
@@ -60,6 +123,8 @@ components:
           type: object
           properties:
             token:
+              type: string
+            refreshToken:
               type: string
             user:
               type: object
@@ -89,6 +154,35 @@ components:
       required:
         - success
         - data
+    VerifyEmailInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+        - email
+    VerifyPhoneInput:
+      type: object
+      properties:
+        phone:
+          type: string
+      required:
+        - phone
+    VerifyConfirmInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otp
     UserProfile:
       type: object
       properties:
@@ -125,7 +219,40 @@ components:
               type: string
               nullable: true
             allergies:
+              type: array
               nullable: true
+              items:
+                type: string
+            medicalHistory:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  condition:
+                    type: string
+                    minLength: 1
+                  diagnosedAt:
+                    type: string
+                    pattern: ^\d{4}-\d{2}-\d{2}$
+                  notes:
+                    type: string
+                required:
+                  - condition
+            emergencyContact:
+              type: object
+              nullable: true
+              properties:
+                name:
+                  type: string
+                relationship:
+                  type: string
+                phone:
+                  type: string
+              required:
+                - name
+                - relationship
+                - phone
           required:
             - firstName
             - lastName
@@ -165,7 +292,152 @@ components:
         success:
           type: boolean
         data:
-          $ref: '#/components/schemas/UserProfile'
+          $ref: "#/components/schemas/UserProfile"
+      required:
+        - success
+        - data
+    UpdateProfileInput:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+        gender:
+          type: string
+        bloodType:
+          type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        specialty:
+          type: string
+        consultationFee:
+          type: number
+        title:
+          type: string
+        pharmacyName:
+          type: string
+    AvatarUploadInput:
+      type: object
+      properties:
+        fileType:
+          type: string
+          minLength: 1
+      required:
+        - fileType
+    MedicalHistoryInput:
+      type: object
+      properties:
+        medicalHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              condition:
+                type: string
+                minLength: 1
+              diagnosedAt:
+                type: string
+                pattern: ^\d{4}-\d{2}-\d{2}$
+              notes:
+                type: string
+            required:
+              - condition
+      required:
+        - medicalHistory
+    HospitalDashboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            hospital:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                phone:
+                  type: string
+                  nullable: true
+                email:
+                  type: string
+                  nullable: true
+                logoUrl:
+                  type: string
+                  nullable: true
+                isActive:
+                  type: boolean
+                createdAt:
+                  type: string
+              required:
+                - id
+                - name
+                - phone
+                - email
+                - logoUrl
+                - isActive
+                - createdAt
+            stats:
+              type: object
+              properties:
+                totalDoctors:
+                  type: number
+                totalAppointments:
+                  type: number
+                activePatients:
+                  type: number
+              required:
+                - totalDoctors
+                - totalAppointments
+                - activePatients
+          required:
+            - hospital
+            - stats
+      required:
+        - success
+        - data
+    ProviderDashboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            stats:
+              type: object
+              properties:
+                totalAppointments:
+                  type: number
+                pendingAppointments:
+                  type: number
+                completedAppointments:
+                  type: number
+                totalEarnings:
+                  anyOf:
+                    - type: number
+                    - type: string
+              required:
+                - totalAppointments
+                - pendingAppointments
+                - completedAppointments
+                - totalEarnings
+            upcomingAppointments:
+              type: array
+              items:
+                nullable: true
+          required:
+            - stats
+            - upcomingAppointments
       required:
         - success
         - data
@@ -178,11 +450,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterInput'
+              $ref: "#/components/schemas/RegisterInput"
       responses:
-        '201':
+        "201":
           description: User registered successfully
-        '400':
+        "400":
           description: Validation Error
   /api/auth/login:
     post:
@@ -191,27 +463,196 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginInput'
+              $ref: "#/components/schemas/LoginInput"
       responses:
-        '200':
+        "200":
           description: User logged in successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
           description: Unauthorized
+  /api/auth/otp/send:
+    post:
+      summary: Send OTP to email/phone
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOtpInput"
+      responses:
+        "200":
+          description: OTP Sent
+  /api/auth/otp/verify:
+    post:
+      summary: Verify OTP and get JWT
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpInput"
+      responses:
+        "200":
+          description: OTP Verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/oauth/google:
+    post:
+      summary: Login/Register via Google
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthInput"
+      responses:
+        "200":
+          description: Google Login Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/oauth/apple:
+    post:
+      summary: Login/Register via Apple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthInput"
+      responses:
+        "200":
+          description: Apple Login Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/refresh:
+    post:
+      summary: Refresh access token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenInput"
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/logout:
+    post:
+      summary: Logout and invalidate refresh token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenInput"
+      responses:
+        "200":
+          description: Logged out successfully
+  /api/auth/password/forgot:
+    post:
+      summary: Send password reset OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOtpInput"
+      responses:
+        "200":
+          description: OTP Sent
+  /api/auth/password/reset:
+    post:
+      summary: Verify OTP and reset password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetInput"
+      responses:
+        "200":
+          description: Password reset successful
+  /api/auth/verify-email:
+    post:
+      summary: Send email verification OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailInput"
+      responses:
+        "200":
+          description: Verification OTP sent
+  /api/auth/verify-phone:
+    post:
+      summary: Send phone verification OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPhoneInput"
+      responses:
+        "200":
+          description: Verification OTP sent
+  /api/auth/verify/confirm:
+    post:
+      summary: Verify OTP and mark contact as verified
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyConfirmInput"
+      responses:
+        "200":
+          description: Contact verified successfully
   /api/users/me:
     get:
       summary: Get current user profile
       security:
         - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: User profile retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetUserResponse'
-        '401':
+                $ref: "#/components/schemas/GetUserResponse"
+        "401":
           description: Unauthorized
+  /api/users/dashboard/hospital:
+    get:
+      summary: Get dashboard statistics for Hospital Admin portal
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Hospital Admin dashboard analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HospitalDashboardResponse"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /api/users/dashboard/provider:
+    get:
+      summary: Get dashboard analytics and schedule for Consultant/Doctor portal
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Provider dashboard analytics and schedule queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderDashboardResponse"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden

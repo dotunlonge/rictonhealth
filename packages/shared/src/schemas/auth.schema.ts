@@ -16,6 +16,7 @@ export const RegisterInputSchema = registry.register(
     role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    consentVersion: z.string().optional(),
   })
 );
 

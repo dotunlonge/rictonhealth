@@ -37,6 +37,8 @@ model User {
   phoneVerified    Boolean     @default(false)
   oauthProvider    String?
   oauthId          String?
+  consentVersion   String?
+  consentAt        DateTime?   @db.Timestamptz(6)
   createdAt        DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime    @updatedAt @db.Timestamptz(6)
 
@@ -64,8 +66,24 @@ model User {
   rewardPoints            RewardPoint[]
   subscriptions           Subscription[]
   providerAvailabilities  ProviderAvailability[]
+  refreshTokens           RefreshToken[]
 
   @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  deviceIp  String?
+  deviceOs  String?
+  userAgent String?
+  isActive  Boolean  @default(true)
+  expiresAt DateTime @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("refresh_tokens")
 }
 
 model PatientProfile {
