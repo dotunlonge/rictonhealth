@@ -704,6 +704,75 @@ components:
       required:
         - success
         - data
+    TelemedicineRoom:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          nullable: true
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        roomType:
+          type: string
+          enum:
+            - ONE_ON_ONE
+            - MDT
+        externalRoomId:
+          type: string
+        externalRoomUrl:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - CREATED
+            - ACTIVE
+            - ENDED
+        startedAt:
+          type: string
+          nullable: true
+        endedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - appointmentId
+        - providerId
+        - roomType
+        - externalRoomId
+        - externalRoomUrl
+        - status
+        - startedAt
+        - endedAt
+        - createdAt
+        - updatedAt
+    GetTokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            room:
+              $ref: "#/components/schemas/TelemedicineRoom"
+          required:
+            - token
+            - room
+      required:
+        - success
+        - data
   parameters: {}
 paths:
   /api/auth/register:
@@ -1089,3 +1158,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetPrescriptionResponse"
+  /api/telemedicine/rooms:
+    post:
+      summary: Initialize a telemedicine video room
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appointmentId:
+                  type: string
+                  format: uuid
+                roomType:
+                  type: string
+                  enum:
+                    - ONE_ON_ONE
+                    - MDT
+      responses:
+        "201":
+          description: Telemedicine room created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemedicineRoom"
+  "/api/telemedicine/rooms/{id}/token":
+    post:
+      summary: Retrieve Twilio Video participant join token
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Join token issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetTokenResponse"
+  "/api/telemedicine/rooms/{id}/end":
+    post:
+      summary: End telemedicine consultation room sessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Room session ended successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemedicineRoom"
