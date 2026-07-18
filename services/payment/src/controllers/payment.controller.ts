@@ -40,10 +40,10 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     }
 
     const userPayload = req.user as JwtPayload;
-    const { amount, email, type } = req.body;
+    const { amount, email, type, referenceId } = req.body;
 
-    if (!amount || !email || !type) {
-      throw new ValidationError('Amount, email, and type are required');
+    if (!email || !type) {
+      throw new ValidationError('Email and type are required');
     }
 
     if (!Object.values(PaymentType).includes(type)) {
@@ -52,8 +52,39 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       );
     }
 
+    let resolvedAmount: number;
+
+    if (type === PaymentType.APPOINTMENT) {
+      if (!referenceId)
+        throw new ValidationError('referenceId is required for APPOINTMENT payments');
+      const appt = await prisma.appointment.findUnique({
+        where: { id: referenceId },
+        include: { provider: { include: { providerProfile: true } } },
+      });
+      if (!appt) throw new NotFoundError('Appointment not found');
+      if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
+        throw new ValidationError('Doctor consultation fee is not configured');
+      }
+      resolvedAmount = Number(appt.provider.providerProfile.consultationFee);
+    } else if (type === PaymentType.PHARMACY_ORDER) {
+      if (!referenceId)
+        throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
+      const order = await prisma.pharmacyOrder.findUnique({
+        where: { id: referenceId },
+      });
+      if (!order) throw new NotFoundError('Pharmacy order not found');
+      resolvedAmount = Number(order.totalAmount);
+    } else if (type === PaymentType.SUBSCRIPTION) {
+      resolvedAmount = 19.99;
+    } else if (type === PaymentType.WALLET_TOPUP) {
+      if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
+      resolvedAmount = Number(amount);
+    } else {
+      resolvedAmount = Number(amount);
+    }
+
     // Paystack expects amount in kobo
-    const amountInKobo = Math.round(Number(amount) * 100);
+    const amountInKobo = Math.round(resolvedAmount * 100);
 
     const paystackRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
@@ -94,7 +125,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     const payment = await prisma.payment.create({
       data: {
         userId: userPayload.userId,
-        amount: amount, // Stored in NGN
+        amount: resolvedAmount, // Stored in NGN (recalculated server-side)
         currency: 'NGN',
         type: type as PaymentType,
         status: PaymentStatus.PENDING,

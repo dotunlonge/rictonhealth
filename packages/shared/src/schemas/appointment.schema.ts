@@ -92,7 +92,7 @@ registry.registerPath({
     },
   },
   responses: {
-    210: {
+    201: {
       description: 'Appointment created successfully',
       content: { 'application/json': { schema: GetAppointmentResponseSchema } },
     },

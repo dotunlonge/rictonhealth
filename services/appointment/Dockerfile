@@ -41,4 +41,4 @@ COPY --from=builder /app/services/appointment ./services/appointment
 
 EXPOSE 3003
 
-CMD ["node", "services/appointment/dist/src/index.js"]
+CMD ["node", "services/appointment/dist/index.js"]

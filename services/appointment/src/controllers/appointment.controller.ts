@@ -147,7 +147,7 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       const scheduleTimeStr = `${String(apptDate.getUTCHours()).padStart(2, '0')}:${String(apptDate.getUTCMinutes()).padStart(2, '0')}:00`;
       const scheduleTimeMin = timeToMinutes(scheduleTimeStr);
 
-      const standardAvailability = await tx.providerAvailability.findFirst({
+      const availabilities = await tx.providerAvailability.findMany({
         where: {
           providerId,
           dayOfWeek,
@@ -155,13 +155,17 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         },
       });
 
-      if (!standardAvailability) {
+      if (availabilities.length === 0) {
         throw new ValidationError('Doctor is not available on this day of week');
       }
 
-      const openMin = timeToMinutes(standardAvailability.startTime);
-      const closeMin = timeToMinutes(standardAvailability.endTime);
-      if (scheduleTimeMin < openMin || scheduleTimeMin + durationMinutes > closeMin) {
+      const isWithinWorkingHours = availabilities.some((av) => {
+        const openMin = timeToMinutes(av.startTime);
+        const closeMin = timeToMinutes(av.endTime);
+        return scheduleTimeMin >= openMin && scheduleTimeMin + durationMinutes <= closeMin;
+      });
+
+      if (!isWithinWorkingHours) {
         throw new ValidationError('Requested time slot falls outside Doctor working hours');
       }
 

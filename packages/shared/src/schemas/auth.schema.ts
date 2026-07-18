@@ -3,21 +3,26 @@ import { registry } from './openapi.registry';
 
 export const RegisterInputSchema = registry.register(
   'RegisterInput',
-  z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    password: z
-      .string()
-      .min(8)
-      .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-        'Password must contain at least one uppercase letter, one lowercase letter, one number and one special character'
-      ),
-    role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    consentVersion: z.string().optional(),
-  })
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      password: z
+        .string()
+        .min(8)
+        .regex(
+          /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+          'Password must contain at least one uppercase letter, one lowercase letter, one number and one special character'
+        ),
+      role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      consentVersion: z.string().min(1, 'consentVersion is required'),
+    })
+    .refine((data) => data.email || data.phone, {
+      message: 'Either email or phone is required',
+      path: ['email'],
+    })
 );
 
 export const LoginInputSchema = registry.register(

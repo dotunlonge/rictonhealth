@@ -49,16 +49,32 @@ export const getHospitalDashboard = async (req: Request, res: Response, next: Ne
       throw new ForbiddenError('Only hospital admins can access the hospital dashboard');
     }
 
-    // Find the first hospital or create a default one for dashboard analytics mapping
-    let hospital = await prisma.hospital.findFirst();
+    // Resolve specific tenant hospital linked to the admin user
+    const adminUser = await prisma.user.findUnique({
+      where: { id: userPayload.userId },
+      include: { hospital: true },
+    });
+
+    let hospital = adminUser?.hospital;
+
     if (!hospital) {
-      hospital = await prisma.hospital.create({
-        data: {
-          name: 'Ricton General Hospital',
-          phone: '07012345678',
-          email: 'admin@ricton.health',
-          logoUrl: 'https://ricton.health/logo.png',
-        },
+      // Find fallback or create a default one for sandbox/onboarding mapping
+      hospital = await prisma.hospital.findFirst();
+      if (!hospital) {
+        hospital = await prisma.hospital.create({
+          data: {
+            name: 'Ricton General Hospital',
+            phone: '07012345678',
+            email: 'admin@ricton.health',
+            logoUrl: 'https://ricton.health/logo.png',
+          },
+        });
+      }
+
+      // Persist association to prevent unlinked reads on next calls
+      await prisma.user.update({
+        where: { id: userPayload.userId },
+        data: { hospitalId: hospital.id },
       });
     }
 
@@ -71,7 +87,7 @@ export const getHospitalDashboard = async (req: Request, res: Response, next: Ne
     });
 
     const activePatientsCount = await prisma.user.count({
-      where: { role: UserRole.PATIENT, status: UserStatus.ACTIVE },
+      where: { role: UserRole.PATIENT, status: UserStatus.ACTIVE, hospitalId: hospital.id },
     });
 
     res.status(200).json(
@@ -116,7 +132,7 @@ export const getProviderDashboard = async (req: Request, res: Response, next: Ne
     });
 
     const upcomingAppointments = await prisma.appointment.findMany({
-      where: { providerId: userId },
+      where: { providerId: userId, scheduledAt: { gte: new Date() } },
       take: 5,
       orderBy: { scheduledAt: 'asc' },
       include: {

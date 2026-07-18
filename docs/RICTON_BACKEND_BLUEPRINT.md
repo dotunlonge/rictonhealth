@@ -127,10 +127,22 @@ model ChatMessage {
   fileUrl    String?    // S3 URL for attachments e.g. Juwon.pdf
   fileName   String?
   fileSize   Int?       // In bytes
-  isRead     Boolean    @default(false)
   createdAt  DateTime   @default(now()) @db.Timestamptz(6)
+  receipts   ChatMessageReceipt[]
 
   @@map("chat_messages")
+}
+
+model ChatMessageReceipt {
+  id        String      @id @default(uuid()) @db.Uuid
+  messageId String      @db.Uuid
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String      @db.Uuid
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@unique([messageId, userId])
+  @@map("chat_message_receipts")
 }
 ```
 

@@ -54,7 +54,9 @@ const generateTokens = async (
     JWT_SECRET,
     { expiresIn: '15m' }
   );
-  const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
+  const refreshToken = jwt.sign({ userId: user.id, jti: crypto.randomUUID() }, REFRESH_SECRET, {
+    expiresIn: '7d',
+  });
 
   const tokenHash = hashToken(refreshToken);
 
@@ -88,6 +90,10 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     if (!email && !phone) {
       throw new ValidationError('Email or phone is required');
+    }
+
+    if (!consentVersion) {
+      throw new ValidationError('consentVersion is required for NDPA compliance registration');
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -406,15 +412,6 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    // Mark old db token as inactive
-    await prisma.refreshToken.update({
-      where: { tokenHash },
-      data: { isActive: false },
-    });
-
-    // Rotate refresh token: remove old one before issuing new one
-    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
-
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) throw new NotFoundError('User not found');
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
@@ -422,6 +419,15 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     const tokens = await generateTokens(user, req);
+
+    // Mark old db token as inactive only after replacement is persisted
+    await prisma.refreshToken.update({
+      where: { tokenHash },
+      data: { isActive: false },
+    });
+
+    // Rotate refresh token: remove old one only after new one is issued
+    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
 
     res.status(200).json(successResponse(tokens));
   } catch (error) {

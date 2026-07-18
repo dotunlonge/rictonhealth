@@ -39,9 +39,11 @@ components:
           type: string
         consentVersion:
           type: string
+          minLength: 1
       required:
         - password
         - role
+        - consentVersion
     LoginInput:
       type: object
       properties:
@@ -953,7 +955,7 @@ paths:
             schema:
               $ref: "#/components/schemas/BookAppointmentInput"
       responses:
-        "210":
+        "201":
           description: Appointment created successfully
           content:
             application/json:
@@ -1008,7 +1010,7 @@ paths:
             schema:
               $ref: "#/components/schemas/CreatePrescriptionInput"
       responses:
-        "210":
+        "201":
           description: Prescription drafted successfully
           content:
             application/json:

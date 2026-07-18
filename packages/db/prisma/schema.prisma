@@ -39,6 +39,8 @@ model User {
   oauthId          String?
   consentVersion   String?
   consentAt        DateTime?   @db.Timestamptz(6)
+  hospitalId       String?     @db.Uuid
+  hospital         Hospital?   @relation("UserHospital", fields: [hospitalId], references: [id])
   createdAt        DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime    @updatedAt @db.Timestamptz(6)
 
@@ -154,6 +156,7 @@ model Hospital {
 
   providers        ProviderProfile[]
   appointments     Appointment[]
+  users            User[]           @relation("UserHospital")
 
   @@map("hospitals")
 }

@@ -41,4 +41,4 @@ COPY --from=builder /app/services/prescription ./services/prescription
 
 EXPOSE 3004
 
-CMD ["node", "services/prescription/dist/src/index.js"]
+CMD ["node", "services/prescription/dist/index.js"]

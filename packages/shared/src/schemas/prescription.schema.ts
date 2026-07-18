@@ -86,7 +86,7 @@ registry.registerPath({
     },
   },
   responses: {
-    210: {
+    201: {
       description: 'Prescription drafted successfully',
       content: { 'application/json': { schema: GetPrescriptionResponseSchema } },
     },
