@@ -441,6 +441,267 @@ components:
       required:
         - success
         - data
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        hospitalId:
+          type: string
+          nullable: true
+          format: uuid
+        scheduledAt:
+          type: string
+        durationMinutes:
+          type: number
+        type:
+          type: string
+          enum:
+            - IN_PERSON
+            - VIDEO
+        status:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        cancellationReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - patientId
+        - providerId
+        - hospitalId
+        - scheduledAt
+        - durationMinutes
+        - type
+        - status
+        - notes
+        - cancellationReason
+        - createdAt
+        - updatedAt
+    GetSlotsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: string
+      required:
+        - success
+        - data
+    BookAppointmentInput:
+      type: object
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        hospitalId:
+          type: string
+          format: uuid
+        scheduledAt:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum:
+            - IN_PERSON
+            - VIDEO
+        notes:
+          type: string
+      required:
+        - providerId
+        - scheduledAt
+    GetAppointmentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Appointment"
+      required:
+        - success
+        - data
+    ListAppointmentsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Appointment"
+      required:
+        - success
+        - data
+    PrescriptionItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        prescriptionId:
+          type: string
+          format: uuid
+        drugName:
+          type: string
+        dosage:
+          type: string
+        quantity:
+          type: number
+        frequency:
+          type: string
+        duration:
+          type: string
+        instructions:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - prescriptionId
+        - drugName
+        - dosage
+        - quantity
+        - frequency
+        - duration
+        - instructions
+        - createdAt
+    Prescription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          nullable: true
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        pharmacyId:
+          type: string
+          nullable: true
+          format: uuid
+        status:
+          type: string
+        signedAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrescriptionItem"
+      required:
+        - id
+        - appointmentId
+        - patientId
+        - providerId
+        - pharmacyId
+        - status
+        - signedAt
+        - notes
+        - createdAt
+        - updatedAt
+    CreatePrescriptionInput:
+      type: object
+      properties:
+        patientId:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          format: uuid
+        notes:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              drugName:
+                type: string
+                minLength: 1
+              dosage:
+                type: string
+                minLength: 1
+              quantity:
+                type: integer
+                minimum: 0
+                exclusiveMinimum: true
+              frequency:
+                type: string
+                minLength: 1
+              duration:
+                type: string
+                minLength: 1
+              instructions:
+                type: string
+            required:
+              - drugName
+              - dosage
+              - quantity
+              - frequency
+              - duration
+      required:
+        - patientId
+        - items
+    SignPrescriptionInput:
+      type: object
+      properties:
+        otpCode:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otpCode
+    GetPrescriptionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Prescription"
+      required:
+        - success
+        - data
+    ListPrescriptionsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prescription"
+      required:
+        - success
+        - data
   parameters: {}
 paths:
   /api/auth/register:
@@ -656,3 +917,173 @@ paths:
           description: Unauthorized
         "403":
           description: Forbidden
+  /api/appointments/slots:
+    get:
+      summary: Retrieve available schedule slots for a provider
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: providerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Slots list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetSlotsResponse"
+  /api/appointments:
+    post:
+      summary: Book a new medical appointment
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookAppointmentInput"
+      responses:
+        "210":
+          description: Appointment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAppointmentResponse"
+    get:
+      summary: List authenticated patient/provider appointments
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAppointmentsResponse"
+  "/api/appointments/{id}/cancel":
+    patch:
+      summary: Cancel a booked appointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Appointment cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAppointmentResponse"
+  /api/prescriptions:
+    post:
+      summary: Create a new prescription in DRAFT status
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePrescriptionInput"
+      responses:
+        "210":
+          description: Prescription drafted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+    get:
+      summary: List patient/provider/pharmacist accessible prescriptions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPrescriptionsResponse"
+  "/api/prescriptions/{id}":
+    get:
+      summary: Get full prescription details including line items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+  "/api/prescriptions/{id}/sign":
+    post:
+      summary: Digitally sign a DRAFT prescription with clinical license check and OTP
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignPrescriptionInput"
+      responses:
+        "200":
+          description: Prescription signed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+  "/api/prescriptions/{id}/dispense":
+    patch:
+      summary: Mark a prescription as dispensed by a pharmacist
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Prescription marked as dispensed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"

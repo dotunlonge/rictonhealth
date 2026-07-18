@@ -10,4 +10,6 @@ export * from './rate-limit';
 export * from './schemas/openapi.registry';
 export * from './schemas/auth.schema';
 export * from './schemas/user.schema';
+export * from './schemas/appointment.schema';
+export * from './schemas/prescription.schema';
 export * from './middleware/validate';
