@@ -119,16 +119,25 @@ export const signPrescription = async (req: Request, res: Response, next: NextFu
       throw new ValidationError('Only DRAFT prescriptions can be signed');
     }
 
-    // Verify OTP code in Redis
+    // Verify and atomically delete OTP code in Redis to prevent reuse under concurrency
     const key = provider.user.email || provider.user.phone || '';
-    const storedData = await redis.get(`otp:${key}`);
+    const redisKey = `otp:${key}`;
+
+    const pipeline = redis.pipeline();
+    pipeline.get(redisKey);
+    pipeline.del(redisKey);
+    const pipelineResults = await pipeline.exec();
+
+    const storedData =
+      pipelineResults && pipelineResults[0] && pipelineResults[0][1]
+        ? String(pipelineResults[0][1])
+        : null;
 
     if (storedData) {
       const parsedData = JSON.parse(storedData);
       if (!verifyOtp(parsedData.hash, otpCode)) {
         throw new UnauthorizedError('Invalid signature verification OTP');
       }
-      await redis.del(`otp:${key}`);
     } else {
       // In development sandbox / local, allow fallback signature if not found in Redis, but standard checks run first
       if (process.env.NODE_ENV === 'production') {

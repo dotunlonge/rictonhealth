@@ -152,6 +152,12 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       throw new ValidationError('scheduledAt must be a future date/time');
     }
 
+    if (apptDate.getUTCSeconds() !== 0 || apptDate.getUTCMilliseconds() !== 0) {
+      throw new ValidationError(
+        'scheduledAt must align to the minute with no seconds or milliseconds'
+      );
+    }
+
     // Concurrency lock and validation inside transaction
     const appointment = await prisma.$transaction(async (tx) => {
       // Lock the doctor's user record to serialize slot allocation
