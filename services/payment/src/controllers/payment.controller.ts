@@ -6,6 +6,7 @@ import {
   NotFoundError,
   ValidationError,
   UnauthorizedError,
+  ForbiddenError,
   AppError,
 } from '@ricton/shared';
 import crypto from 'crypto';
@@ -62,6 +63,9 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         include: { provider: { include: { providerProfile: true } } },
       });
       if (!appt) throw new NotFoundError('Appointment not found');
+      if (appt.patientId !== userPayload.userId) {
+        throw new ForbiddenError('You are not authorized to pay for this appointment');
+      }
       if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
         throw new ValidationError('Doctor consultation fee is not configured');
       }
@@ -73,6 +77,9 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         where: { id: referenceId },
       });
       if (!order) throw new NotFoundError('Pharmacy order not found');
+      if (order.patientId !== userPayload.userId) {
+        throw new ForbiddenError('You are not authorized to pay for this pharmacy order');
+      }
       resolvedAmount = Number(order.totalAmount);
     } else if (type === PaymentType.SUBSCRIPTION) {
       resolvedAmount = 19.99;

@@ -93,6 +93,7 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
       const startMin = timeToMinutes(av.startTime);
       const endMin = timeToMinutes(av.endTime);
       const duration = av.slotDurationMinutes;
+      if (duration <= 0) continue;
 
       for (let current = startMin; current + duration <= endMin; current += duration) {
         // Overlap verification helper
@@ -140,6 +141,11 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
 
     // Concurrency lock and validation inside transaction
     const appointment = await prisma.$transaction(async (tx) => {
+      // Lock the doctor's user record to serialize slot allocation
+      await tx.$executeRawUnsafe(
+        `SELECT id FROM users WHERE id = '${providerId}'::uuid FOR UPDATE`
+      );
+
       // 1. Verify availability slot
       let dayOfWeek = apptDate.getUTCDay() - 1;
       if (dayOfWeek === -1) dayOfWeek = 6;
@@ -159,21 +165,40 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         throw new ValidationError('Doctor is not available on this day of week');
       }
 
-      const isWithinWorkingHours = availabilities.some((av) => {
+      // Find the specific availability window that covers the requested slot start
+      const matchedAv = availabilities.find((av) => {
         const openMin = timeToMinutes(av.startTime);
         const closeMin = timeToMinutes(av.endTime);
-        return scheduleTimeMin >= openMin && scheduleTimeMin + durationMinutes <= closeMin;
+        return scheduleTimeMin >= openMin && scheduleTimeMin < closeMin;
       });
 
-      if (!isWithinWorkingHours) {
+      if (!matchedAv) {
         throw new ValidationError('Requested time slot falls outside Doctor working hours');
       }
 
-      // 2. Check for slot overlaps (double-booking safety)
-      const endRange = new Date(apptDate);
-      endRange.setUTCMinutes(endRange.getUTCMinutes() + durationMinutes);
+      // Enforce the matched availability's configured slotDurationMinutes to drive the appointment duration
+      const finalDuration = durationMinutes || matchedAv.slotDurationMinutes;
+      if (finalDuration !== matchedAv.slotDurationMinutes) {
+        throw new ValidationError(
+          `Requested duration (${finalDuration}m) does not match the doctor's configured slot duration (${matchedAv.slotDurationMinutes}m)`
+        );
+      }
 
-      const conflicts = await tx.appointment.findFirst({
+      // Ensure the start time aligns exactly on the slot grid intervals
+      const openMin = timeToMinutes(matchedAv.startTime);
+      if ((scheduleTimeMin - openMin) % matchedAv.slotDurationMinutes !== 0) {
+        throw new ValidationError(
+          "Requested start time does not align with the doctor's scheduled slot intervals"
+        );
+      }
+
+      // 2. Check for slot overlaps (double-booking safety)
+      const startOfDay = new Date(apptDate);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const endOfDay = new Date(apptDate);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+
+      const activeAppointments = await tx.appointment.findMany({
         where: {
           providerId,
           status: {
@@ -184,20 +209,20 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
             ],
           },
           scheduledAt: {
-            lt: endRange,
+            gte: startOfDay,
+            lte: endOfDay,
           },
-          // Make sure to match overlapping intervals
         },
       });
 
-      // Filter overlapping slots in memory for complete accuracy
-      if (conflicts) {
-        const conflictStart = conflicts.scheduledAt.getTime();
-        const conflictEnd = conflictStart + conflicts.durationMinutes * 60 * 1000;
-        const requestedStart = apptDate.getTime();
-        const requestedEnd = requestedStart + durationMinutes * 60 * 1000;
+      const requestedStart = apptDate.getTime();
+      const requestedEnd = requestedStart + finalDuration * 60 * 1000;
 
-        if (requestedStart < conflictEnd && requestedEnd > conflictStart) {
+      for (const existing of activeAppointments) {
+        const existingStart = existing.scheduledAt.getTime();
+        const existingEnd = existingStart + existing.durationMinutes * 60 * 1000;
+
+        if (requestedStart < existingEnd && requestedEnd > existingStart) {
           throw new ConflictError('This time slot is already booked');
         }
       }
@@ -209,7 +234,7 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
           providerId,
           hospitalId: hospitalId || null,
           scheduledAt: apptDate,
-          durationMinutes,
+          durationMinutes: finalDuration,
           type,
           status: AppointmentStatus.PENDING,
           notes,
@@ -233,6 +258,15 @@ export const listAppointments = async (req: Request, res: Response, next: NextFu
       whereClause = { patientId: userId };
     } else if (role === UserRole.CONSULTANT) {
       whereClause = { providerId: userId };
+    } else if (role === UserRole.SUPER_ADMIN || role === UserRole.HOSPITAL_ADMIN) {
+      if (role === UserRole.HOSPITAL_ADMIN) {
+        const adminUser = await prisma.user.findUnique({ where: { id: userId } });
+        whereClause = { hospitalId: adminUser?.hospitalId || 'unassigned-hospital' };
+      } else {
+        whereClause = {};
+      }
+    } else {
+      throw new ForbiddenError('You are not authorized to list appointments');
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -283,6 +317,16 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
       appointment.providerId !== userPayload.userId
     ) {
       throw new ForbiddenError('You are not authorized to cancel this appointment');
+    }
+
+    if (
+      appointment.status === AppointmentStatus.CANCELLED ||
+      appointment.status === AppointmentStatus.COMPLETED ||
+      appointment.status === AppointmentStatus.NO_SHOW
+    ) {
+      throw new ValidationError(
+        `Cannot cancel appointment with terminal status: ${appointment.status}`
+      );
     }
 
     const updated = await prisma.appointment.update({

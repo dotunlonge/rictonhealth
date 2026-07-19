@@ -404,11 +404,12 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     const tokenHash = hashToken(refreshToken);
-    const dbToken = await prisma.refreshToken.findUnique({
-      where: { tokenHash },
+    const updateResult = await prisma.refreshToken.updateMany({
+      where: { tokenHash, isActive: true },
+      data: { isActive: false },
     });
 
-    if (!dbToken || !dbToken.isActive) {
+    if (updateResult.count === 0) {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
@@ -419,12 +420,6 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     const tokens = await generateTokens(user, req);
-
-    // Mark old db token as inactive only after replacement is persisted
-    await prisma.refreshToken.update({
-      where: { tokenHash },
-      data: { isActive: false },
-    });
 
     // Rotate refresh token: remove old one only after new one is issued
     await redis.srem(`refresh:${decoded.userId}`, refreshToken);

@@ -26,6 +26,7 @@ export const createRoom = async (req: Request, res: Response, next: NextFunction
     const { appointmentId, roomType = TelemedicineRoomType.ONE_ON_ONE } = req.body;
 
     let patientId: string | null = null;
+    let hostProviderId: string = userPayload.userId;
 
     if (appointmentId) {
       const appt = await prisma.appointment.findUnique({
@@ -39,43 +40,60 @@ export const createRoom = async (req: Request, res: Response, next: NextFunction
       }
 
       patientId = appt.patientId;
+      hostProviderId = appt.providerId; // Always assign the Doctor as the Room host
     }
 
     const externalRoomId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const externalRoomUrl = `https://video.twilio.com/v1/Rooms/${externalRoomId}`;
 
-    // Create the room
-    const room = await prisma.telemedicineRoom.create({
-      data: {
-        appointmentId: appointmentId || null,
-        providerId: userPayload.userId,
-        roomType,
-        externalRoomId,
-        externalRoomUrl,
-        status: TelemedicineRoomStatus.CREATED,
-      },
-    });
-
-    // Register host participant
-    await prisma.telemedicineParticipant.create({
-      data: {
-        roomId: room.id,
-        userId: userPayload.userId,
-        role: ParticipantRole.HOST,
-        joinedAt: new Date(),
-      },
-    });
-
-    // Register patient participant if 1-on-1
-    if (patientId && roomType === TelemedicineRoomType.ONE_ON_ONE) {
-      await prisma.telemedicineParticipant.create({
+    const room = await prisma.$transaction(async (tx) => {
+      // Create the room
+      const r = await tx.telemedicineRoom.create({
         data: {
-          roomId: room.id,
-          userId: patientId,
-          role: ParticipantRole.PARTICIPANT,
+          appointmentId: appointmentId || null,
+          providerId: hostProviderId,
+          roomType,
+          externalRoomId,
+          externalRoomUrl,
+          status: TelemedicineRoomStatus.CREATED,
         },
       });
-    }
+
+      // Register host participant (the assigned doctor)
+      await tx.telemedicineParticipant.create({
+        data: {
+          roomId: r.id,
+          userId: hostProviderId,
+          role: ParticipantRole.HOST,
+          joinedAt: new Date(),
+        },
+      });
+
+      // Register patient participant if 1-on-1
+      if (patientId && roomType === TelemedicineRoomType.ONE_ON_ONE) {
+        await tx.telemedicineParticipant.create({
+          data: {
+            roomId: r.id,
+            userId: patientId,
+            role: ParticipantRole.PARTICIPANT,
+          },
+        });
+      }
+
+      // If the creator is an Admin, register them as a regular participant
+      if (userPayload.role === UserRole.SUPER_ADMIN && hostProviderId !== userPayload.userId) {
+        await tx.telemedicineParticipant.create({
+          data: {
+            roomId: r.id,
+            userId: userPayload.userId,
+            role: ParticipantRole.PARTICIPANT,
+            joinedAt: new Date(),
+          },
+        });
+      }
+
+      return r;
+    });
 
     res.status(201).json(successResponse(room));
   } catch (error) {
@@ -94,6 +112,10 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
     });
 
     if (!room) throw new NotFoundError('Telemedicine room not found');
+
+    if (room.status === TelemedicineRoomStatus.ENDED) {
+      throw new ForbiddenError('This telemedicine session has ended');
+    }
 
     // Secure boundary check: verify user is in participant list or is the assigned doctor/patient
     const isParticipant = room.participants.some((p) => p.userId === userPayload.userId);
