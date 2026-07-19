@@ -7,7 +7,7 @@ import {
   ParticipantRole,
 } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ForbiddenError } from '@ricton/shared';
+import { successResponse, NotFoundError, ForbiddenError, AppError } from '@ricton/shared';
 import twilio from 'twilio';
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -138,21 +138,25 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
     }
 
     // Generate Twilio Video Access Token
-    let tokenStr = 'fallback-dev-token-string';
-
-    if (TWILIO_ACCOUNT_SID && TWILIO_ACCOUNT_SID !== 'your_twilio_account_sid') {
-      const AccessToken = twilio.jwt.AccessToken;
-      const VideoGrant = AccessToken.VideoGrant;
-
-      const twilioToken = new AccessToken(TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, {
-        identity: userPayload.userId,
-        ttl: 3600,
-      });
-
-      const grant = new VideoGrant({ room: room.externalRoomId });
-      twilioToken.addGrant(grant);
-      tokenStr = twilioToken.toJwt();
+    if (!TWILIO_ACCOUNT_SID || TWILIO_ACCOUNT_SID === 'your_twilio_account_sid') {
+      throw new AppError(
+        'Twilio Video service is not configured on the server',
+        500,
+        'TWILIO_CONFIGURATION_ERROR'
+      );
     }
+
+    const AccessToken = twilio.jwt.AccessToken;
+    const VideoGrant = AccessToken.VideoGrant;
+
+    const twilioToken = new AccessToken(TWILIO_ACCOUNT_SID, TWILIO_API_KEY, TWILIO_API_SECRET, {
+      identity: userPayload.userId,
+      ttl: 3600,
+    });
+
+    const grant = new VideoGrant({ room: room.externalRoomId });
+    twilioToken.addGrant(grant);
+    const tokenStr = twilioToken.toJwt();
 
     // Set Room status to ACTIVE upon first token fetch (starting)
     if (room.status === TelemedicineRoomStatus.CREATED) {

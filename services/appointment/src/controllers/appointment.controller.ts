@@ -58,11 +58,14 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
     const endOfDay = new Date(targetDate);
     endOfDay.setUTCHours(23, 59, 59, 999);
 
+    const startOfQuery = new Date(targetDate);
+    startOfQuery.setDate(startOfQuery.getDate() - 1); // Go back 24 hours to capture cross-midnight overlaps
+
     const busyAppointments = await prisma.appointment.findMany({
       where: {
         providerId: String(providerId),
         scheduledAt: {
-          gte: startOfDay,
+          gte: startOfQuery,
           lte: endOfDay,
         },
         status: {
@@ -80,10 +83,16 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
     });
 
     const busyTimes = busyAppointments.map((app) => {
-      const scheduledMinutes = app.scheduledAt.getUTCHours() * 60 + app.scheduledAt.getUTCMinutes();
+      const targetMidnight = startOfDay.getTime();
+      const appStartMs = app.scheduledAt.getTime();
+      const appEndMs = appStartMs + app.durationMinutes * 60 * 1000;
+
+      const relativeStartMin = Math.floor((appStartMs - targetMidnight) / (60 * 1000));
+      const relativeEndMin = Math.ceil((appEndMs - targetMidnight) / (60 * 1000));
+
       return {
-        start: scheduledMinutes,
-        end: scheduledMinutes + app.durationMinutes,
+        start: relativeStartMin,
+        end: relativeEndMin,
       };
     });
 
@@ -139,12 +148,14 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       throw new ValidationError('Invalid scheduledAt ISO date');
     }
 
+    if (apptDate.getTime() <= Date.now()) {
+      throw new ValidationError('scheduledAt must be a future date/time');
+    }
+
     // Concurrency lock and validation inside transaction
     const appointment = await prisma.$transaction(async (tx) => {
       // Lock the doctor's user record to serialize slot allocation
-      await tx.$executeRawUnsafe(
-        `SELECT id FROM users WHERE id = '${providerId}'::uuid FOR UPDATE`
-      );
+      await tx.$executeRaw`SELECT id FROM users WHERE id = ${providerId}::uuid FOR UPDATE`;
 
       // 1. Verify availability slot
       let dayOfWeek = apptDate.getUTCDay() - 1;
@@ -165,11 +176,12 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         throw new ValidationError('Doctor is not available on this day of week');
       }
 
-      // Find the specific availability window that covers the requested slot start
+      // Find the specific availability window that covers the requested slot start and fits duration inside window
       const matchedAv = availabilities.find((av) => {
         const openMin = timeToMinutes(av.startTime);
         const closeMin = timeToMinutes(av.endTime);
-        return scheduleTimeMin >= openMin && scheduleTimeMin < closeMin;
+        const slotDuration = durationMinutes || av.slotDurationMinutes;
+        return scheduleTimeMin >= openMin && scheduleTimeMin + slotDuration <= closeMin;
       });
 
       if (!matchedAv) {

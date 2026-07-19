@@ -128,17 +128,33 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       );
     }
 
-    // Create a pending payment record
-    const payment = await prisma.payment.create({
-      data: {
-        userId: userPayload.userId,
-        amount: resolvedAmount, // Stored in NGN (recalculated server-side)
-        currency: 'NGN',
-        type: type as PaymentType,
-        status: PaymentStatus.PENDING,
-        provider: PaymentProvider.PAYSTACK,
-        providerReference: data.data.reference,
-      },
+    // Create a pending payment record and link it to the target resource atomically
+    const payment = await prisma.$transaction(async (tx) => {
+      const p = await tx.payment.create({
+        data: {
+          userId: userPayload.userId,
+          amount: resolvedAmount, // Stored in NGN (recalculated server-side)
+          currency: 'NGN',
+          type: type as PaymentType,
+          status: PaymentStatus.PENDING,
+          provider: PaymentProvider.PAYSTACK,
+          providerReference: data.data.reference,
+        },
+      });
+
+      if (type === PaymentType.APPOINTMENT && referenceId) {
+        await tx.appointment.update({
+          where: { id: referenceId },
+          data: { paymentId: p.id },
+        });
+      } else if (type === PaymentType.PHARMACY_ORDER && referenceId) {
+        await tx.pharmacyOrder.update({
+          where: { id: referenceId },
+          data: { paymentId: p.id },
+        });
+      }
+
+      return p;
     });
 
     res.status(200).json(
