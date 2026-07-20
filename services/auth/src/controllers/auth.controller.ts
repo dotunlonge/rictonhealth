@@ -47,42 +47,99 @@ const hashToken = (token: string): string => {
 };
 
 const generateTokens = async (
-  user: { id: string; role: string; status: string },
-  req?: Request
+  user: { id: string; role: string; status: string; tokenVersion?: number },
+  req?: Request,
+  options?: { rememberMe?: boolean; deviceId?: string; deviceFingerprint?: string }
 ) => {
+  const tokenVersion = user.tokenVersion ?? 0;
+  const jti = crypto.randomUUID();
+  
   const token = jwt.sign(
-    { userId: user.id, role: user.role, status: user.status, iss: 'ricton-issuer' },
+    { 
+      userId: user.id, 
+      role: user.role, 
+      status: user.status, 
+      iss: 'ricton-issuer',
+      tokenVersion,
+      jti
+    },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
-  const refreshToken = jwt.sign({ userId: user.id, jti: crypto.randomUUID() }, REFRESH_SECRET, {
-    expiresIn: '7d',
+  
+  const refreshTokenExpiry = options?.rememberMe ? '30d' : '7d';
+  const refreshToken = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
+    expiresIn: refreshTokenExpiry,
   });
 
   const tokenHash = hashToken(refreshToken);
 
-  // Store token in Redis set
+  // Store token in Redis set with appropriate TTL
   const refreshKey = `refresh:${user.id}`;
+  const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
   await redis.sadd(refreshKey, refreshToken);
-  await redis.expire(refreshKey, 7 * 24 * 60 * 60); // 7 days
+  await redis.expire(refreshKey, ttlSeconds);
 
-  // Store session in DB for NDPA tracking
+  // Get device info from request
   const deviceIp = req
     ? (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress
     : null;
   const userAgent = req ? req.headers['user-agent'] : null;
+  const deviceOs = parseUserAgent(userAgent || '');
 
-  await prisma.refreshToken.create({
+  // Create new refresh token with family tracking
+  const newRefreshToken = await prisma.refreshToken.create({
     data: {
       userId: user.id,
       tokenHash,
+      deviceId: options?.deviceId || null,
+      deviceFingerprint: options?.deviceFingerprint || null,
       deviceIp,
+      deviceOs,
       userAgent,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + (options?.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000),
+      tokenFamily: options?.deviceId || jti.split('-')[0], // Use deviceId or first part of jti as family
     },
   });
 
-  return { token, refreshToken };
+  return { token, refreshToken, tokenId: newRefreshToken.id };
+};
+
+const parseUserAgent = (ua: string): string => {
+  if (ua.includes('Windows')) return 'Windows';
+  if (ua.includes('Mac')) return 'macOS';
+  if (ua.includes('Linux')) return 'Linux';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('iOS') || ua.includes('iPhone')) return 'iOS';
+  return 'Unknown';
+};
+
+// Audit log helper
+const auditLog = async (
+  action: string,
+  actorId: string | null,
+  req: Request,
+  metadata?: Record<string, unknown>,
+  riskScore?: number
+) => {
+  try {
+    const deviceId = req.headers['x-device-id'] as string;
+    await prisma.auditLog.create({
+      data: {
+        actorId,
+        action,
+        resourceType: 'AUTH',
+        metadata: metadata || {},
+        ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        deviceId,
+        riskScore,
+      },
+    });
+  } catch (error) {
+    // Don't fail auth flow if audit logging fails
+    console.error('Audit log failed:', error);
+  }
 };
 
 export const register = async (req: Request, res: Response, next: NextFunction) => {
@@ -104,6 +161,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     });
 
     if (existingUser) {
+      await auditLog('REGISTER_FAILURE', null, req, { reason: 'USER_EXISTS', email, phone });
       throw new ConflictError('User already exists with this email or phone');
     }
 
@@ -136,6 +194,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       return newUser;
     });
 
+    await auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone });
+
     res.status(201).json(successResponse({ id: user.id, role: user.role, status: user.status }));
   } catch (error) {
     next(error);
@@ -144,7 +204,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, phone, password } = req.body;
+    const { email, phone, password, rememberMe } = req.body;
 
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
@@ -154,16 +214,62 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       },
     });
 
-    if (!user || !user.passwordHash) throw new UnauthorizedError('Invalid credentials');
+    if (!user || !user.passwordHash) {
+      await auditLog('LOGIN_FAILURE', null, req, { reason: 'INVALID_CREDENTIALS', email, phone });
+      throw new UnauthorizedError('Invalid credentials');
+    }
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
-    if (!isValid) throw new UnauthorizedError('Invalid credentials');
+    if (!isValid) {
+      await auditLog('LOGIN_FAILURE', user.id, req, { reason: 'INVALID_PASSWORD' });
+      throw new UnauthorizedError('Invalid credentials');
+    }
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+      await auditLog('LOGIN_FAILURE', user.id, req, { reason: 'ACCOUNT_DISABLED', status: user.status });
       throw new UnauthorizedError('Account is disabled');
     }
 
-    const { token, refreshToken } = await generateTokens(user, req);
+    // Get device info for fingerprinting
+    const deviceId = req.headers['x-device-id'] as string | undefined;
+    const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
+
+    // Calculate risk score based on device consistency
+    let riskScore = 0;
+    const existingToken = await prisma.refreshToken.findFirst({
+      where: { userId: user.id, deviceId: deviceId || null, isActive: true },
+    });
+
+    if (!existingToken && deviceId) {
+      riskScore += 20; // New device
+    }
+
+    // Check for impossible travel (simplified - compare with last login location)
+    if (user.lastLoginAt) {
+      const timeSinceLastLogin = Date.now() - user.lastLoginAt.getTime();
+      if (timeSinceLastLogin < 3600000) { // Less than 1 hour
+        // Could add geo-IP check here
+        riskScore += 10;
+      }
+    }
+
+    const { token, refreshToken, tokenId } = await generateTokens(user, req, {
+      rememberMe: rememberMe === true,
+      deviceId,
+      deviceFingerprint,
+    });
+
+    // Update last login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    await auditLog('LOGIN_SUCCESS', user.id, req, { 
+      deviceId, 
+      rememberMe: rememberMe === true,
+      tokenId 
+    }, riskScore);
 
     res.status(200).json(
       successResponse({
@@ -402,33 +508,169 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const { refreshToken } = req.body;
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
-    const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
+    const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string; jti?: string };
 
     const tokenHash = hashToken(refreshToken);
-    const updateResult = await prisma.refreshToken.updateMany({
-      where: { tokenHash, isActive: true },
-      data: { isActive: false },
+    
+    // Get the current token with family info
+    const currentToken = await prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: { parentToken: true },
     });
 
-    if (updateResult.count === 0) {
+    if (!currentToken || !currentToken.isActive) {
+      // Check if this is a token reuse attack (token was already used)
+      const revokedToken = await prisma.refreshToken.findUnique({
+        where: { tokenHash },
+      });
+      
+      if (revokedToken && revokedToken.isRevoked) {
+        // TOKEN REUSE ATTACK DETECTED - revoke entire family
+        await auditLog('TOKEN_REUSE_ATTACK', decoded.userId, req, {
+          tokenId: revokedToken.id,
+          tokenFamily: revokedToken.tokenFamily,
+        }, 90); // High risk score
+        
+        // Revoke all tokens in the same family
+        await prisma.refreshToken.updateMany({
+          where: { 
+            userId: decoded.userId,
+            tokenFamily: revokedToken.tokenFamily,
+            isActive: true,
+          },
+          data: { 
+            isRevoked: true,
+            revokedAt: new Date(),
+            revokeReason: 'TOKEN_REUSE_ATTACK_DETECTED',
+          },
+        });
+        
+        // Also increment tokenVersion to invalidate all access tokens
+        await prisma.user.update({
+          where: { id: decoded.userId },
+          data: { tokenVersion: { increment: 1 } },
+        });
+        
+        throw new UnauthorizedError('Security alert: Token reuse detected. All sessions invalidated.');
+      }
+      
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    // Atomically remove from Redis set - if this returns 0, token was already consumed
-    const removed = await redis.srem(`refresh:${decoded.userId}`, refreshToken);
-    if (removed === 0) {
-      throw new UnauthorizedError('Invalid or expired refresh token');
+    // Grace period check: allow token refresh within 24h of expiry even if expired
+    const now = new Date();
+    const gracePeriodMs = 24 * 60 * 60 * 1000; // 24 hours
+    if (currentToken.expiresAt < now && currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()) {
+      // Expired beyond grace period
+      await auditLog('REFRESH_TOKEN_EXPIRED', decoded.userId, req, {
+        expiresAt: currentToken.expiresAt,
+      }, 30);
+      throw new UnauthorizedError('Refresh token expired');
     }
 
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    // Device fingerprint validation
+    const deviceId = req.headers['x-device-id'] as string | undefined;
+    const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
+    
+    let riskScore = 0;
+    if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
+      riskScore += 50; // Device mismatch - high risk
+      await auditLog('DEVICE_MISMATCH', decoded.userId, req, {
+        storedDeviceId: currentToken.deviceId,
+        incomingDeviceId: deviceId,
+      }, riskScore);
+    }
+    
+    if (deviceFingerprint && currentToken.deviceFingerprint && deviceFingerprint !== currentToken.deviceFingerprint) {
+      riskScore += 30; // Fingerprint mismatch
+    }
+
+    // Atomically mark current token as inactive and create new one
+    const [newRefreshToken] = await prisma.$transaction(async (tx) => {
+      // Mark current token as used
+      await tx.refreshToken.update({
+        where: { id: currentToken.id },
+        data: { 
+          isActive: false,
+          lastUsedAt: new Date(),
+          usageCount: { increment: 1 },
+        },
+      });
+
+      // Remove from Redis
+      await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+
+      // Get user with updated tokenVersion
+      const user = await tx.user.findUnique({ 
+        where: { id: decoded.userId },
+        select: { id: true, role: true, status: true, tokenVersion: true },
+      });
+      
+      if (!user) throw new NotFoundError('User not found');
+      if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+        throw new UnauthorizedError('Account is disabled');
+      }
+
+      // Create new token in the same family
+      const jti = crypto.randomUUID();
+      const refreshTokenExpiry = '7d';
+      const newRefreshTokenStr = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
+        expiresIn: refreshTokenExpiry,
+      });
+
+      const newTokenHash = hashToken(newRefreshTokenStr);
+      const ttlSeconds = 7 * 24 * 60 * 60;
+      
+      await redis.sadd(`refresh:${user.id}`, newRefreshTokenStr);
+      await redis.expire(`refresh:${user.id}`, ttlSeconds);
+
+      const newToken = await tx.refreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: newTokenHash,
+          deviceId: currentToken.deviceId,
+          deviceFingerprint: currentToken.deviceFingerprint,
+          deviceIp: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
+          userAgent: req.headers['user-agent'],
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          tokenFamily: currentToken.tokenFamily,
+          parentTokenId: currentToken.id,
+        },
+      });
+
+      return [newToken, newRefreshTokenStr, user];
+    });
+
+    const user = await prisma.user.findUnique({ 
+      where: { id: decoded.userId },
+      select: { id: true, role: true, status: true, tokenVersion: true },
+    });
+
     if (!user) throw new NotFoundError('User not found');
-    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
-      throw new UnauthorizedError('Account is disabled');
-    }
 
-    const tokens = await generateTokens(user, req);
+    // Generate new access token with updated tokenVersion
+    const jti = crypto.randomUUID();
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
+        role: user.role, 
+        status: user.status, 
+        iss: 'ricton-issuer',
+        tokenVersion: user.tokenVersion,
+        jti
+      },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
 
-    res.status(200).json(successResponse(tokens));
+    await auditLog('TOKEN_REFRESH', user.id, req, {
+      oldTokenId: currentToken.id,
+      newTokenId: newRefreshToken.id,
+      tokenFamily: currentToken.tokenFamily,
+      riskScore,
+    }, riskScore);
+
+    res.status(200).json(successResponse({ token, refreshToken: newRefreshToken }));
   } catch (error) {
     if (
       error instanceof ValidationError ||
@@ -447,13 +689,26 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
+    
+    // Get token info before revoking for audit
+    const tokenHash = hashToken(refreshToken);
+    const tokenRecord = await prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+
     await redis.srem(`refresh:${decoded.userId}`, refreshToken);
 
-    const tokenHash = hashToken(refreshToken);
-    await prisma.refreshToken.updateMany({
-      where: { tokenHash },
-      data: { isActive: false },
-    });
+    if (tokenRecord) {
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash },
+        data: { 
+          isActive: false,
+          isRevoked: true,
+          revokedAt: new Date(),
+          revokeReason: 'USER_LOGOUT',
+        },
+      });
+    }
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -467,10 +722,105 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
       }
     }
 
+    await auditLog('LOGOUT', decoded.userId, req, { tokenId: tokenRecord?.id });
+
     res.status(200).json(successResponse({ message: 'Logged out successfully' }));
   } catch (error) {
     if (error instanceof ValidationError) return next(error);
     next(new UnauthorizedError('Invalid refresh token'));
+  }
+};
+
+export const logoutAll = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.userId;
+    
+    // Revoke all refresh tokens for this user
+    await prisma.refreshToken.updateMany({
+      where: { userId, isActive: true },
+      data: {
+        isActive: false,
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokeReason: 'LOGOUT_ALL_DEVICES',
+      },
+    });
+
+    // Clear Redis
+    await redis.del(`refresh:${userId}`);
+
+    // Increment tokenVersion to invalidate all access tokens
+    await prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    await auditLog('LOGOUT_ALL', userId, req);
+
+    res.status(200).json(successResponse({ message: 'Logged out from all devices' }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSessions = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.userId;
+    
+    const sessions = await prisma.refreshToken.findMany({
+      where: { userId, isActive: true },
+      select: {
+        id: true,
+        deviceId: true,
+        deviceOs: true,
+        userAgent: true,
+        deviceIp: true,
+        createdAt: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        tokenFamily: true,
+      },
+      orderBy: { lastUsedAt: 'desc' },
+    });
+
+    res.status(200).json(successResponse({ sessions }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const revokeSession = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user!.userId;
+    
+    const session = await prisma.refreshToken.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new NotFoundError('Session not found');
+    }
+
+    await prisma.refreshToken.update({
+      where: { id: sessionId },
+      data: {
+        isActive: false,
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokeReason: 'USER_REVOKED_SESSION',
+      },
+    });
+
+    // Remove from Redis
+    const tokens = await redis.smembers(`refresh:${userId}`);
+    // Note: We can't directly remove without the token value, but it will expire naturally
+    
+    await auditLog('SESSION_REVOKED', userId, req, { sessionId });
+
+    res.status(200).json(successResponse({ message: 'Session revoked successfully' }));
+  } catch (error) {
+    next(error);
   }
 };
 
@@ -527,6 +877,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     const storedData = await redis.get(`reset:${key}`);
 
     if (!storedData) {
+      await auditLog('PASSWORD_RESET_FAILURE', null, req, { reason: 'INVALID_OTP', email, phone });
       throw new UnauthorizedError('Invalid or expired OTP');
     }
 
@@ -536,6 +887,12 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
       parsedData.attempts += 1;
       if (parsedData.attempts >= 3) {
         await redis.del(`reset:${key}`);
+        await auditLog('PASSWORD_RESET_FAILURE', null, req, { 
+          reason: 'TOO_MANY_ATTEMPTS', 
+          email, 
+          phone,
+          attempts: parsedData.attempts 
+        }, 40);
         throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
       } else {
         const ttl = await redis.ttl(`reset:${key}`);
@@ -549,16 +906,27 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(newPassword, salt);
 
-    const updateResult = await prisma.user.updateMany({
+    const user = await prisma.user.findFirst({
       where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
-      data: { passwordHash },
     });
 
-    if (updateResult.count === 0) {
+    if (!user) {
+      await redis.del(`reset:${key}`);
       throw new NotFoundError('User not found');
     }
 
+    // Update password and increment tokenVersion to invalidate all existing sessions
+    await prisma.user.updateMany({
+      where: { id: user.id },
+      data: { 
+        passwordHash,
+        tokenVersion: { increment: 1 },
+      },
+    });
+
     await redis.del(`reset:${key}`);
+
+    await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
 
     res.status(200).json(successResponse({ message: 'Password reset successfully' }));
   } catch (error) {

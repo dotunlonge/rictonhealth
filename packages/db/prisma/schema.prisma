@@ -40,7 +40,8 @@ model User {
   consentVersion   String?
   consentAt        DateTime?   @db.Timestamptz(6)
   lastLoginAt      DateTime?   @db.Timestamptz(6)
-  twoFactorEnabled Boolean    @default(false)
+  twoFactorEnabled Boolean     @default(false)
+  tokenVersion     Int         @default(0)
   deletedAt        DateTime?   @db.Timestamptz(6)
   hospitalId       String?     @db.Uuid
   hospital         Hospital?   @relation("UserHospital", fields: [hospitalId], references: [id])
@@ -86,16 +87,27 @@ model User {
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique
-  deviceIp  String?
-  deviceOs  String?
-  userAgent String?
-  isActive  Boolean  @default(true)
-  expiresAt DateTime @db.Timestamptz(6)
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash       String   @unique
+  deviceId        String?
+  deviceFingerprint String?
+  deviceIp        String?
+  deviceOs        String?
+  userAgent       String?
+  isActive        Boolean  @default(true)
+  isRevoked       Boolean  @default(false)
+  revokedAt       DateTime? @db.Timestamptz(6)
+  revokeReason    String?
+  parentTokenId   String?  @db.Uuid
+  parentToken     RefreshToken? @relation("RefreshTokenFamily", fields: [parentTokenId], references: [id])
+  childTokens     RefreshToken[] @relation("RefreshTokenFamily")
+  tokenFamily     String?  // Family ID for tracking token rotation chain
+  expiresAt       DateTime @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  lastUsedAt      DateTime? @db.Timestamptz(6)
+  usageCount      Int      @default(0)
 
   @@map("refresh_tokens")
 }
@@ -554,6 +566,9 @@ model AuditLog {
   resourceId       String?
   metadata         Json?
   ipAddress        String?
+  userAgent        String?
+  deviceId         String?
+  riskScore        Int?     // 0-100 risk score for the event
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
   @@map("audit_logs")
