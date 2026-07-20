@@ -2,19 +2,22 @@
 # Dependencies
 node_modules/
 
-# TypeScript build output
+# Build outputs
 dist/
 build/
-*.js
+target/
+
+# TypeScript
+*.tsbuildinfo
 *.js.map
+
+# Logs
+*.log
 
 # Environment variables
 .env
 .env.local
 *.env.*
-
-# Logs
-*.log
 
 # IDE files
 .vscode/
@@ -26,28 +29,22 @@ build/
 .DS_Store
 Thumbs.db
 
-# Coverage reports
+# Coverage
 coverage/
 htmlcov/
 .coverage
 
-# Python cache (if any Python files exist in the project)
+# Python cache (if present in shared packages)
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # Testing
-.nyc_output/
-.mypy_cache/
-.pytest_cache/
-
-# Distribution / packaging
-*.tar.gz
-*.whl
-*.egg-info/
+.jest/
+jest-coverage/
 
 # Temporary files
 *.tmp
-*~
+*.temp
 ```

@@ -14,3 +14,4 @@ export * from './schemas/appointment.schema';
 export * from './schemas/prescription.schema';
 export * from './schemas/telemedicine.schema';
 export * from './middleware/validate';
+export * from "./schemas/address.schema";
