@@ -48,8 +48,8 @@ All responses follow `{ success: boolean, data: T, error?: { code, message } }` 
 
 ## 1. Authentication & Authorization
 
-**Source screens (Mobile):** `Welcome to Ricton`, `Login`, `Login - with Google`, `Phone number`, `Temporary code`, `Confirm email`, `Email confirmed`, `Create password`, `Reset password`, `Reset password alert`, `loading - reset password`, `loading - Google & Apple`.
-**Source screens (Web):** `Log in page*`, `Register`, `Log out page C/H/P`, `Treating a patient*`.
+**Source screens (Mobile):** `Welcome to Ricton`, `Login`, `Login-1`, `Login - with Google`, `Login - with Google-1`, `Phone number`, `Temporary code`, `Confirm email`, `Email confirmed`, `Create password`, `Create password-1`, `Reset password`, `Reset password alert`, `loading - reset password`, `loading - Google & Apple`, `Transforming healthcare...`, `Here’s a good place...`, `Frame 121075507-7`, `Frame 121075552*`, `Frame 121075533`, `Frame` (Check email).
+**Source screens (Web):** `Log in page*`, `Log in-1`, `Register`, `Log out page C/H/P`, `Treating a patient*`.
 
 ### 1.1 Flow inference
 
@@ -99,7 +99,7 @@ New user (any path) ─▶ Confirm email ─▶ Email confirmed ─▶ Onboardin
 
 ### 2.1 Onboarding & Account
 
-**Source screens:** `Account free`, `Account Premium`, `Account medical history`, `Account personal info`, `Account Security &`, `Acount premium user*`, `Upgrade to premium 1/2/3`, `Premium user done`, `Address`, `Email`, `Menu`.
+**Source screens:** `Account free`, `Account Premium`, `Account medical history`, `Account personal info`, `Account Security &`, `Acount premium user*`, `Upgrade to premium 1/2/3`, `Premium user done`, `Address`, `Email`, `Menu`, `Menu-1..3`, `User`, `User -1`, `Frame 121075507-10`, `Frame 121075553*`.
 
 | #   | Endpoint                                 | Status                                                                           |
 | --- | ---------------------------------------- | -------------------------------------------------------------------------------- |
@@ -340,7 +340,7 @@ Rules:
 
 ### 3.6 MDT (Multi-Disciplinary Team)
 
-**Source screens:** `MDTs 1D-8`, `TelemedicineRoomType.MDT`.
+**Source screens:** `MDTs 1D-8`, `MDTs C`, `TelemedicineRoomType.MDT`.
 
 | #   | Endpoint                                                | Status                                                                  |
 | --- | ------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -468,9 +468,9 @@ model Product {
 
 ## 7. Cross-Portal / Marketing Screens
 
-**Source screens (Web):** `1 Landing page`, `About us-1..30`, `Home-1..30`, `Pricing-1..30`, `Services-1..30`, `Resources-1..30`, `Ricton-1..166`, `Component 1` (shared UI kit).
+**Source screens (Web):** `1 Landing page`, `2 Landing page`, `About us-1..30`, `Home-1..30`, `Pricing-1..30`, `Services-1..30`, `Resources-1..30`, `Ricton-1..166`, `Component 1` (shared UI kit).
 
-These are mostly static/CMS. Backend needs:
+These are mostly static/CMS. Backend needs (Note: files like `Screenshot (643) 1`, `iPhone 13 & 14 - 7`, and `Rectangle *` are static mockups with no API backing needed):
 
 - `GET /api/content/pages/:slug` (About/Pricing/Services/Resources) — ❌ MISSING (CMS-lite or static config service).
 - `GET /api/features` (for `Ricton-1..166` feature grids) — ❌ MISSING.
