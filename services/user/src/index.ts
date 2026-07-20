@@ -17,6 +17,9 @@ import {
   initSentry,
   setupGracefulShutdown,
   createCors,
+  checkDatabase,
+  checkRedis,
+  redis,
 } from '@ricton/shared';
 import userRoutes from './routes/user.routes';
 
@@ -46,7 +49,8 @@ app.use(httpLogger);
  */
 app.get('/health', async (_req: Request, res: Response) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
+    await checkDatabase(prisma);
+    await checkRedis(redis);
     res.status(200).json({ status: 'ok', service: 'user-service' });
   } catch (error) {
     res

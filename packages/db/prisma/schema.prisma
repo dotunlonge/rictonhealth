@@ -37,6 +37,13 @@ model User {
   phoneVerified    Boolean     @default(false)
   oauthProvider    String?
   oauthId          String?
+  consentVersion   String?
+  consentAt        DateTime?   @db.Timestamptz(6)
+  lastLoginAt      DateTime?   @db.Timestamptz(6)
+  twoFactorEnabled Boolean    @default(false)
+  deletedAt        DateTime?   @db.Timestamptz(6)
+  hospitalId       String?     @db.Uuid
+  hospital         Hospital?   @relation("UserHospital", fields: [hospitalId], references: [id])
   createdAt        DateTime    @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime    @updatedAt @db.Timestamptz(6)
 
@@ -64,8 +71,33 @@ model User {
   rewardPoints            RewardPoint[]
   subscriptions           Subscription[]
   providerAvailabilities  ProviderAvailability[]
+  refreshTokens           RefreshToken[]
+  addresses               Address[]
+  chatThreadsAsParticipant ChatParticipant[]
+  chatMessagesSent        ChatMessage[]
+  chatMessageReceipts     ChatMessageReceipt[]
+  mdtsAsPatient           MDT[] @relation("MdtPatient")
+  mdtsAsCreator           MDT[] @relation("MdtCreator")
+  mdtParticipants         MDTParticipant[]
+  pharmacyProducts        Product[]
+  rewardCatalogRedeemed   RewardCatalog[] @relation("RewardRedeemedBy")
 
   @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  deviceIp  String?
+  deviceOs  String?
+  userAgent String?
+  isActive  Boolean  @default(true)
+  expiresAt DateTime @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("refresh_tokens")
 }
 
 model PatientProfile {
@@ -102,6 +134,9 @@ model ProviderProfile {
   isVerified       Boolean  @default(false)
   avatarUrl        String?
   rating           Decimal? @db.Decimal(3, 2)
+  onboardingStep   Int      @default(1)
+  documents        Json?
+  idVerifiedAt     DateTime? @db.Timestamptz(6)
 
   @@map("provider_profiles")
 }
@@ -115,6 +150,9 @@ model PharmacyProfile {
   address          Json?
   location         Json? // { lat: number, lng: number }
   operatingHours   Json?
+  documents        Json?
+  bankDetails      Json?
+  onboardingComplete Boolean @default(false)
   isVerified       Boolean  @default(false)
 
   @@map("pharmacy_profiles")
@@ -131,11 +169,16 @@ model Hospital {
   phone            String?
   email            String?
   logoUrl          String?
+  registrationNumber String?
+  documents        Json?
+  onboardingComplete Boolean @default(false)
+  departments      Json?
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
   providers        ProviderProfile[]
   appointments     Appointment[]
+  users            User[]           @relation("UserHospital")
 
   @@map("hospitals")
 }
@@ -181,7 +224,10 @@ model Appointment {
   type                AppointmentType
   status              AppointmentStatus @default(PENDING)
   cancellationReason  String?
+  reason              String?  @db.Text
   notes               String?
+  reminderSentAt      DateTime? @db.Timestamptz(6)
+  cancelledBy         UserRole?
   paymentId           String?  @unique @db.Uuid
   payment             Payment? @relation("AppointmentPayment", fields: [paymentId], references: [id])
   telemedicineRoomId  String?  @unique @db.Uuid
@@ -265,7 +311,8 @@ model TelemedicineRoom {
   endedAt          DateTime? @db.Timestamptz(6)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @db.Timestamptz(6)
-
+  mdtId            String?  @db.Uuid
+  mdt              MDT?      @relation(fields: [mdtId], references: [id])
   participants     TelemedicineParticipant[]
 
   @@map("telemedicine_rooms")
@@ -544,4 +591,199 @@ model RewardPoint {
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
   @@map("reward_points")
+}
+
+model RewardTransaction {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            RewardTransactionType
+  points          Int
+  source          RewardSource
+  description     String
+  referenceId     String?
+  status          TransactionStatus @default(COMPLETED)
+  rewardCatalogId String?       @db.Uuid
+  rewardCatalog   RewardCatalog? @relation(fields: [rewardCatalogId], references: [id])
+  shippingAddress Json?
+  deliveredAt     DateTime?     @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+
+  // Unique constraint to prevent duplicate point awards for same event
+  @@unique([userId, source, referenceId, type])
+  @@map("reward_transactions")
+}
+
+enum RewardTransactionType {
+  EARN
+  REDEEM
+}
+
+enum RewardSource {
+  APPOINTMENT
+  PRESCRIPTION
+  PHARMACY_ORDER
+  REFERRAL
+  SIGNUP
+  PROMOTION
+  REDEMPTION
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  REDEEMED
+  CANCELLED
+  COMPLETED
+}
+
+model Address {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addressLine1 String
+  addressLine2 String?
+  city         String
+  state        String
+  country      String   @default("Nigeria")
+  postalCode   String?
+  latitude     Decimal? @db.Decimal(10, 8)
+  longitude    Decimal? @db.Decimal(11, 8)
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("addresses")
+}
+
+model ChatThread {
+  id          String        @id @default(uuid()) @db.Uuid
+  createdAt   DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
+  participants ChatParticipant[]
+  messages    ChatMessage[]
+
+  @@map("chat_threads")
+}
+
+model ChatParticipant {
+  id        String     @id @default(uuid()) @db.Uuid
+  threadId  String     @db.Uuid
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId    String     @db.Uuid
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime   @default(now()) @db.Timestamptz(6)
+
+  @@unique([threadId, userId])
+  @@map("chat_participants")
+}
+
+model ChatMessage {
+  id         String      @id @default(uuid()) @db.Uuid
+  threadId   String      @db.Uuid
+  thread     ChatThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId   String      @db.Uuid
+  sender     User        @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body       String?
+  fileUrl    String?
+  fileName   String?
+  fileSize   Int?
+  createdAt  DateTime    @default(now()) @db.Timestamptz(6)
+  receipts   ChatMessageReceipt[]
+
+  @@map("chat_messages")
+}
+
+model ChatMessageReceipt {
+  id        String      @id @default(uuid()) @db.Uuid
+  messageId String      @db.Uuid
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String      @db.Uuid
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt    DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@unique([messageId, userId])
+  @@map("chat_message_receipts")
+}
+
+enum MDTStatus {
+  DRAFT
+  OPEN
+  ACTIVE
+  CLOSED
+}
+
+model MDT {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  patientId   String        @db.Uuid
+  patient     User          @relation("MdtPatient", fields: [patientId], references: [id])
+  creatorId   String        @db.Uuid
+  creator     User          @relation("MdtCreator", fields: [creatorId], references: [id])
+  status      MDTStatus     @default(OPEN)
+  complaint   String        @db.Text
+  history     String?       @db.Text
+  pastHistory String?       @db.Text
+  diagnosis   String?       @db.Text
+  createdAt   DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(6)
+
+  participants MDTParticipant[]
+  rooms        TelemedicineRoom[]
+
+  @@map("mdts")
+}
+
+model MDTParticipant {
+  id        String   @id @default(uuid()) @db.Uuid
+  mdtId     String   @db.Uuid
+  mdt       MDT      @relation(fields: [mdtId], references: [id], onDelete: Cascade)
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String?
+  joinedAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([mdtId, userId])
+  @@map("mdt_participants")
+}
+
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  pharmacyId  String   @db.Uuid
+  pharmacy    User     @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?  @db.Text
+  price       Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  category    String?
+  imageUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@map("products")
+}
+
+model RewardCatalog {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  pointsCost  Int
+  category    String   @default("general")
+  imageUrl    String?
+  stock       Int      @default(100)
+  isActive    Boolean  @default(true)
+  tierRequired RewardTier?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  redeemedBy  User[]   @relation("RewardRedeemedBy")
+  transactions RewardTransaction[]
+
+  @@map("reward_catalogs")
+}
+
+enum RewardTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
 }

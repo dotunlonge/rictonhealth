@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",
     "services:dev": "concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
-    "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service",
+    "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service --workspace=@ricton/appointment-service",
     "test": "./scripts/test-e2e.sh",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",

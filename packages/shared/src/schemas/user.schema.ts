@@ -100,6 +100,16 @@ export const MedicalHistoryInputSchema = registry.register(
   })
 );
 
+export const GetProvidersQuerySchema = registry.register(
+  'GetProvidersQuery',
+  z.object({
+    specialty: z.string().optional(),
+    name: z.string().optional(),
+    limit: z.string().optional(),
+    offset: z.string().optional(),
+  })
+);
+
 registry.registerPath({
   method: 'get',
   path: '/api/users/me',
@@ -116,6 +126,119 @@ registry.registerPath({
     },
     401: {
       description: 'Unauthorized',
+    },
+  },
+});
+
+export const HospitalDashboardResponseSchema = registry.register(
+  'HospitalDashboardResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      hospital: z.object({
+        id: z.string().uuid(),
+        name: z.string(),
+        phone: z.string().nullable(),
+        email: z.string().nullable(),
+        logoUrl: z.string().nullable(),
+        isActive: z.boolean(),
+        createdAt: z.string(),
+      }),
+      stats: z.object({
+        totalDoctors: z.number(),
+        totalAppointments: z.number(),
+        activePatients: z.number(),
+      }),
+    }),
+  })
+);
+
+export const ProviderDashboardResponseSchema = registry.register(
+  'ProviderDashboardResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      stats: z.object({
+        totalAppointments: z.number(),
+        pendingAppointments: z.number(),
+        completedAppointments: z.number(),
+        totalEarnings: z.union([z.number(), z.string()]),
+      }),
+      upcomingAppointments: z.array(z.any()),
+    }),
+  })
+);
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/dashboard/hospital',
+  summary: 'Get dashboard statistics for Hospital Admin portal',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: 'Hospital Admin dashboard analytics',
+      content: {
+        'application/json': {
+          schema: HospitalDashboardResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: 'Unauthorized',
+    },
+    403: {
+      description: 'Forbidden',
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/providers',
+  summary: 'Search providers',
+  parameters: [
+    { name: 'specialty', in: 'query', schema: { type: 'string' } },
+    { name: 'name', in: 'query', schema: { type: 'string' } },
+    { name: 'limit', in: 'query', schema: { type: 'string' } },
+    { name: 'offset', in: 'query', schema: { type: 'string' } },
+  ],
+  responses: {
+    200: { description: 'Providers list' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/providers/{id}',
+  summary: 'Get provider by ID',
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  responses: {
+    200: { description: 'Provider details' },
+    404: { description: 'Provider not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/dashboard/provider',
+  summary: 'Get dashboard analytics and schedule for Consultant/Doctor portal',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: 'Provider dashboard analytics and schedule queue',
+      content: {
+        'application/json': {
+          schema: ProviderDashboardResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: 'Unauthorized',
+    },
+    403: {
+      description: 'Forbidden',
     },
   },
 });

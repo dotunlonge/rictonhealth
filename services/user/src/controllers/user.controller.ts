@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, UserRole, Prisma } from '@ricton/db';
+import { prisma, UserRole, UserStatus, AppointmentStatus, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
@@ -37,6 +37,127 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(user));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getHospitalDashboard = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    if (userPayload.role !== UserRole.HOSPITAL_ADMIN) {
+      throw new ForbiddenError('Only hospital admins can access the hospital dashboard');
+    }
+
+    // Resolve specific tenant hospital linked to the admin user
+    const adminUser = await prisma.user.findUnique({
+      where: { id: userPayload.userId },
+      include: { hospital: true },
+    });
+
+    let hospital = adminUser?.hospital;
+
+    if (!hospital) {
+      // Find fallback or create a default one for sandbox/onboarding mapping
+      hospital = await prisma.hospital.findFirst();
+      if (!hospital) {
+        hospital = await prisma.hospital.create({
+          data: {
+            name: 'Ricton General Hospital',
+            phone: '07012345678',
+            email: 'admin@ricton.health',
+            logoUrl: 'https://ricton.health/logo.png',
+          },
+        });
+      }
+
+      // Persist association to prevent unlinked reads on next calls
+      await prisma.user.update({
+        where: { id: userPayload.userId },
+        data: { hospitalId: hospital.id },
+      });
+    }
+
+    const doctorCount = await prisma.providerProfile.count({
+      where: { hospitalId: hospital.id },
+    });
+
+    const appointmentCount = await prisma.appointment.count({
+      where: { hospitalId: hospital.id },
+    });
+
+    const activePatientsCount = await prisma.user.count({
+      where: { role: UserRole.PATIENT, status: UserStatus.ACTIVE, hospitalId: hospital.id },
+    });
+
+    res.status(200).json(
+      successResponse({
+        hospital,
+        stats: {
+          totalDoctors: doctorCount,
+          totalAppointments: appointmentCount,
+          activePatients: activePatientsCount,
+        },
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getProviderDashboard = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    if (userPayload.role !== UserRole.CONSULTANT) {
+      throw new ForbiddenError('Only consultants can access the provider dashboard');
+    }
+
+    const userId = userPayload.userId;
+
+    const totalAppointments = await prisma.appointment.count({
+      where: { providerId: userId },
+    });
+
+    const pendingAppointments = await prisma.appointment.count({
+      where: { providerId: userId, status: AppointmentStatus.PENDING },
+    });
+
+    const completedAppointments = await prisma.appointment.count({
+      where: { providerId: userId, status: AppointmentStatus.COMPLETED },
+    });
+
+    const aggregateEarnings = await prisma.providerEarning.aggregate({
+      where: { providerId: userId },
+      _sum: { amount: true },
+    });
+
+    const upcomingAppointments = await prisma.appointment.findMany({
+      where: { providerId: userId, scheduledAt: { gte: new Date() } },
+      take: 5,
+      orderBy: { scheduledAt: 'asc' },
+      include: {
+        patient: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            patientProfile: true,
+          },
+        },
+      },
+    });
+
+    res.status(200).json(
+      successResponse({
+        stats: {
+          totalAppointments,
+          pendingAppointments,
+          completedAppointments,
+          totalEarnings: aggregateEarnings._sum.amount || 0.0,
+        },
+        upcomingAppointments,
+      })
+    );
   } catch (error) {
     next(error);
   }

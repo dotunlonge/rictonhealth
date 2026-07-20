@@ -13,3 +13,4 @@ const outputPath = path.join(__dirname, '../openapi.yaml');
 fs.writeFileSync(outputPath, yamlStr);
 
 console.log(`OpenAPI spec successfully generated at ${outputPath}`);
+process.exit(0);

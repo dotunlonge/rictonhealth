@@ -8,6 +8,7 @@ import {
   UnauthorizedError,
   ValidationError,
   NotFoundError,
+  AppError,
   redis,
   hashOtp,
   verifyOtp,
@@ -16,6 +17,7 @@ import twilio from 'twilio';
 import sgMail from '@sendgrid/mail';
 import { OAuth2Client } from 'google-auth-library';
 import appleSigninAuth from 'apple-signin-auth';
+import crypto from 'crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
@@ -40,27 +42,59 @@ const googleClient = process.env.GOOGLE_CLIENT_ID
   ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
   : null;
 
-const generateTokens = async (user: { id: string; role: string; status: string }) => {
+const hashToken = (token: string): string => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+const generateTokens = async (
+  user: { id: string; role: string; status: string },
+  req?: Request
+) => {
   const token = jwt.sign(
     { userId: user.id, role: user.role, status: user.status, iss: 'ricton-issuer' },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
-  const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, { expiresIn: '7d' });
+  const refreshToken = jwt.sign({ userId: user.id, jti: crypto.randomUUID() }, REFRESH_SECRET, {
+    expiresIn: '7d',
+  });
 
+  const tokenHash = hashToken(refreshToken);
+
+  // Store token in Redis set
   const refreshKey = `refresh:${user.id}`;
   await redis.sadd(refreshKey, refreshToken);
   await redis.expire(refreshKey, 7 * 24 * 60 * 60); // 7 days
+
+  // Store session in DB for NDPA tracking
+  const deviceIp = req
+    ? (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress
+    : null;
+  const userAgent = req ? req.headers['user-agent'] : null;
+
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash,
+      deviceIp,
+      userAgent,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    },
+  });
 
   return { token, refreshToken };
 };
 
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, phone, password, role, firstName, lastName } = req.body;
+    const { email, phone, password, role, firstName, lastName, consentVersion } = req.body;
 
     if (!email && !phone) {
       throw new ValidationError('Email or phone is required');
+    }
+
+    if (!consentVersion) {
+      throw new ValidationError('consentVersion is required for NDPA compliance registration');
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -84,6 +118,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
           passwordHash,
           role,
           status: UserStatus.PENDING,
+          consentVersion: consentVersion || null,
+          consentAt: consentVersion ? new Date() : null,
         },
       });
 
@@ -127,7 +163,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       throw new UnauthorizedError('Account is disabled');
     }
 
-    const { token, refreshToken } = await generateTokens(user);
+    const { token, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -158,8 +194,10 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
 
     if (phone) {
       if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new Error(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER'
+        throw new AppError(
+          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await twilioClient.messages.create({
@@ -169,8 +207,10 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
       });
     } else if (email) {
       if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new Error(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL'
+        throw new AppError(
+          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await sgMail.send({
@@ -230,7 +270,7 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     // Delete OTP only after DB lookup succeeds
     await redis.del(`otp:${key}`);
 
-    const { token, refreshToken } = await generateTokens(user);
+    const { token, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -255,7 +295,8 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
     const { token, role } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
-    if (!googleClient) throw new Error('Google OAuth is not configured.');
+    if (!googleClient)
+      throw new AppError('Google OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
 
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
@@ -281,7 +322,7 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    const { token: jwtToken, refreshToken } = await generateTokens(user);
+    const { token: jwtToken, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -336,7 +377,7 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
       });
     }
 
-    const { token: jwtToken, refreshToken } = await generateTokens(user);
+    const { token: jwtToken, refreshToken } = await generateTokens(user, req);
 
     res.status(200).json(
       successResponse({
@@ -363,13 +404,21 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
 
-    const isMember = await redis.sismember(`refresh:${decoded.userId}`, refreshToken);
-    if (!isMember) {
+    const tokenHash = hashToken(refreshToken);
+    const updateResult = await prisma.refreshToken.updateMany({
+      where: { tokenHash, isActive: true },
+      data: { isActive: false },
+    });
+
+    if (updateResult.count === 0) {
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    // Rotate refresh token: remove old one before issuing new one
-    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+    // Atomically remove from Redis set - if this returns 0, token was already consumed
+    const removed = await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+    if (removed === 0) {
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
 
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) throw new NotFoundError('User not found');
@@ -377,7 +426,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Account is disabled');
     }
 
-    const tokens = await generateTokens(user);
+    const tokens = await generateTokens(user, req);
 
     res.status(200).json(successResponse(tokens));
   } catch (error) {
@@ -399,6 +448,12 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
     await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+
+    const tokenHash = hashToken(refreshToken);
+    await prisma.refreshToken.updateMany({
+      where: { tokenHash },
+      data: { isActive: false },
+    });
 
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -534,8 +589,10 @@ const sendVerificationOtp = async (
 
     if (channel === 'phone') {
       if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new Error(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER'
+        throw new AppError(
+          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await twilioClient.messages.create({
@@ -545,8 +602,10 @@ const sendVerificationOtp = async (
       });
     } else {
       if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new Error(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL'
+        throw new AppError(
+          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await sgMail.send({

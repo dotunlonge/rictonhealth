@@ -24,6 +24,7 @@ components:
         password:
           type: string
           minLength: 8
+          pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$
         role:
           type: string
           enum:
@@ -36,9 +37,13 @@ components:
           type: string
         lastName:
           type: string
+        consentVersion:
+          type: string
+          minLength: 1
       required:
         - password
         - role
+        - consentVersion
     LoginInput:
       type: object
       properties:
@@ -51,6 +56,66 @@ components:
           type: string
       required:
         - password
+    SendOtpInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+    VerifyOtpInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otp
+    OAuthInput:
+      type: object
+      properties:
+        token:
+          type: string
+        role:
+          type: string
+          enum:
+            - PATIENT
+            - CONSULTANT
+      required:
+        - token
+    RefreshTokenInput:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+    PasswordResetInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+        newPassword:
+          type: string
+          minLength: 8
+          pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$
+      required:
+        - otp
+        - newPassword
     AuthResponse:
       type: object
       properties:
@@ -60,6 +125,8 @@ components:
           type: object
           properties:
             token:
+              type: string
+            refreshToken:
               type: string
             user:
               type: object
@@ -89,6 +156,35 @@ components:
       required:
         - success
         - data
+    VerifyEmailInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+        - email
+    VerifyPhoneInput:
+      type: object
+      properties:
+        phone:
+          type: string
+      required:
+        - phone
+    VerifyConfirmInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otp
     UserProfile:
       type: object
       properties:
@@ -125,7 +221,40 @@ components:
               type: string
               nullable: true
             allergies:
+              type: array
               nullable: true
+              items:
+                type: string
+            medicalHistory:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  condition:
+                    type: string
+                    minLength: 1
+                  diagnosedAt:
+                    type: string
+                    pattern: ^\d{4}-\d{2}-\d{2}$
+                  notes:
+                    type: string
+                required:
+                  - condition
+            emergencyContact:
+              type: object
+              nullable: true
+              properties:
+                name:
+                  type: string
+                relationship:
+                  type: string
+                phone:
+                  type: string
+              required:
+                - name
+                - relationship
+                - phone
           required:
             - firstName
             - lastName
@@ -165,7 +294,482 @@ components:
         success:
           type: boolean
         data:
-          $ref: '#/components/schemas/UserProfile'
+          $ref: "#/components/schemas/UserProfile"
+      required:
+        - success
+        - data
+    UpdateProfileInput:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        dateOfBirth:
+          type: string
+        gender:
+          type: string
+        bloodType:
+          type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        specialty:
+          type: string
+        consultationFee:
+          type: number
+        title:
+          type: string
+        pharmacyName:
+          type: string
+    AvatarUploadInput:
+      type: object
+      properties:
+        fileType:
+          type: string
+          minLength: 1
+      required:
+        - fileType
+    MedicalHistoryInput:
+      type: object
+      properties:
+        medicalHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              condition:
+                type: string
+                minLength: 1
+              diagnosedAt:
+                type: string
+                pattern: ^\d{4}-\d{2}-\d{2}$
+              notes:
+                type: string
+            required:
+              - condition
+      required:
+        - medicalHistory
+    HospitalDashboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            hospital:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                phone:
+                  type: string
+                  nullable: true
+                email:
+                  type: string
+                  nullable: true
+                logoUrl:
+                  type: string
+                  nullable: true
+                isActive:
+                  type: boolean
+                createdAt:
+                  type: string
+              required:
+                - id
+                - name
+                - phone
+                - email
+                - logoUrl
+                - isActive
+                - createdAt
+            stats:
+              type: object
+              properties:
+                totalDoctors:
+                  type: number
+                totalAppointments:
+                  type: number
+                activePatients:
+                  type: number
+              required:
+                - totalDoctors
+                - totalAppointments
+                - activePatients
+          required:
+            - hospital
+            - stats
+      required:
+        - success
+        - data
+    ProviderDashboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            stats:
+              type: object
+              properties:
+                totalAppointments:
+                  type: number
+                pendingAppointments:
+                  type: number
+                completedAppointments:
+                  type: number
+                totalEarnings:
+                  anyOf:
+                    - type: number
+                    - type: string
+              required:
+                - totalAppointments
+                - pendingAppointments
+                - completedAppointments
+                - totalEarnings
+            upcomingAppointments:
+              type: array
+              items:
+                nullable: true
+          required:
+            - stats
+            - upcomingAppointments
+      required:
+        - success
+        - data
+    Appointment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        hospitalId:
+          type: string
+          nullable: true
+          format: uuid
+        scheduledAt:
+          type: string
+        durationMinutes:
+          type: number
+        type:
+          type: string
+          enum:
+            - IN_PERSON
+            - VIDEO
+        status:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        cancellationReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - patientId
+        - providerId
+        - hospitalId
+        - scheduledAt
+        - durationMinutes
+        - type
+        - status
+        - notes
+        - cancellationReason
+        - createdAt
+        - updatedAt
+    GetSlotsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: string
+      required:
+        - success
+        - data
+    BookAppointmentInput:
+      type: object
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        hospitalId:
+          type: string
+          format: uuid
+        scheduledAt:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum:
+            - IN_PERSON
+            - VIDEO
+        notes:
+          type: string
+      required:
+        - providerId
+        - scheduledAt
+    GetAppointmentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Appointment"
+      required:
+        - success
+        - data
+    ListAppointmentsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Appointment"
+      required:
+        - success
+        - data
+    PrescriptionItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        prescriptionId:
+          type: string
+          format: uuid
+        drugName:
+          type: string
+        dosage:
+          type: string
+        quantity:
+          type: number
+        frequency:
+          type: string
+        duration:
+          type: string
+        instructions:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - prescriptionId
+        - drugName
+        - dosage
+        - quantity
+        - frequency
+        - duration
+        - instructions
+        - createdAt
+    Prescription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          nullable: true
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        pharmacyId:
+          type: string
+          nullable: true
+          format: uuid
+        status:
+          type: string
+        signedAt:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrescriptionItem"
+      required:
+        - id
+        - appointmentId
+        - patientId
+        - providerId
+        - pharmacyId
+        - status
+        - signedAt
+        - notes
+        - createdAt
+        - updatedAt
+    CreatePrescriptionInput:
+      type: object
+      properties:
+        patientId:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          format: uuid
+        notes:
+          type: string
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              drugName:
+                type: string
+                minLength: 1
+              dosage:
+                type: string
+                minLength: 1
+              quantity:
+                type: integer
+                minimum: 0
+                exclusiveMinimum: true
+              frequency:
+                type: string
+                minLength: 1
+              duration:
+                type: string
+                minLength: 1
+              instructions:
+                type: string
+            required:
+              - drugName
+              - dosage
+              - quantity
+              - frequency
+              - duration
+      required:
+        - patientId
+        - items
+    SignPrescriptionInput:
+      type: object
+      properties:
+        otpCode:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+        - otpCode
+    GetPrescriptionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/Prescription"
+      required:
+        - success
+        - data
+    ListPrescriptionsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prescription"
+      required:
+        - success
+        - data
+    TelemedicineRoom:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        appointmentId:
+          type: string
+          nullable: true
+          format: uuid
+        providerId:
+          type: string
+          format: uuid
+        roomType:
+          type: string
+          enum:
+            - ONE_ON_ONE
+            - MDT
+        externalRoomId:
+          type: string
+        externalRoomUrl:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - CREATED
+            - ACTIVE
+            - ENDED
+        startedAt:
+          type: string
+          nullable: true
+        endedAt:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - appointmentId
+        - providerId
+        - roomType
+        - externalRoomId
+        - externalRoomUrl
+        - status
+        - startedAt
+        - endedAt
+        - createdAt
+        - updatedAt
+    GetTokenResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            room:
+              $ref: "#/components/schemas/TelemedicineRoom"
+          required:
+            - token
+            - room
       required:
         - success
         - data
@@ -178,11 +782,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterInput'
+              $ref: "#/components/schemas/RegisterInput"
       responses:
-        '201':
+        "201":
           description: User registered successfully
-        '400':
+        "400":
           description: Validation Error
   /api/auth/login:
     post:
@@ -191,27 +795,1033 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginInput'
+              $ref: "#/components/schemas/LoginInput"
       responses:
-        '200':
+        "200":
           description: User logged in successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '401':
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
           description: Unauthorized
+  /api/auth/otp/send:
+    post:
+      summary: Send OTP to email/phone
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOtpInput"
+      responses:
+        "200":
+          description: OTP Sent
+  /api/auth/otp/verify:
+    post:
+      summary: Verify OTP and get JWT
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyOtpInput"
+      responses:
+        "200":
+          description: OTP Verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/oauth/google:
+    post:
+      summary: Login/Register via Google
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthInput"
+      responses:
+        "200":
+          description: Google Login Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/oauth/apple:
+    post:
+      summary: Login/Register via Apple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthInput"
+      responses:
+        "200":
+          description: Apple Login Successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/refresh:
+    post:
+      summary: Refresh access token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenInput"
+      responses:
+        "200":
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+  /api/auth/logout:
+    post:
+      summary: Logout and invalidate refresh token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenInput"
+      responses:
+        "200":
+          description: Logged out successfully
+  /api/auth/password/forgot:
+    post:
+      summary: Send password reset OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendOtpInput"
+      responses:
+        "200":
+          description: OTP Sent
+  /api/auth/password/reset:
+    post:
+      summary: Verify OTP and reset password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetInput"
+      responses:
+        "200":
+          description: Password reset successful
+  /api/auth/verify-email:
+    post:
+      summary: Send email verification OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailInput"
+      responses:
+        "200":
+          description: Verification OTP sent
+  /api/auth/verify-phone:
+    post:
+      summary: Send phone verification OTP
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPhoneInput"
+      responses:
+        "200":
+          description: Verification OTP sent
+  /api/auth/verify/confirm:
+    post:
+      summary: Verify OTP and mark contact as verified
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyConfirmInput"
+      responses:
+        "200":
+          description: Contact verified successfully
   /api/users/me:
     get:
       summary: Get current user profile
       security:
         - bearerAuth: []
       responses:
-        '200':
+        "200":
           description: User profile retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetUserResponse'
-        '401':
+                $ref: "#/components/schemas/GetUserResponse"
+        "401":
           description: Unauthorized
+  /api/users/dashboard/hospital:
+    get:
+      summary: Get dashboard statistics for Hospital Admin portal
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Hospital Admin dashboard analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HospitalDashboardResponse"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /api/users/dashboard/provider:
+    get:
+      summary: Get dashboard analytics and schedule for Consultant/Doctor portal
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Provider dashboard analytics and schedule queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderDashboardResponse"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+  /api/appointments/slots:
+    get:
+      summary: Retrieve available schedule slots for a provider
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: providerId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Slots list retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetSlotsResponse"
+  /api/appointments:
+    post:
+      summary: Book a new medical appointment
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookAppointmentInput"
+      responses:
+        "201":
+          description: Appointment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAppointmentResponse"
+    get:
+      summary: List authenticated patient/provider appointments
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAppointmentsResponse"
+  "/api/appointments/{id}/cancel":
+    patch:
+      summary: Cancel a booked appointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: Appointment cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAppointmentResponse"
+  /api/prescriptions:
+    post:
+      summary: Create a new prescription in DRAFT status
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePrescriptionInput"
+      responses:
+        "201":
+          description: Prescription drafted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+    get:
+      summary: List patient/provider/pharmacist accessible prescriptions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPrescriptionsResponse"
+  "/api/prescriptions/{id}":
+    get:
+      summary: Get full prescription details including line items
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+  "/api/prescriptions/{id}/sign":
+    post:
+      summary: Digitally sign a DRAFT prescription with clinical license check and OTP
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignPrescriptionInput"
+      responses:
+        "200":
+          description: Prescription signed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+  "/api/prescriptions/{id}/dispense":
+    patch:
+      summary: Mark a prescription as dispensed by a pharmacist
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Prescription marked as dispensed successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPrescriptionResponse"
+  /api/telemedicine/rooms:
+    post:
+      summary: Initialize a telemedicine video room
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appointmentId:
+                  type: string
+                  format: uuid
+                roomType:
+                  type: string
+                  enum:
+                    - ONE_ON_ONE
+                    - MDT
+      responses:
+        "201":
+          description: Telemedicine room created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemedicineRoom"
+  "/api/telemedicine/rooms/{id}/token":
+    post:
+      summary: Retrieve Twilio Video participant join token
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Join token issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetTokenResponse"
+  "/api/telemedicine/rooms/{id}/end":
+    post:
+      summary: End telemedicine consultation room sessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Room session ended successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelemedicineRoom"
+
+  # Pharmacy Service Schemas
+  Product:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      pharmacyId:
+        type: string
+        format: uuid
+      name:
+        type: string
+      description:
+        type: string
+      price:
+        type: number
+      stock:
+        type: integer
+      category:
+        type: string
+      imageUrl:
+        type: string
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  OrderItem:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      productId:
+        type: string
+        format: uuid
+      quantity:
+        type: integer
+      unitPrice:
+        type: number
+      product:
+        $ref: '#/components/schemas/Product'
+  PharmacyOrder:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      patientId:
+        type: string
+        format: uuid
+      pharmacyId:
+        type: string
+        format: uuid
+      status:
+        type: string
+        enum: [PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+      deliveryType:
+        type: string
+        enum: [DELIVERY, PICKUP]
+      deliveryAddress:
+        type: object
+      totalAmount:
+        type: number
+      items:
+        type: array
+        items:
+          $ref: '#/components/schemas/OrderItem'
+      createdAt:
+        type: string
+        format: date-time
+  CreateProductInput:
+    type: object
+    required:
+      - name
+      - price
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      price:
+        type: number
+      stock:
+        type: integer
+      category:
+        type: string
+      imageUrl:
+        type: string
+  CreateOrderInput:
+    type: object
+    required:
+      - items
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          required:
+            - productId
+            - quantity
+          properties:
+            productId:
+              type: string
+              format: uuid
+            quantity:
+              type: integer
+      deliveryType:
+        type: string
+        enum: [DELIVERY, PICKUP]
+      notes:
+        type: string
+
+  # Notification Service Schemas
+  Notification:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      userId:
+        type: string
+        format: uuid
+      type:
+        type: string
+      title:
+        type: string
+      body:
+        type: string
+      channel:
+        type: string
+        enum: [IN_APP, SMS, EMAIL, PUSH]
+      isRead:
+        type: boolean
+      metadata:
+        type: object
+      createdAt:
+        type: string
+        format: date-time
+      readAt:
+        type: string
+        format: date-time
+  NotificationPreference:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      userId:
+        type: string
+        format: uuid
+      emailEnabled:
+        type: boolean
+      smsEnabled:
+        type: boolean
+      pushEnabled:
+        type: boolean
+      quietHoursStart:
+        type: string
+      quietHoursEnd:
+        type: string
+      updatedAt:
+        type: string
+        format: date-time
+  UpdateNotificationPreferencesInput:
+    type: object
+    properties:
+      emailEnabled:
+        type: boolean
+      smsEnabled:
+        type: boolean
+      pushEnabled:
+        type: boolean
+      quietHoursStart:
+        type: string
+      quietHoursEnd:
+        type: string
+  RegisterPushTokenInput:
+    type: object
+    required:
+      - token
+    properties:
+      token:
+        type: string
+      platform:
+        type: string
+        enum: [ios, android, web]
+
+paths:
+  # Pharmacy Service Endpoints
+  /api/pharmacy/products:
+    get:
+      summary: List pharmacy products
+      tags:
+        - Pharmacy
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      products:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+                      total:
+                        type: integer
+    post:
+      summary: Create a new product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductInput'
+      responses:
+        '201':
+          description: Product created
+  /api/pharmacy/products/{id}:
+    get:
+      summary: Get product by ID
+      tags:
+        - Pharmacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product details
+    put:
+      summary: Update product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductInput'
+      responses:
+        '200':
+          description: Product updated
+    delete:
+      summary: Delete product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product deleted
+  /api/pharmacy/categories:
+    get:
+      summary: Get product categories
+      tags:
+        - Pharmacy
+      responses:
+        '200':
+          description: Categories list
+  /api/pharmacy/orders:
+    get:
+      summary: List user orders
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Orders list
+    post:
+      summary: Create order
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderInput'
+      responses:
+        '201':
+          description: Order created
+  /api/pharmacy/orders/{id}:
+    get:
+      summary: Get order by ID
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order details
+  /api/pharmacy/orders/{id}/cancel:
+    patch:
+      summary: Cancel order (Patient only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order cancelled
+  /api/pharmacy/orders/{id}/status:
+    patch:
+      summary: Update order status (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+  /api/pharmacy/prescriptions/fulfill:
+    post:
+      summary: Fulfill prescription
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prescriptionId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Prescription fulfilled
+
+  # Notification Service Endpoints
+  /api/notifications:
+    get:
+      summary: List notifications
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: isRead
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      notifications:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+  /api/notifications/unread-count:
+    get:
+      summary: Get unread count
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Unread count
+  /api/notifications/read-all:
+    patch:
+      summary: Mark all as read
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All marked as read
+  /api/notifications/preferences:
+    get:
+      summary: Get preferences
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Preferences
+    put:
+      summary: Update preferences
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPreferencesInput'
+      responses:
+        '200':
+          description: Preferences updated
+  /api/notifications/push-token:
+    post:
+      summary: Register push token
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPushTokenInput'
+      responses:
+        '200':
+          description: Token registered
+  /api/notifications/{id}:
+    get:
+      summary: Get notification
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification details
+    delete:
+      summary: Delete notification
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification deleted
+  /api/notifications/{id}/read:
+    patch:
+      summary: Mark as read
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Marked as read
+  /api/notifications/test:
+    post:
+      summary: Send test notification (Admin)
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                title:
+                  type: string
+                body:
+                  type: string
+      responses:
+        '201':
+          description: Test notification sent

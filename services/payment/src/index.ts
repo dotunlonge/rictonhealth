@@ -18,6 +18,8 @@ import {
   setupGracefulShutdown,
   createCors,
   checkDatabase,
+  checkRedis,
+  redis,
 } from '@ricton/shared';
 import paymentRoutes from './routes/payment.routes';
 
@@ -48,6 +50,7 @@ app.use(httpLogger);
 app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
+    await checkRedis(redis);
     res.status(200).json({ status: 'ok', service: 'payment-service' });
   } catch (error) {
     res
