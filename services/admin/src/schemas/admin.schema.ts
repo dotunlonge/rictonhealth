@@ -7,7 +7,7 @@ export const AdminUserListQuerySchema = z.object({
   page: z.string().optional().default('1'),
   limit: z.string().optional().default('20'),
   role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']).optional(),
-  status: z.enum(['ACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION', 'DEACTIVATED']).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'PENDING', 'DEACTIVATED']).optional(),
   search: z.string().optional(),
 });
 
@@ -18,7 +18,7 @@ export const AdminUserResponseSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
-  status: z.enum(['ACTIVE', 'SUSPENDED', 'PENDING_VERIFICATION', 'DEACTIVATED']),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'PENDING', 'DEACTIVATED']),
   isVerified: z.boolean(),
   createdAt: z.string().datetime(),
   lastLoginAt: z.string().datetime().nullable(),
@@ -45,6 +45,9 @@ export const AdminHospitalCreateSchema = z.object({
   phone: z.string().min(10),
   website: z.string().url().optional(),
 });
+
+// Update schema - all fields optional as updates are partial
+export const AdminHospitalUpdateSchema = AdminHospitalCreateSchema.partial();
 
 export const AdminAuditLogQuerySchema = z.object({
   page: z.string().optional().default('1'),

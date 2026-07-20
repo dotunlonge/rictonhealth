@@ -367,7 +367,17 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           include: { wallet: true },
         });
 
-        if (user && user.wallet) {
+        // Create wallet if it doesn't exist (user might have topped up before creating wallet)
+        let wallet = user?.wallet;
+        if (!wallet && user) {
+          wallet = await prisma.wallet.upsert({
+            where: { userId: user.id },
+            create: { userId: user.id, balance: 0 },
+            update: {},
+          });
+        }
+
+        if (user && wallet) {
           // Check for duplicate
           const existingTx = await prisma.walletTransaction.findFirst({
             where: {

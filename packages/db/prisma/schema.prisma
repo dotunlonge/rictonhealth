@@ -609,6 +609,8 @@ model RewardTransaction {
   deliveredAt     DateTime?     @db.Timestamptz(6)
   createdAt       DateTime      @default(now()) @db.Timestamptz(6)
 
+  // Unique constraint to prevent duplicate point awards for same event
+  @@unique([userId, source, referenceId, type])
   @@map("reward_transactions")
 }
 

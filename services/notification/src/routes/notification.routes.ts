@@ -162,7 +162,7 @@ router.post('/push-token', notificationController.registerPushToken);
  *       200:
  *         description: Notification details
  */
-router.get('/:id', notificationController.markAsRead);
+router.get('/:id', notificationController.getNotificationById);
 
 /**
  * @openapi

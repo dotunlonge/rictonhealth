@@ -15,7 +15,7 @@ router.post('/redeem', rewardsController.redeemReward);
 router.get('/catalog', rewardsController.getCatalog);
 router.get('/tiers', rewardsController.getTiers);
 
-// Internal service endpoint (should have additional service-to-service auth in production)
-router.post('/internal/earn', rewardsController.earnPoints);
+// Internal service endpoint - requires SERVICE role for security
+router.post('/internal/earn', requireRole('SERVICE'), rewardsController.earnPoints);
 
 export default router;

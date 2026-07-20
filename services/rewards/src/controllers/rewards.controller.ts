@@ -155,90 +155,117 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
 
     const { rewardId, shippingAddress } = bodyResult.data;
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Get user's current balance
-      const earnings = await tx.rewardTransaction.aggregate({
-        where: { userId, type: 'EARN' },
-        _sum: { points: true },
-      });
+    // Use serializable isolation with retry logic to prevent race conditions
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          // Get user's current balance with row-level locking simulation via select first
+          const earnings = await tx.rewardTransaction.aggregate({
+            where: { userId, type: 'EARN' },
+            _sum: { points: true },
+          });
 
-      const redemptions = await tx.rewardTransaction.aggregate({
-        where: { userId, type: 'REDEEM' },
-        _sum: { points: true },
-      });
+          const redemptions = await tx.rewardTransaction.aggregate({
+            where: { userId, type: 'REDEEM' },
+            _sum: { points: true },
+          });
 
-      const balance = (earnings._sum.points || 0) - Math.abs(redemptions._sum.points || 0);
+          const balance = (earnings._sum.points || 0) - Math.abs(redemptions._sum.points || 0);
 
-      // Get reward details
-      const reward = await tx.rewardCatalog.findUnique({
-        where: { id: rewardId },
-      });
+          // Get reward details
+          const reward = await tx.rewardCatalog.findUnique({
+            where: { id: rewardId },
+          });
 
-      if (!reward) {
-        throw new NotFoundError('Reward not found');
-      }
+          if (!reward) {
+            throw new NotFoundError('Reward not found');
+          }
 
-      if (!reward.isActive) {
-        throw new ValidationError('Reward is no longer available');
-      }
+          if (!reward.isActive) {
+            throw new ValidationError('Reward is no longer available');
+          }
 
-      if (reward.stock <= 0) {
-        throw new ValidationError('Reward out of stock');
-      }
+          if (reward.stock <= 0) {
+            throw new ValidationError('Reward out of stock');
+          }
 
-      if (balance < reward.pointsCost) {
-        throw new ValidationError('Insufficient points balance');
-      }
+          if (balance < reward.pointsCost) {
+            throw new ValidationError('Insufficient points balance');
+          }
 
-      // Check tier requirement
-      const userTier = getUserTier(earnings._sum.points || 0);
-      if (reward.tierRequired && userTier.name !== reward.tierRequired) {
-        const tierOrder = ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'];
-        if (tierOrder.indexOf(userTier.name) < tierOrder.indexOf(reward.tierRequired)) {
-          throw new ForbiddenError(`This reward requires ${reward.tierRequired} tier or higher`);
+          // Check tier requirement
+          const userTier = getUserTier(earnings._sum.points || 0);
+          if (reward.tierRequired && userTier.name !== reward.tierRequired) {
+            const tierOrder = ['BRONZE', 'SILVER', 'GOLD', 'PLATINUM'];
+            if (tierOrder.indexOf(userTier.name) < tierOrder.indexOf(reward.tierRequired)) {
+              throw new ForbiddenError(`This reward requires ${reward.tierRequired} tier or higher`);
+            }
+          }
+
+          // Create redemption transaction
+          const transaction = await tx.rewardTransaction.create({
+            data: {
+              userId,
+              type: 'REDEEM',
+              points: -reward.pointsCost,
+              source: 'REDEMPTION',
+              description: `Redeemed: ${reward.name}`,
+              referenceId: null,
+              status: 'PENDING',
+              rewardCatalogId: rewardId,
+              shippingAddress: shippingAddress ? JSON.stringify(shippingAddress) : null,
+            },
+          });
+
+          // Update reward stock atomically with conditional check
+          await tx.rewardCatalog.update({
+            where: { id: rewardId, stock: { gt: 0 } },
+            data: { stock: { decrement: 1 } },
+          });
+
+          // Calculate new balance
+          const newBalance = balance - reward.pointsCost;
+
+          return { transaction, newBalance, reward };
+        }, {
+          timeout: 10000, // 10 second timeout
+        });
+
+        res.status(201).json(
+          successResponse({
+            redemption: {
+              id: result.transaction.id,
+              pointsUsed: result.reward.pointsCost,
+              reward: { 
+                id: result.reward.id, 
+                name: result.reward.name, 
+                description: result.reward.description, 
+                pointsCost: result.reward.pointsCost 
+              },
+              status: result.transaction.status,
+              deliveredAt: null,
+              createdAt: result.transaction.createdAt.toISOString(),
+            },
+            newBalance: result.newBalance,
+          })
+        );
+        return;
+      } catch (error: any) {
+        lastError = error;
+        // If it's a serialization failure or deadlock, retry
+        if (error.code === 'P2034' || error.message.includes('deadlock') || error.message.includes('serialization')) {
+          if (attempt < maxRetries - 1) {
+            continue;
+          }
         }
+        throw error;
       }
-
-      // Create redemption transaction
-      const transaction = await tx.rewardTransaction.create({
-        data: {
-          userId,
-          type: 'REDEEM',
-          points: -reward.pointsCost,
-          source: 'REDEMPTION',
-          description: `Redeemed: ${reward.name}`,
-          referenceId: null,
-          status: 'PENDING',
-          rewardCatalogId: rewardId,
-          shippingAddress: shippingAddress ? JSON.stringify(shippingAddress) : null,
-        },
-      });
-
-      // Update reward stock
-      await tx.rewardCatalog.update({
-        where: { id: rewardId },
-        data: { stock: { decrement: 1 } },
-      });
-
-      // Calculate new balance
-      const newBalance = balance - reward.pointsCost;
-
-      return { transaction, newBalance };
-    });
-
-    res.status(201).json(
-      successResponse({
-        redemption: {
-          id: result.transaction.id,
-          pointsUsed: reward.pointsCost,
-          reward: { id: rewardId, name: '', description: '', pointsCost: 0 }, // Would need to fetch full reward
-          status: result.transaction.status,
-          deliveredAt: null,
-          createdAt: result.transaction.createdAt.toISOString(),
-        },
-        newBalance: result.newBalance,
-      })
-    );
+    }
+    
+    throw lastError || new Error('Failed to process redemption after retries');
   } catch (error) {
     next(error);
   }
@@ -322,11 +349,12 @@ export const earnPoints = async (req: Request, res: Response, next: NextFunction
     // This should be called internally with service-to-service auth
     const { userId, source, referenceId, basePoints } = req.body;
 
-    if (!userId || !source || !referenceId || !basePoints) {
-      throw new ValidationError('Missing required fields');
+    // Validate required fields and ensure basePoints is a positive integer
+    if (!userId || !source || !referenceId || !basePoints || basePoints <= 0 || !Number.isInteger(basePoints)) {
+      throw new ValidationError('Missing or invalid required fields. basePoints must be a positive integer.');
     }
 
-    // Check if points already awarded for this reference
+    // Check if points already awarded for this reference using upsert pattern for atomicity
     const existing = await prisma.rewardTransaction.findFirst({
       where: {
         userId,

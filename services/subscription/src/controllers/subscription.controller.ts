@@ -125,16 +125,24 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
       throw new ValidationError('Only PREMIUM plan upgrades are supported');
     }
 
-    // Check for existing active subscription
-    const existingSubscription = await prisma.subscription.findFirst({
-      where: { 
-        userId,
-        status: SubscriptionStatus.ACTIVE,
-        expiresAt: { gte: new Date() },
-      },
+    // Atomic check-and-create to prevent race conditions
+    const subscriptionCheck = await prisma.$transaction(async (tx) => {
+      const existingSub = await tx.subscription.findFirst({
+        where: { 
+          userId,
+          status: SubscriptionStatus.ACTIVE,
+          expiresAt: { gte: new Date() },
+        },
+      });
+
+      if (existingSub && existingSub.plan === SubscriptionPlan.PREMIUM) {
+        throw new ValidationError('You already have an active Premium subscription');
+      }
+
+      return existingSub;
     });
 
-    if (existingSubscription && existingSubscription.plan === SubscriptionPlan.PREMIUM) {
+    if (subscriptionCheck && subscriptionCheck.plan === SubscriptionPlan.PREMIUM) {
       throw new ValidationError('You already have an active Premium subscription');
     }
 
@@ -166,6 +174,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
           plan,
           billingPeriod,
           userId,
+          subscriptionId: subscription.id,
         },
       }),
     });

@@ -183,6 +183,11 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       throw new ValidationError('Requested time is outside the provider availability window');
     }
 
+    // Validate slot alignment to provider's configured grid
+    if ((reqMinutes - startMinutes) % availability.slotDurationMinutes !== 0) {
+      throw new ValidationError('Requested time must align to the provider slot grid');
+    }
+
     // Use the requested scheduledDate directly (not overwritten to startTime)
     const slotStart = new Date(scheduledDate);
     const slotEnd = new Date(slotStart);

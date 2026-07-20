@@ -61,7 +61,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     const { id } = req.params;
 
     const product = await prisma.product.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: {
         pharmacy: {
           select: {
@@ -99,13 +99,25 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       throw new ValidationError('Name and price are required');
     }
 
+    // Validate price is a non-negative finite number
+    const numericPrice = Number(price);
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+      throw new ValidationError('Price must be a non-negative number');
+    }
+
+    // Validate stock is a non-negative integer
+    const numericStock = Number(stock) || 0;
+    if (!Number.isInteger(numericStock) || numericStock < 0) {
+      throw new ValidationError('Stock must be a non-negative integer');
+    }
+
     const product = await prisma.product.create({
       data: {
         pharmacyId: userPayload.userId,
         name,
         description: description || null,
-        price: Number(price),
-        stock: Number(stock) || 0,
+        price: numericPrice,
+        stock: numericStock,
         category: category || null,
         imageUrl: imageUrl || null,
       },
@@ -132,7 +144,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     const { name, description, price, stock, category, imageUrl, isActive } = req.body;
 
     const existing = await prisma.product.findUnique({
-      where: { id },
+      where: { id, isActive: true },
     });
 
     if (!existing) {
@@ -144,7 +156,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     }
 
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id, isActive: true },
       data: {
         name,
         description,
@@ -176,7 +188,7 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
     const { id } = req.params;
 
     const existing = await prisma.product.findUnique({
-      where: { id },
+      where: { id, isActive: true },
     });
 
     if (!existing) {
@@ -188,7 +200,7 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
     }
 
     const updated = await prisma.product.update({
-      where: { id },
+      where: { id, isActive: true },
       data: { isActive: false },
     });
 
@@ -242,10 +254,11 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     // Validate items and calculate total
     let totalAmount = 0;
     const orderItemsData = [];
+    let pharmacyId: string | null = null;
 
     for (const item of items) {
-      if (!item.productId || !item.quantity) {
-        throw new ValidationError('Each item must have productId and quantity');
+      if (!item.productId || !item.quantity || item.quantity <= 0) {
+        throw new ValidationError('Each item must have productId and a positive quantity');
       }
 
       const product = await prisma.product.findUnique({
@@ -256,8 +269,20 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
       }
 
+      // Validate price and stock are non-negative
+      if (Number(product.price) < 0 || product.stock < 0) {
+        throw new ValidationError(`Invalid product data for ${product.name}`);
+      }
+
       if (product.stock < item.quantity) {
         throw new ValidationError(`Insufficient stock for ${product.name}`);
+      }
+
+      // Track pharmacy ID and ensure all products belong to the same pharmacy
+      if (pharmacyId === null) {
+        pharmacyId = product.pharmacyId;
+      } else if (product.pharmacyId !== pharmacyId) {
+        throw new ValidationError('All items in an order must belong to the same pharmacy');
       }
 
       totalAmount += Number(product.price) * item.quantity;
@@ -273,9 +298,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       const newOrder = await tx.pharmacyOrder.create({
         data: {
           patientId: userPayload.userId,
-          pharmacyId: orderItemsData[0] 
-            ? (await tx.product.findUnique({ where: { id: orderItemsData[0].productId } }))?.pharmacyId
-            : userPayload.userId,
+          pharmacyId: pharmacyId!,
           status: OrderStatus.PENDING,
           deliveryType: deliveryType || DeliveryType.DELIVERY,
           deliveryAddress: deliveryAddress || null,
@@ -408,7 +431,7 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     const { id } = req.params;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: {
         items: {
           include: {
@@ -487,7 +510,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id },
+      where: { id, isActive: true },
     });
 
     if (!order) {
@@ -498,8 +521,44 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       throw new ForbiddenError('Not authorized to update this order');
     }
 
+    // Handle CANCELLED status specially - restore stock
+    if (status === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
+      // Restore product stock inside a transaction
+      await prisma.$transaction(async (tx) => {
+        const orderItems = await tx.orderItem.findMany({
+          where: { orderId: id },
+          include: { product: true },
+        });
+
+        for (const item of orderItems) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
+        }
+
+        await tx.pharmacyOrder.update({
+          where: { id },
+          data: { status: OrderStatus.CANCELLED },
+        });
+      });
+
+      const updatedOrder = await prisma.pharmacyOrder.findUnique({
+        where: { id },
+        include: {
+          items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+      });
+
+      return res.status(200).json(successResponse(updatedOrder));
+    }
+
     const updated = await prisma.pharmacyOrder.update({
-      where: { id },
+      where: { id, isActive: true },
       data: { status: status as OrderStatus },
       include: {
         items: {
@@ -526,7 +585,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
     const { reason } = req.body;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id },
+      where: { id, isActive: true },
       include: { items: true },
     });
 
@@ -555,7 +614,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 
       // Cancel order
       return tx.pharmacyOrder.update({
-        where: { id },
+        where: { id, isActive: true },
         data: {
           status: OrderStatus.CANCELLED,
           cancellationReason: reason || null,
@@ -597,6 +656,20 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
 
     if (!prescription) {
       throw new NotFoundError('Prescription not found');
+    }
+
+    // Validate prescription status - only SENT_TO_PHARMACY prescriptions can be fulfilled
+    if (prescription.status !== 'SENT_TO_PHARMACY') {
+      throw new ValidationError(`Prescription cannot be fulfilled. Current status: ${prescription.status}`);
+    }
+
+    // Check if order already exists for this prescription
+    const existingOrder = await prisma.pharmacyOrder.findFirst({
+      where: { prescriptionId: prescription.id },
+    });
+
+    if (existingOrder) {
+      throw new ConflictError('Order already exists for this prescription');
     }
 
     // Create order from prescription items

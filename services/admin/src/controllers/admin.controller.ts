@@ -117,31 +117,35 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
       throw new ForbiddenError('Cannot change status of super admin users');
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id },
-      data: {
-        status,
-        ...(reason && { metadata: { ...user.metadata, suspensionReason: reason } }),
-      },
-      select: {
-        id: true,
-        email: true,
-        status: true,
-        updatedAt: true,
-      },
-    });
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: {
+          status,
+          ...(reason && { metadata: { ...user.metadata, suspensionReason: reason } }),
+        },
+        select: {
+          id: true,
+          email: true,
+          status: true,
+          updatedAt: true,
+        },
+      });
 
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: req.user?.userId || 'system',
-        action: 'USER_STATUS_UPDATE',
-        resource: 'User',
-        resourceId: id,
-        details: { previousStatus: user.status, newStatus: status, reason },
-        ipAddress: req.ip || '',
-        userAgent: req.headers['user-agent'] || '',
-      },
+      // Create audit log within same transaction
+      await tx.auditLog.create({
+        data: {
+          userId: req.user?.userId || 'system',
+          action: 'USER_STATUS_UPDATE',
+          resource: 'User',
+          resourceId: id,
+          details: { previousStatus: user.status, newStatus: status, reason },
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+
+      return updated;
     });
 
     res.status(200).json(successResponse(updatedUser));
@@ -275,7 +279,8 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
         where: { id: provider.userId },
         data: {
           isVerified: verified,
-          status: verified ? 'ACTIVE' : 'SUSPENDED',
+          // Only set to ACTIVE if transitioning from PENDING, don't overwrite SUSPENDED/DEACTIVATED
+          status: verified && provider.user.status === 'PENDING' ? 'ACTIVE' : undefined,
         },
       });
 
@@ -382,22 +387,16 @@ export const getHospitalById = async (req: Request, res: Response, next: NextFun
 export const updateHospital = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { name, description, address, city, state, country, email, phone, website, status } = req.body;
+    
+    // Validate request body with update schema
+    const bodyResult = AdminHospitalUpdateSchema.safeParse(req.body);
+    if (!bodyResult.success) {
+      throw new ValidationError('Invalid request body', bodyResult.error.errors);
+    }
 
     const hospital = await prisma.hospital.update({
       where: { id },
-      data: {
-        name,
-        description,
-        address,
-        city,
-        state,
-        country,
-        email,
-        phone,
-        website,
-        status,
-      },
+      data: bodyResult.data,
     });
 
     await prisma.auditLog.create({
@@ -485,7 +484,7 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
       _sum: { amount: true },
     });
 
-    const totalRevenue = payments._sum.amount || 0;
+    const totalRevenue = payments._sum.amount ? Number(payments._sum.amount) : 0;
 
     // Get top providers by appointments
     const topProviders = await prisma.providerProfile.findMany({
