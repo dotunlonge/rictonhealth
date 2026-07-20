@@ -593,6 +593,49 @@ model RewardPoint {
   @@map("reward_points")
 }
 
+model RewardTransaction {
+  id              String        @id @default(uuid()) @db.Uuid
+  userId          String        @db.Uuid
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type            RewardTransactionType
+  points          Int
+  source          RewardSource
+  description     String
+  referenceId     String?
+  status          TransactionStatus @default(COMPLETED)
+  rewardCatalogId String?       @db.Uuid
+  rewardCatalog   RewardCatalog? @relation(fields: [rewardCatalogId], references: [id])
+  shippingAddress Json?
+  deliveredAt     DateTime?     @db.Timestamptz(6)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@map("reward_transactions")
+}
+
+enum RewardTransactionType {
+  EARN
+  REDEEM
+}
+
+enum RewardSource {
+  APPOINTMENT
+  PRESCRIPTION
+  PHARMACY_ORDER
+  REFERRAL
+  SIGNUP
+  PROMOTION
+  REDEMPTION
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  REDEEMED
+  CANCELLED
+  COMPLETED
+}
+
 model Address {
   id           String   @id @default(uuid()) @db.Uuid
   userId       String   @db.Uuid
@@ -721,13 +764,24 @@ model Product {
 
 model RewardCatalog {
   id          String   @id @default(uuid()) @db.Uuid
-  title       String
+  name        String
   description String?
   pointsCost  Int
+  category    String   @default("general")
+  imageUrl    String?
   stock       Int      @default(100)
   isActive    Boolean  @default(true)
+  tierRequired RewardTier?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   redeemedBy  User[]   @relation("RewardRedeemedBy")
+  transactions RewardTransaction[]
 
   @@map("reward_catalogs")
+}
+
+enum RewardTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
 }

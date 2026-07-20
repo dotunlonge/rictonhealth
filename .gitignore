@@ -11,13 +11,17 @@ target/
 *.tsbuildinfo
 *.js.map
 
-# Logs
-*.log
-
 # Environment variables
 .env
 .env.local
 *.env.*
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
 
 # IDE files
 .vscode/
@@ -25,24 +29,19 @@ target/
 *.swp
 *.swo
 
-# OS files
-.DS_Store
-Thumbs.db
+# Python (if any Python files exist in the project)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
 
 # Coverage
 coverage/
 htmlcov/
 .coverage
-
-# Python cache (if present in shared packages)
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Testing
-.jest/
-jest-coverage/
 
 # Temporary files
 *.tmp
