@@ -1,74 +1,65 @@
 ```
 # Dependencies
 node_modules/
-.pnpm-store/
-.npm/
-.yarn/
-bower_components/
 
-# Build outputs
+# Build artifacts
 dist/
 build/
-coverage/
 target/
-*.min.js
-*.min.css
-bundle.js
-bundle.css
 
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment variables
-.env
-.env.local
-.env.*
-!.env.example
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
-
-# Python specific
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-*.so
-.coverage
-htmlcov/
-.pytest_cache/
-.mypy_cache/
+env/
+venv/
+.venv/
+.env
+.env.local
+.env.*
 
-# Node.js specific
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-node_modules/
-.pnp.cjs
-.pnp.loader.mjs
+# Logs
+*.log
 
-# Temporary files
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 *.tmp
-*.temp
-.tmp/
-.temp/
 
-# OS generated files
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
 ```
