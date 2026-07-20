@@ -1,0 +1,84 @@
+import { z } from 'zod';
+import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
+
+extendZodWithOpenApi(z);
+
+export const NotificationSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  type: z.enum(['EMAIL', 'SMS', 'PUSH', 'IN_APP']),
+  channel: z.enum(['EMAIL', 'SMS', 'PUSH', 'IN_APP']),
+  title: z.string(),
+  message: z.string(),
+  data: z.record(z.any()).nullable(),
+  isRead: z.boolean(),
+  readAt: z.string().datetime().nullable(),
+  sentAt: z.string().datetime().nullable(),
+  deliveredAt: z.string().datetime().nullable(),
+  failedAt: z.string().datetime().nullable(),
+  failureReason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export const SendNotificationSchema = z.object({
+  userId: z.string().uuid(),
+  type: z.enum(['EMAIL', 'SMS', 'PUSH', 'IN_APP']),
+  title: z.string(),
+  message: z.string(),
+  data: z.record(z.any()).optional(),
+});
+
+export const SendBulkNotificationSchema = z.object({
+  userIds: z.array(z.string().uuid()).min(1),
+  type: z.enum(['EMAIL', 'SMS', 'PUSH', 'IN_APP']),
+  title: z.string(),
+  message: z.string(),
+  data: z.record(z.any()).optional(),
+});
+
+export const MarkAsReadSchema = z.object({
+  notificationIds: z.array(z.string().uuid()).optional(),
+  markAll: z.boolean().default(false),
+});
+
+import { registry } from '@ricton/shared';
+
+export const NotificationsListResponse = registry.register(
+  'NotificationsListResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      notifications: z.array(NotificationSchema),
+      total: z.number(),
+      unreadCount: z.number(),
+      limit: z.number(),
+      offset: z.number(),
+    }),
+  })
+);
+
+export const NotificationDetailResponse = registry.register(
+  'NotificationDetailResponse',
+  z.object({
+    success: z.boolean(),
+    data: NotificationSchema,
+  })
+);
+
+export const SendNotificationResponse = registry.register(
+  'SendNotificationResponse',
+  z.object({
+    success: z.boolean(),
+    data: NotificationSchema,
+  })
+);
+
+export const UnreadCountResponse = registry.register(
+  'UnreadCountResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      count: z.number(),
+    }),
+  })
+);

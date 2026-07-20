@@ -1,27 +1,92 @@
-import express from 'express';
-import { errorHandler } from '@ricton/shared';
-import subscriptionRoutes from './routes/subscription.routes';
+import ddTrace from 'dd-trace';
 
-const app = express();
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', service: 'subscription-service' });
+ddTrace.init({
+  service: 'subscription-service',
+  env: process.env.NODE_ENV || 'development',
 });
 
-// Subscription routes
+import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
+import dotenv from 'dotenv';
+import { prisma } from '@ricton/db';
+import { redis } from '@ricton/shared';
+import {
+  errorResponse,
+  AppError,
+  httpLogger,
+  logger,
+  initSentry,
+  setupGracefulShutdown,
+  createCors,
+} from '@ricton/shared';
+import subscriptionRoutes from './routes/subscription.routes';
+
+dotenv.config({ path: '../../.env' });
+
+initSentry('subscription-service');
+
+const app = express();
+const PORT = process.env.PORT_SUBSCRIPTION || 3010;
+
+app.set('trust proxy', true);
+app.use(helmet());
+app.use(createCors());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(httpLogger);
+
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     summary: Health check endpoint
+ *     tags:
+ *       - System
+ *     responses:
+ *       200:
+ *         description: OK
+ */
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    await redis.ping();
+    res.status(200).json({ status: 'ok', service: 'subscription-service' });
+  } catch (error) {
+    res
+      .status(503)
+      .json({ status: 'error', service: 'subscription-service', message: 'Dependency check failed' });
+  }
+});
+
 app.use('/api/subscriptions', subscriptionRoutes);
 
-// Error handling middleware
-app.use(errorHandler);
+app.use((_req: Request, res: Response) => {
+  res.status(404).json(errorResponse('Endpoint not found', 'NOT_FOUND'));
+});
 
-const PORT = process.env.PORT_SUBSCRIPTION || 3009;
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, 'Unhandled error in subscription-service');
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
+  } else {
+    res.status(500).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+  }
+});
 
-app.listen(PORT, () => {
-  console.log(`💎 Subscription Service running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  logger.info(`Subscription service listening on port ${PORT}`);
+});
+
+server.timeout = 30000;
+
+setupGracefulShutdown({
+  app,
+  server,
+  serviceName: 'subscription-service',
+  onShutdown: async () => {
+    await prisma.$disconnect();
+    await redis.quit();
+  },
 });
 
 export default app;

@@ -229,3 +229,66 @@ export const endRoom = async (req: Request, res: Response, next: NextFunction) =
     next(error);
   }
 };
+
+export const getParticipants = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+
+    const room = await prisma.telemedicineRoom.findUnique({
+      where: { id },
+      include: { 
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+              }
+            }
+          }
+        }
+      },
+    });
+
+    if (!room) throw new NotFoundError('Telemedicine room not found');
+
+    // Secure boundary check: verify user is in participant list or is the assigned doctor/patient
+    const isParticipant = room.participants.some((p) => p.userId === userPayload.userId);
+    const isOwner = room.providerId === userPayload.userId;
+
+    let isAuthorized = isParticipant || isOwner;
+
+    // Check if appointment patient
+    if (!isAuthorized && room.appointmentId) {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: room.appointmentId },
+      });
+      if (appt && appt.patientId === userPayload.userId) {
+        isAuthorized = true;
+      }
+    }
+
+    if (!isAuthorized && userPayload.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenError('You are not authorized to view participants in this telemedicine session');
+    }
+
+    const participantsWithDetails = room.participants.map(p => ({
+      id: p.id,
+      userId: p.userId,
+      roomId: p.roomId,
+      role: p.role,
+      joinedAt: p.joinedAt,
+      leftAt: p.leftAt,
+      user: p.user,
+    }));
+
+    res.status(200).json(successResponse({ participants: participantsWithDetails, room }));
+  } catch (error) {
+    next(error);
+  }
+};
