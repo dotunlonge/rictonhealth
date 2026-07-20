@@ -76,4 +76,28 @@ router.post('/rooms/:id/token', controller.getRoomToken);
  */
 router.post('/rooms/:id/end', controller.endRoom);
 
+/**
+ * @openapi
+ * /api/telemedicine/rooms/{id}/participants:
+ *   get:
+ *     summary: Get participants in a telemedicine room
+ *     tags:
+ *       - Telemedicine
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Participants retrieved successfully
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Room not found
+ */
+router.get('/rooms/:id/participants', controller.getParticipants);
+
 export default router;
