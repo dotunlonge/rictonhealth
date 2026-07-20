@@ -75,7 +75,8 @@ export const getMyWallet = async (req: Request, res: Response, next: NextFunctio
 
 export const createVirtualAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!PAYSTACK_SECRET_KEY) throw new Error('PAYSTACK_SECRET_KEY is not configured');
+    if (!PAYSTACK_SECRET_KEY)
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
 
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
@@ -135,7 +136,7 @@ export const createVirtualAccount = async (req: Request, res: Response, next: Ne
       },
       body: JSON.stringify({
         customer: customerCode,
-        preferred_bank: 'wema-bank', // Default bank for Paystack DVA testing
+        preferred_bank: process.env.PAYSTACK_PREFERRED_BANK || 'wema-bank',
       }),
     });
 
@@ -169,7 +170,8 @@ export const createVirtualAccount = async (req: Request, res: Response, next: Ne
 
 export const paystackWebhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!PAYSTACK_SECRET_KEY) throw new Error('PAYSTACK_SECRET_KEY is not configured');
+    if (!PAYSTACK_SECRET_KEY)
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
 
     const hash = crypto
       .createHmac('sha512', PAYSTACK_SECRET_KEY)

@@ -8,6 +8,7 @@ import {
   UnauthorizedError,
   ValidationError,
   NotFoundError,
+  AppError,
   redis,
   hashOtp,
   verifyOtp,
@@ -193,8 +194,10 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
 
     if (phone) {
       if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new Error(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER'
+        throw new AppError(
+          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await twilioClient.messages.create({
@@ -204,8 +207,10 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
       });
     } else if (email) {
       if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new Error(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL'
+        throw new AppError(
+          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await sgMail.send({
@@ -290,7 +295,8 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
     const { token, role } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
-    if (!googleClient) throw new Error('Google OAuth is not configured.');
+    if (!googleClient)
+      throw new AppError('Google OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
 
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
@@ -398,11 +404,6 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
 
-    const isMember = await redis.sismember(`refresh:${decoded.userId}`, refreshToken);
-    if (!isMember) {
-      throw new UnauthorizedError('Invalid or expired refresh token');
-    }
-
     const tokenHash = hashToken(refreshToken);
     const updateResult = await prisma.refreshToken.updateMany({
       where: { tokenHash, isActive: true },
@@ -413,6 +414,12 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
+    // Atomically remove from Redis set - if this returns 0, token was already consumed
+    const removed = await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+    if (removed === 0) {
+      throw new UnauthorizedError('Invalid or expired refresh token');
+    }
+
     const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) throw new NotFoundError('User not found');
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
@@ -420,9 +427,6 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     const tokens = await generateTokens(user, req);
-
-    // Rotate refresh token: remove old one only after new one is issued
-    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
 
     res.status(200).json(successResponse(tokens));
   } catch (error) {
@@ -585,8 +589,10 @@ const sendVerificationOtp = async (
 
     if (channel === 'phone') {
       if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new Error(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER'
+        throw new AppError(
+          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await twilioClient.messages.create({
@@ -596,8 +602,10 @@ const sendVerificationOtp = async (
       });
     } else {
       if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new Error(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL'
+        throw new AppError(
+          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+          500,
+          'SERVICE_NOT_CONFIGURED'
         );
       }
       await sgMail.send({

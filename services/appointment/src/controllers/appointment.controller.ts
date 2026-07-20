@@ -1,77 +1,55 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, UserRole, AppointmentStatus, AppointmentType } from '@ricton/db';
+import { prisma, UserRole, AppointmentStatus, AppointmentType, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
   NotFoundError,
   ValidationError,
-  ConflictError,
   ForbiddenError,
+  AppError,
 } from '@ricton/shared';
 
-// Helper to convert HH:MM:SS string to minutes since midnight
-const timeToMinutes = (timeStr: string): number => {
-  const [h, m] = timeStr.split(':').map(Number);
-  return h * 60 + m;
-};
-
-// Helper to convert minutes since midnight back to HH:MM:SS string
-const minutesToTimeStr = (totalMinutes: number): string => {
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-};
-
-export const getAvailableSlots = async (req: Request, res: Response, next: NextFunction) => {
+export const getAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { providerId, date } = req.query;
 
     if (!providerId || !date) {
-      throw new ValidationError('providerId and date (YYYY-MM-DD) are required parameters');
+      throw new ValidationError('providerId and date are required');
     }
 
-    const targetDate = new Date(String(date));
-    if (isNaN(targetDate.getTime())) {
-      throw new ValidationError('Invalid date format. Use YYYY-MM-DD');
-    }
+    const targetDate = new Date(date as string);
+    const dayOfWeek = targetDate.getDay();
 
-    // dayOfWeek mapping: 0=Mon, ..., 6=Sun (match our prisma schema.prisma index comment)
-    // Date.getUTCDay(): 0=Sun, 1=Mon, ..., 6=Sat
-    let dayOfWeek = targetDate.getUTCDay() - 1;
-    if (dayOfWeek === -1) dayOfWeek = 6; // Sunday mapped to 6
-
-    const availabilities = await prisma.providerAvailability.findMany({
+    // Get provider's availability for this day
+    const availability = await prisma.providerAvailability.findFirst({
       where: {
-        providerId: String(providerId),
+        providerId: providerId as string,
         dayOfWeek,
         isActive: true,
       },
     });
 
-    if (availabilities.length === 0) {
+    if (!availability) {
       return res.status(200).json(successResponse([]));
     }
 
-    // Get all confirmed/busy appointments on target date
+    // Get all active/confirmed appointments for this provider on this date
     const startOfDay = new Date(targetDate);
-    startOfDay.setUTCHours(0, 0, 0, 0);
+    startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
-    endOfDay.setUTCHours(23, 59, 59, 999);
+    endOfDay.setHours(23, 59, 59, 999);
 
-    const startOfQuery = new Date(targetDate);
-    startOfQuery.setDate(startOfQuery.getDate() - 1); // Go back 24 hours to capture cross-midnight overlaps
-
-    const busyAppointments = await prisma.appointment.findMany({
+    const appointments = await prisma.appointment.findMany({
       where: {
-        providerId: String(providerId),
+        providerId: providerId as string,
         scheduledAt: {
-          gte: startOfQuery,
+          gte: startOfDay,
           lte: endOfDay,
         },
         status: {
           in: [
-            AppointmentStatus.CONFIRMED,
             AppointmentStatus.PENDING,
+            AppointmentStatus.CONFIRMED,
             AppointmentStatus.IN_PROGRESS,
           ],
         },
@@ -82,39 +60,34 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
       },
     });
 
-    const busyTimes = busyAppointments.map((app) => {
-      const targetMidnight = startOfDay.getTime();
-      const appStartMs = app.scheduledAt.getTime();
-      const appEndMs = appStartMs + app.durationMinutes * 60 * 1000;
-
-      const relativeStartMin = Math.floor((appStartMs - targetMidnight) / (60 * 1000));
-      const relativeEndMin = Math.ceil((appEndMs - targetMidnight) / (60 * 1000));
-
-      return {
-        start: relativeStartMin,
-        end: relativeEndMin,
-      };
-    });
-
+    // Generate available slots
     const slots: string[] = [];
+    const [startHour, startMin] = availability.startTime.split(':').map(Number);
+    const [endHour, endMin] = availability.endTime.split(':').map(Number);
+    const slotDuration = availability.slotDurationMinutes;
 
-    for (const av of availabilities) {
-      const startMin = timeToMinutes(av.startTime);
-      const endMin = timeToMinutes(av.endTime);
-      const duration = av.slotDurationMinutes;
-      if (duration <= 0) continue;
+    let currentMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
 
-      for (let current = startMin; current + duration <= endMin; current += duration) {
-        // Overlap verification helper
-        const slotEnd = current + duration;
-        const isOverlap = busyTimes.some((busy) => {
-          return current < busy.end && slotEnd > busy.start;
-        });
+    while (currentMinutes + slotDuration <= endMinutes) {
+      const slotStart = new Date(targetDate);
+      slotStart.setHours(Math.floor(currentMinutes / 60), currentMinutes % 60, 0, 0);
 
-        if (!isOverlap) {
-          slots.push(minutesToTimeStr(current));
-        }
+      const slotEnd = new Date(slotStart);
+      slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+      // Check if this slot conflicts with any existing appointment
+      const hasConflict = appointments.some((apt) => {
+        const aptStart = new Date(apt.scheduledAt);
+        const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
+        return slotStart < aptEnd && slotEnd > aptStart;
+      });
+
+      if (!hasConflict) {
+        slots.push(slotStart.toISOString());
       }
+
+      currentMinutes += slotDuration;
     }
 
     res.status(200).json(successResponse(slots));
@@ -123,142 +96,118 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
   }
 };
 
-export const bookAppointment = async (req: Request, res: Response, next: NextFunction) => {
+export const createAppointment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    if (userPayload.role !== UserRole.PATIENT) {
-      throw new ForbiddenError('Only patients can book appointments');
+    const { providerId, scheduledAt, type, reason, durationMinutes } = req.body;
+
+    if (!providerId || !scheduledAt || !type) {
+      throw new ValidationError('providerId, scheduledAt, and type are required');
     }
 
-    const {
-      providerId,
-      hospitalId,
-      scheduledAt,
-      durationMinutes = 30,
-      type = AppointmentType.VIDEO,
-      notes,
-    } = req.body;
-
-    if (!providerId || !scheduledAt) {
-      throw new ValidationError('providerId and scheduledAt (ISO string) are required');
-    }
-
-    const apptDate = new Date(scheduledAt);
-    if (isNaN(apptDate.getTime())) {
-      throw new ValidationError('Invalid scheduledAt ISO date');
-    }
-
-    if (apptDate.getTime() <= Date.now()) {
-      throw new ValidationError('scheduledAt must be a future date/time');
-    }
-
-    if (apptDate.getUTCSeconds() !== 0 || apptDate.getUTCMilliseconds() !== 0) {
+    if (!Object.values(AppointmentType).includes(type)) {
       throw new ValidationError(
-        'scheduledAt must align to the minute with no seconds or milliseconds'
+        `Invalid appointment type. Must be one of: ${Object.values(AppointmentType).join(', ')}`
       );
     }
 
-    // Concurrency lock and validation inside transaction
-    const appointment = await prisma.$transaction(async (tx) => {
-      // Lock the doctor's user record to serialize slot allocation
-      await tx.$executeRaw`SELECT id FROM users WHERE id = ${providerId}::uuid FOR UPDATE`;
+    const scheduledDate = new Date(scheduledAt);
+    const dayOfWeek = scheduledDate.getDay();
 
-      // 1. Verify availability slot
-      let dayOfWeek = apptDate.getUTCDay() - 1;
-      if (dayOfWeek === -1) dayOfWeek = 6;
-
-      const scheduleTimeStr = `${String(apptDate.getUTCHours()).padStart(2, '0')}:${String(apptDate.getUTCMinutes()).padStart(2, '0')}:00`;
-      const scheduleTimeMin = timeToMinutes(scheduleTimeStr);
-
-      const availabilities = await tx.providerAvailability.findMany({
-        where: {
-          providerId,
-          dayOfWeek,
-          isActive: true,
-        },
-      });
-
-      if (availabilities.length === 0) {
-        throw new ValidationError('Doctor is not available on this day of week');
-      }
-
-      // Find the specific availability window that covers the requested slot start and fits duration inside window
-      const matchedAv = availabilities.find((av) => {
-        const openMin = timeToMinutes(av.startTime);
-        const closeMin = timeToMinutes(av.endTime);
-        const slotDuration = durationMinutes || av.slotDurationMinutes;
-        return scheduleTimeMin >= openMin && scheduleTimeMin + slotDuration <= closeMin;
-      });
-
-      if (!matchedAv) {
-        throw new ValidationError('Requested time slot falls outside Doctor working hours');
-      }
-
-      // Enforce the matched availability's configured slotDurationMinutes to drive the appointment duration
-      const finalDuration = durationMinutes || matchedAv.slotDurationMinutes;
-      if (finalDuration !== matchedAv.slotDurationMinutes) {
-        throw new ValidationError(
-          `Requested duration (${finalDuration}m) does not match the doctor's configured slot duration (${matchedAv.slotDurationMinutes}m)`
-        );
-      }
-
-      // Ensure the start time aligns exactly on the slot grid intervals
-      const openMin = timeToMinutes(matchedAv.startTime);
-      if ((scheduleTimeMin - openMin) % matchedAv.slotDurationMinutes !== 0) {
-        throw new ValidationError(
-          "Requested start time does not align with the doctor's scheduled slot intervals"
-        );
-      }
-
-      // 2. Check for slot overlaps (double-booking safety)
-      const startOfDay = new Date(apptDate);
-      startOfDay.setUTCHours(0, 0, 0, 0);
-      const endOfDay = new Date(apptDate);
-      endOfDay.setUTCHours(23, 59, 59, 999);
-
-      const activeAppointments = await tx.appointment.findMany({
-        where: {
-          providerId,
-          status: {
-            in: [
-              AppointmentStatus.CONFIRMED,
-              AppointmentStatus.PENDING,
-              AppointmentStatus.IN_PROGRESS,
-            ],
-          },
-          scheduledAt: {
-            gte: startOfDay,
-            lte: endOfDay,
-          },
-        },
-      });
-
-      const requestedStart = apptDate.getTime();
-      const requestedEnd = requestedStart + finalDuration * 60 * 1000;
-
-      for (const existing of activeAppointments) {
-        const existingStart = existing.scheduledAt.getTime();
-        const existingEnd = existingStart + existing.durationMinutes * 60 * 1000;
-
-        if (requestedStart < existingEnd && requestedEnd > existingStart) {
-          throw new ConflictError('This time slot is already booked');
-        }
-      }
-
-      // 3. Create the appointment in PENDING status
-      return await tx.appointment.create({
-        data: {
-          patientId: userPayload.userId,
-          providerId,
-          hospitalId: hospitalId || null,
-          scheduledAt: apptDate,
-          durationMinutes: finalDuration,
-          type,
-          status: AppointmentStatus.PENDING,
-          notes,
-        },
-      });
+    // Check provider availability
+    const availability = await prisma.providerAvailability.findFirst({
+      where: {
+        providerId,
+        dayOfWeek,
+        isActive: true,
+      },
     });
+
+    if (!availability) {
+      throw new ValidationError('Provider is not available on this day');
+    }
+
+    // Check for conflicts with exclusive lock
+    const [startHour, startMin] = availability.startTime.split(':').map(Number);
+    const slotDuration = durationMinutes || availability.slotDurationMinutes;
+
+    const slotStart = new Date(scheduledDate);
+    slotStart.setHours(Math.floor(startHour), startMin, 0, 0);
+    const slotEnd = new Date(slotStart);
+    slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+    // Find conflicting appointments
+    const conflictingAppointments = await prisma.appointment.findMany({
+      where: {
+        providerId,
+        scheduledAt: {
+          gte: new Date(scheduledDate.setHours(0, 0, 0, 0)),
+          lte: new Date(scheduledDate.setHours(23, 59, 59, 999)),
+        },
+        status: {
+          in: [
+            AppointmentStatus.PENDING,
+            AppointmentStatus.CONFIRMED,
+            AppointmentStatus.IN_PROGRESS,
+          ],
+        },
+      },
+    });
+
+    const hasConflict = conflictingAppointments.some((apt) => {
+      const aptStart = new Date(apt.scheduledAt);
+      const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
+      return slotStart < aptEnd && slotEnd > aptStart;
+    });
+
+    if (hasConflict) {
+      throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
+    }
+
+    // Create appointment
+    const appointment = await prisma.appointment.create({
+      data: {
+        patientId: userPayload.userId,
+        providerId,
+        hospitalId: req.body.hospitalId,
+        scheduledAt: slotStart,
+        durationMinutes: slotDuration,
+        type,
+        reason,
+        status: AppointmentStatus.PENDING,
+      },
+      include: {
+        patient: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            patientProfile: true,
+          },
+        },
+        provider: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            providerProfile: true,
+          },
+        },
+      },
+    });
+
+    // Auto-create telemedicine room for VIDEO appointments
+    if (type === AppointmentType.VIDEO) {
+      await prisma.telemedicineRoom.create({
+        data: {
+          providerId,
+          appointmentId: appointment.id,
+          roomType: 'ONE_ON_ONE',
+          externalRoomId: `room-${appointment.id}`,
+          status: 'CREATED',
+        },
+      });
+    }
 
     res.status(201).json(successResponse(appointment));
   } catch (error) {
@@ -266,29 +215,94 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
   }
 };
 
-export const listAppointments = async (req: Request, res: Response, next: NextFunction) => {
+export const getAppointments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const { role, userId } = userPayload;
+    const { status, type, from, to, limit = 20, offset = 0 } = req.query;
 
-    let whereClause = {};
-    if (role === UserRole.PATIENT) {
-      whereClause = { patientId: userId };
-    } else if (role === UserRole.CONSULTANT) {
-      whereClause = { providerId: userId };
-    } else if (role === UserRole.SUPER_ADMIN || role === UserRole.HOSPITAL_ADMIN) {
-      if (role === UserRole.HOSPITAL_ADMIN) {
-        const adminUser = await prisma.user.findUnique({ where: { id: userId } });
-        whereClause = { hospitalId: adminUser?.hospitalId || 'unassigned-hospital' };
+    const where: Prisma.AppointmentWhereInput = {};
+
+    if (userPayload.role === UserRole.PATIENT) {
+      where.patientId = userPayload.userId;
+    } else if (userPayload.role === UserRole.CONSULTANT) {
+      where.providerId = userPayload.userId;
+    } else if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      const adminUser = await prisma.user.findUnique({
+        where: { id: userPayload.userId },
+        include: { hospital: true },
+      });
+      if (adminUser?.hospital) {
+        where.hospitalId = adminUser.hospital.id;
       } else {
-        whereClause = {};
+        where.hospitalId = null;
       }
+    } else if (userPayload.role === UserRole.SUPER_ADMIN) {
+      // Super admin can see all appointments
     } else {
-      throw new ForbiddenError('You are not authorized to list appointments');
+      throw new ForbiddenError('You do not have permission to view appointments');
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where: whereClause,
+    if (status) where.status = status as AppointmentStatus;
+    if (type) where.type = type as AppointmentType;
+    if (from || to) {
+      where.scheduledAt = {};
+      if (from) where.scheduledAt.gte = new Date(from as string);
+      if (to) where.scheduledAt.lte = new Date(to as string);
+    }
+
+    const [appointments, total] = await Promise.all([
+      prisma.appointment.findMany({
+        where,
+        take: Number(limit),
+        skip: Number(offset),
+        orderBy: { scheduledAt: 'desc' },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              patientProfile: true,
+            },
+          },
+          provider: {
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              providerProfile: true,
+            },
+          },
+          hospital: true,
+          telemedicineRoom: true,
+        },
+      }),
+      prisma.appointment.count({ where }),
+    ]);
+
+    res.status(200).json(
+      successResponse({
+        appointments,
+        meta: {
+          total,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: Number(offset) + appointments.length < total,
+        },
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getAppointmentById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
       include: {
         patient: {
           select: {
@@ -307,11 +321,84 @@ export const listAppointments = async (req: Request, res: Response, next: NextFu
           },
         },
         hospital: true,
+        telemedicineRoom: true,
+        prescriptions: true,
       },
-      orderBy: { scheduledAt: 'desc' },
     });
 
-    res.status(200).json(successResponse(appointments));
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    // Check authorization
+    if (userPayload.role === UserRole.PATIENT && appointment.patientId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to view this appointment');
+    }
+    if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to view this appointment');
+    }
+
+    res.status(200).json(successResponse(appointment));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateAppointmentStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+    const { status, cancellationReason } = req.body;
+
+    if (!status || !Object.values(AppointmentStatus).includes(status)) {
+      throw new ValidationError(
+        `Invalid status. Must be one of: ${Object.values(AppointmentStatus).join(', ')}`
+      );
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
+      include: { telemedicineRoom: true },
+    });
+
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    // Check authorization
+    if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to update this appointment');
+    }
+    if (
+      userPayload.role === UserRole.HOSPITAL_ADMIN &&
+      appointment.hospitalId !==
+        (await prisma.user.findUnique({ where: { id: userPayload.userId } }))?.hospitalId
+    ) {
+      throw new ForbiddenError('You are not authorized to update this appointment');
+    }
+
+    const updatedAppointment = await prisma.appointment.update({
+      where: { id },
+      data: {
+        status,
+        cancellationReason: status === AppointmentStatus.CANCELLED ? cancellationReason : undefined,
+        cancelledBy: status === AppointmentStatus.CANCELLED ? userPayload.role : undefined,
+      },
+      include: {
+        patient: { select: { id: true, email: true, phone: true, patientProfile: true } },
+        provider: { select: { id: true, email: true, phone: true, providerProfile: true } },
+      },
+    });
+
+    // If cancelled, end any active telemedicine room
+    if (status === AppointmentStatus.CANCELLED && appointment.telemedicineRoom) {
+      await prisma.telemedicineRoom.update({
+        where: { id: appointment.telemedicineRoom.id },
+        data: { status: 'ENDED', endedAt: new Date() },
+      });
+    }
+
+    res.status(200).json(successResponse(updatedAppointment));
   } catch (error) {
     next(error);
   }
@@ -325,37 +412,43 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
 
     const appointment = await prisma.appointment.findUnique({
       where: { id },
+      include: { telemedicineRoom: true },
     });
 
-    if (!appointment) throw new NotFoundError('Appointment not found');
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
 
-    if (
-      userPayload.role !== UserRole.SUPER_ADMIN &&
-      appointment.patientId !== userPayload.userId &&
-      appointment.providerId !== userPayload.userId
-    ) {
+    // Check authorization
+    if (userPayload.role === UserRole.PATIENT && appointment.patientId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to cancel this appointment');
+    }
+    if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to cancel this appointment');
     }
 
-    if (
-      appointment.status === AppointmentStatus.CANCELLED ||
-      appointment.status === AppointmentStatus.COMPLETED ||
-      appointment.status === AppointmentStatus.NO_SHOW
-    ) {
-      throw new ValidationError(
-        `Cannot cancel appointment with terminal status: ${appointment.status}`
-      );
-    }
-
-    const updated = await prisma.appointment.update({
+    const updatedAppointment = await prisma.appointment.update({
       where: { id },
       data: {
         status: AppointmentStatus.CANCELLED,
-        cancellationReason: reason || 'Cancelled by user',
+        cancellationReason: reason,
+        cancelledBy: userPayload.role,
+      },
+      include: {
+        patient: { select: { id: true, email: true, phone: true, patientProfile: true } },
+        provider: { select: { id: true, email: true, phone: true, providerProfile: true } },
       },
     });
 
-    res.status(200).json(successResponse(updated));
+    // If cancelled, end any active telemedicine room
+    if (appointment.telemedicineRoom) {
+      await prisma.telemedicineRoom.update({
+        where: { id: appointment.telemedicineRoom.id },
+        data: { status: 'ENDED', endedAt: new Date() },
+      });
+    }
+
+    res.status(200).json(successResponse(updatedAppointment));
   } catch (error) {
     next(error);
   }

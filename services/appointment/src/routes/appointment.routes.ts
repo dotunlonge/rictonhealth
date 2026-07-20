@@ -1,121 +1,66 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
-import * as controller from '../controllers/appointment.controller';
+import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import * as appointmentController from '../controllers/appointment.controller';
+import {
+  validateRequest,
+  validateQuery,
+  CreateAppointmentSchema,
+  UpdateAppointmentStatusSchema,
+  GetAvailabilityQuerySchema,
+  GetAppointmentsQuerySchema,
+  BookAppointmentInputSchema,
+} from '@ricton/shared';
+import { rateLimit } from '@ricton/shared';
 
 const router = Router();
 
+const appointmentRateLimit = rateLimit({ windowMs: 60 * 1000, max: 10, keyPrefix: 'appointment' });
+
+// All routes require authentication
 router.use(requireAuth);
 
-/**
- * @openapi
- * /api/appointments/slots:
- *   get:
- *     summary: Retrieve available schedule slots for a provider
- *     tags:
- *       - Appointments
- *     parameters:
- *       - name: providerId
- *         in: query
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - name: date
- *         in: query
- *         required: true
- *         schema:
- *           type: string
- *           format: date
- *     responses:
- *       200:
- *         description: List of open slots
- *       400:
- *         description: Bad Request
- */
-router.get('/slots', controller.getAvailableSlots);
+// Provider sets availability
+router.post(
+  '/availability',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  validateRequest(BookAppointmentInputSchema),
+  appointmentController.getAvailability
+);
 
-/**
- * @openapi
- * /api/appointments:
- *   post:
- *     summary: Book a new medical appointment
- *     tags:
- *       - Appointments
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - providerId
- *               - scheduledAt
- *             properties:
- *               providerId:
- *                 type: string
- *                 format: uuid
- *               hospitalId:
- *                 type: string
- *                 format: uuid
- *               scheduledAt:
- *                 type: string
- *                 format: date-time
- *               type:
- *                 type: string
- *                 enum: [IN_PERSON, VIDEO]
- *               notes:
- *                 type: string
- *     responses:
- *       210:
- *         description: Appointment created successfully
- *       400:
- *         description: Validation error
- *       409:
- *         description: Overlapping Slot Conflict
- */
-router.post('/', controller.bookAppointment);
+// Get available slots
+router.get(
+  '/slots/:providerId',
+  validateQuery(GetAvailabilityQuerySchema),
+  appointmentController.getAvailability
+);
 
-/**
- * @openapi
- * /api/appointments:
- *   get:
- *     summary: List authenticated patient/provider appointments
- *     tags:
- *       - Appointments
- *     responses:
- *       200:
- *         description: List of appointments
- */
-router.get('/', controller.listAppointments);
+// Book appointment
+router.post(
+  '/',
+  appointmentRateLimit,
+  validateRequest(CreateAppointmentSchema),
+  appointmentController.createAppointment
+);
 
-/**
- * @openapi
- * /api/appointments/{id}/cancel:
- *   patch:
- *     summary: Cancel a booked appointment
- *     tags:
- *       - Appointments
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
- *     responses:
- *       200:
- *         description: Appointment Cancelled
- *       404:
- *         description: Not Found
- */
-router.patch('/:id/cancel', controller.cancelAppointment);
+// List appointments
+router.get('/', validateQuery(GetAppointmentsQuerySchema), appointmentController.getAppointments);
+
+// Get appointment by ID
+router.get('/:id', appointmentController.getAppointmentById);
+
+// Update appointment status
+router.patch(
+  '/:id/status',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  validateRequest(UpdateAppointmentStatusSchema),
+  appointmentController.updateAppointmentStatus
+);
+
+// Cancel appointment
+router.patch(
+  '/:id/cancel',
+  requireRole('PATIENT', 'CONSULTANT'),
+  appointmentController.cancelAppointment
+);
 
 export default router;

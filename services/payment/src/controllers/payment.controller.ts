@@ -37,7 +37,7 @@ interface PaystackVerifyResponse {
 export const initializePayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
-      throw new Error('PAYSTACK_SECRET_KEY is not configured');
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
     const userPayload = req.user as JwtPayload;
@@ -192,7 +192,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
 export const verifyPayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
-      throw new Error('PAYSTACK_SECRET_KEY is not configured');
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
     const { reference } = req.params;
@@ -243,7 +243,7 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
 export const paystackWebhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
-      throw new Error('PAYSTACK_SECRET_KEY is not configured');
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
     const hash = crypto
@@ -264,7 +264,22 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         data: {
           status: PaymentStatus.SUCCESS,
           providerTxId: event.data.id?.toString(),
-          metadata: event.data,
+          metadata: event.data as Prisma.InputJsonValue,
+        },
+      });
+
+      // Notify other services via internal event
+      // In a real system, this would publish to Redis pub/sub or a message queue
+      // For now, we rely on the client polling or the service-specific webhooks
+    } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
+      const reference = event.data.reference;
+
+      await prisma.payment.update({
+        where: { providerReference: reference },
+        data: {
+          status: PaymentStatus.FAILED,
+          providerTxId: event.data.id?.toString(),
+          metadata: event.data as Prisma.InputJsonValue,
         },
       });
     }

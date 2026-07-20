@@ -19,7 +19,7 @@ RUN npm ci
 # Generate Prisma Client
 RUN npm run generate --workspace=@ricton/db
 
-# Build the dependent packages and the service
+# Build the dependent packages and the appointment service
 RUN npm run build --workspace=@ricton/shared --workspace=@ricton/db --workspace=@ricton/auth-middleware
 RUN npm run build --workspace=@ricton/appointment-service
 
@@ -39,6 +39,6 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/services/appointment ./services/appointment
 
-EXPOSE 3003
+EXPOSE 3005
 
-CMD ["node", "services/appointment/dist/index.js"]
+CMD ["node", "services/appointment/dist/src/index.js"]

@@ -100,6 +100,16 @@ export const MedicalHistoryInputSchema = registry.register(
   })
 );
 
+export const GetProvidersQuerySchema = registry.register(
+  'GetProvidersQuery',
+  z.object({
+    specialty: z.string().optional(),
+    name: z.string().optional(),
+    limit: z.string().optional(),
+    offset: z.string().optional(),
+  })
+);
+
 registry.registerPath({
   method: 'get',
   path: '/api/users/me',
@@ -179,6 +189,34 @@ registry.registerPath({
     403: {
       description: 'Forbidden',
     },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/providers',
+  summary: 'Search providers',
+  parameters: [
+    { name: 'specialty', in: 'query', schema: { type: 'string' } },
+    { name: 'name', in: 'query', schema: { type: 'string' } },
+    { name: 'limit', in: 'query', schema: { type: 'string' } },
+    { name: 'offset', in: 'query', schema: { type: 'string' } },
+  ],
+  responses: {
+    200: { description: 'Providers list' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/providers/:id',
+  summary: 'Get provider by ID',
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  responses: {
+    200: { description: 'Provider details' },
+    404: { description: 'Provider not found' },
   },
 });
 

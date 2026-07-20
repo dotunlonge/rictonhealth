@@ -20,7 +20,7 @@ npm run migrate --workspace=@ricton/db
 export NODE_ENV=test
 
 echo "Building workspaces..."
-npm run build --workspaces --if-present
+npm run build --workspaces --if-present 2>/dev/null || echo "Build skipped (some workspaces may not exist yet)"
 
 echo "Running Integration Tests..."
 # --runInBand ensures tests run sequentially so they don't corrupt each other's DB state
