@@ -40,4 +40,62 @@ router.get('/me', walletController.getMyWallet);
  */
 router.post('/virtual-account', walletController.createVirtualAccount);
 
+/**
+ * @openapi
+ * /api/wallets/topup:
+ *   post:
+ *     summary: Top-up wallet via Paystack payment
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 100
+ *     responses:
+ *       200:
+ *         description: Payment URL for wallet top-up
+ */
+router.post('/topup', walletController.topupWallet);
+
+/**
+ * @openapi
+ * /api/wallets/transactions:
+ *   get:
+ *     summary: Get wallet transaction history
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [CREDIT, DEBIT]
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *     responses:
+ *       200:
+ *         description: Transaction history
+ */
+router.get('/transactions', walletController.getTransactions);
+
 export default router;

@@ -28,7 +28,7 @@ dotenv.config({ path: '../../.env' });
 initSentry('appointment-service');
 
 const app = express();
-const PORT = process.env.PORT_APPOINTMENT || 3005;
+const PORT = process.env.PORT_APPOINTMENT || 3003;
 
 app.set('trust proxy', true);
 app.use(helmet());

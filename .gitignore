@@ -1,7 +1,33 @@
+```
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
 build/
+target/
+
+# TypeScript
+*.tsbuildinfo
+*.js.map
+
+# Environment variables
 .env
-coverage/
-*.log
+.env.local
+*.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+.nyc_output/
+```

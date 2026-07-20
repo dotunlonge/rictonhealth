@@ -55,15 +55,15 @@ export const ListAppointmentsResponseSchema = registry.register(
   'ListAppointmentsResponse',
   z.object({
     success: z.boolean(),
-    data: z.array(AppointmentSchema),
-    meta: z
-      .object({
+    data: z.object({
+      appointments: z.array(AppointmentSchema),
+      meta: z.object({
         total: z.number(),
         limit: z.number(),
         offset: z.number(),
         hasMore: z.boolean(),
-      })
-      .optional(),
+      }),
+    }),
   })
 );
 
