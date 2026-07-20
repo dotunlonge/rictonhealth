@@ -11,14 +11,17 @@ import {
 
 export const getAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { providerId, date } = req.query;
+    // Support both path params and query params for flexibility
+    const providerId = req.params.providerId || (req.query.providerId as string);
+    const date = req.query.date as string;
 
     if (!providerId || !date) {
       throw new ValidationError('providerId and date are required');
     }
 
     const targetDate = new Date(date as string);
-    const dayOfWeek = targetDate.getDay();
+    // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
+    const dayOfWeek = (targetDate.getDay() + 6) % 7;
 
     // Get provider's availability for this day
     const availability = await prisma.providerAvailability.findFirst({
@@ -34,18 +37,37 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     }
 
     // Get all active/confirmed appointments for this provider on this date
+    // Include cross-midnight appointments that might overlap with early morning slots
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
+    
+    // Also check previous day for appointments that extend past midnight
+    const prevDay = new Date(startOfDay);
+    prevDay.setDate(prevDay.getDate() - 1);
 
     const appointments = await prisma.appointment.findMany({
       where: {
         providerId: providerId as string,
-        scheduledAt: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
+        OR: [
+          {
+            scheduledAt: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+          },
+          {
+            scheduledAt: {
+              gte: prevDay,
+              lt: startOfDay,
+            },
+            // Only include if appointment extends into target date
+            durationMinutes: {
+              gt: 0,
+            },
+          },
+        ],
         status: {
           in: [
             AppointmentStatus.PENDING,
@@ -99,7 +121,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
 export const createAppointment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const { providerId, scheduledAt, type, reason, durationMinutes } = req.body;
+    const { providerId, scheduledAt, type, reason, durationMinutes, hospitalId } = req.body;
 
     if (!providerId || !scheduledAt || !type) {
       throw new ValidationError('providerId, scheduledAt, and type are required');
@@ -112,7 +134,20 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     }
 
     const scheduledDate = new Date(scheduledAt);
-    const dayOfWeek = scheduledDate.getDay();
+    
+    // Validate that scheduledAt is not in the past
+    const now = new Date();
+    if (scheduledDate < now) {
+      throw new ValidationError('Cannot book appointments in the past');
+    }
+    
+    // Validate seconds and milliseconds are zero for proper slot alignment
+    if (scheduledDate.getSeconds() !== 0 || scheduledDate.getMilliseconds() !== 0) {
+      throw new ValidationError('Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)');
+    }
+
+    // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
+    const dayOfWeek = (scheduledDate.getDay() + 6) % 7;
 
     // Check provider availability
     const availability = await prisma.providerAvailability.findFirst({
@@ -127,12 +162,29 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       throw new ValidationError('Provider is not available on this day');
     }
 
-    // Check for conflicts with exclusive lock
+    // Validate slot duration is positive to prevent infinite loops
     const [startHour, startMin] = availability.startTime.split(':').map(Number);
+    const [endHour, endMin] = availability.endTime.split(':').map(Number);
     const slotDuration = durationMinutes || availability.slotDurationMinutes;
 
+    if (slotDuration <= 0) {
+      throw new ValidationError('Slot duration must be positive');
+    }
+
+    // Calculate requested time in minutes
+    const reqHour = scheduledDate.getHours();
+    const reqMin = scheduledDate.getMinutes();
+    const reqMinutes = reqHour * 60 + reqMin;
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    // Validate requested time falls within availability window
+    if (reqMinutes < startMinutes || reqMinutes + slotDuration > endMinutes) {
+      throw new ValidationError('Requested time is outside the provider availability window');
+    }
+
+    // Use the requested scheduledDate directly (not overwritten to startTime)
     const slotStart = new Date(scheduledDate);
-    slotStart.setHours(Math.floor(startHour), startMin, 0, 0);
     const slotEnd = new Date(slotStart);
     slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
 
@@ -164,50 +216,75 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
     }
 
-    // Create appointment
-    const appointment = await prisma.appointment.create({
-      data: {
-        patientId: userPayload.userId,
-        providerId,
-        hospitalId: req.body.hospitalId,
-        scheduledAt: slotStart,
-        durationMinutes: slotDuration,
-        type,
-        reason,
-        status: AppointmentStatus.PENDING,
-      },
-      include: {
-        patient: {
-          select: {
-            id: true,
-            email: true,
-            phone: true,
-            patientProfile: true,
-          },
-        },
-        provider: {
-          select: {
-            id: true,
-            email: true,
-            phone: true,
-            providerProfile: true,
-          },
-        },
-      },
-    });
+    // Derive hospitalId from provider if not provided, or validate it matches provider's hospital
+    let finalHospitalId = hospitalId;
+    if (!finalHospitalId) {
+      const provider = await prisma.user.findUnique({
+        where: { id: providerId },
+        include: { providerProfile: true },
+      });
+      if (provider?.providerProfile?.hospitalId) {
+        finalHospitalId = provider.providerProfile.hospitalId;
+      }
+    } else {
+      // Validate that the provider belongs to the specified hospital
+      const provider = await prisma.user.findUnique({
+        where: { id: providerId },
+        include: { providerProfile: true },
+      });
+      if (provider?.providerProfile?.hospitalId !== finalHospitalId) {
+        throw new ValidationError('Provider does not belong to the specified hospital');
+      }
+    }
 
-    // Auto-create telemedicine room for VIDEO appointments
-    if (type === AppointmentType.VIDEO) {
-      await prisma.telemedicineRoom.create({
+    // Create appointment with telemedicine room in a single transaction
+    const appointment = await prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.create({
         data: {
+          patientId: userPayload.userId,
           providerId,
-          appointmentId: appointment.id,
-          roomType: 'ONE_ON_ONE',
-          externalRoomId: `room-${appointment.id}`,
-          status: 'CREATED',
+          hospitalId: finalHospitalId,
+          scheduledAt: slotStart,
+          durationMinutes: slotDuration,
+          type,
+          reason,
+          status: AppointmentStatus.PENDING,
+        },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              patientProfile: true,
+            },
+          },
+          provider: {
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              providerProfile: true,
+            },
+          },
         },
       });
-    }
+
+      // Auto-create telemedicine room for VIDEO appointments
+      if (type === AppointmentType.VIDEO) {
+        await tx.telemedicineRoom.create({
+          data: {
+            providerId,
+            appointmentId: appt.id,
+            roomType: 'ONE_ON_ONE',
+            externalRoomId: `room-${appt.id}`,
+            status: 'CREATED',
+          },
+        });
+      }
+
+      return appt;
+    });
 
     res.status(201).json(successResponse(appointment));
   } catch (error) {
@@ -337,6 +414,15 @@ export const getAppointmentById = async (req: Request, res: Response, next: Next
     if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to view this appointment');
     }
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      const adminUser = await prisma.user.findUnique({
+        where: { id: userPayload.userId },
+        include: { hospital: true },
+      });
+      if (!adminUser?.hospital || adminUser.hospital.id !== appointment.hospitalId) {
+        throw new ForbiddenError('You are not authorized to view this appointment');
+      }
+    }
 
     res.status(200).json(successResponse(appointment));
   } catch (error) {
@@ -425,6 +511,11 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
     if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to cancel this appointment');
+    }
+
+    // Prevent cancellation of terminal status appointments
+    if ([AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, AppointmentStatus.CANCELLED].includes(appointment.status)) {
+      throw new ValidationError(`Cannot cancel an appointment with status ${appointment.status}`);
     }
 
     const updatedAppointment = await prisma.appointment.update({

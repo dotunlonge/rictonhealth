@@ -1222,3 +1222,606 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TelemedicineRoom"
+
+  # Pharmacy Service Schemas
+  Product:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      pharmacyId:
+        type: string
+        format: uuid
+      name:
+        type: string
+      description:
+        type: string
+      price:
+        type: number
+      stock:
+        type: integer
+      category:
+        type: string
+      imageUrl:
+        type: string
+      isActive:
+        type: boolean
+      createdAt:
+        type: string
+        format: date-time
+      updatedAt:
+        type: string
+        format: date-time
+  OrderItem:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      productId:
+        type: string
+        format: uuid
+      quantity:
+        type: integer
+      unitPrice:
+        type: number
+      product:
+        $ref: '#/components/schemas/Product'
+  PharmacyOrder:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      patientId:
+        type: string
+        format: uuid
+      pharmacyId:
+        type: string
+        format: uuid
+      status:
+        type: string
+        enum: [PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+      deliveryType:
+        type: string
+        enum: [DELIVERY, PICKUP]
+      deliveryAddress:
+        type: object
+      totalAmount:
+        type: number
+      items:
+        type: array
+        items:
+          $ref: '#/components/schemas/OrderItem'
+      createdAt:
+        type: string
+        format: date-time
+  CreateProductInput:
+    type: object
+    required:
+      - name
+      - price
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      price:
+        type: number
+      stock:
+        type: integer
+      category:
+        type: string
+      imageUrl:
+        type: string
+  CreateOrderInput:
+    type: object
+    required:
+      - items
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          required:
+            - productId
+            - quantity
+          properties:
+            productId:
+              type: string
+              format: uuid
+            quantity:
+              type: integer
+      deliveryType:
+        type: string
+        enum: [DELIVERY, PICKUP]
+      notes:
+        type: string
+
+  # Notification Service Schemas
+  Notification:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      userId:
+        type: string
+        format: uuid
+      type:
+        type: string
+      title:
+        type: string
+      body:
+        type: string
+      channel:
+        type: string
+        enum: [IN_APP, SMS, EMAIL, PUSH]
+      isRead:
+        type: boolean
+      metadata:
+        type: object
+      createdAt:
+        type: string
+        format: date-time
+      readAt:
+        type: string
+        format: date-time
+  NotificationPreference:
+    type: object
+    properties:
+      id:
+        type: string
+        format: uuid
+      userId:
+        type: string
+        format: uuid
+      emailEnabled:
+        type: boolean
+      smsEnabled:
+        type: boolean
+      pushEnabled:
+        type: boolean
+      quietHoursStart:
+        type: string
+      quietHoursEnd:
+        type: string
+      updatedAt:
+        type: string
+        format: date-time
+  UpdateNotificationPreferencesInput:
+    type: object
+    properties:
+      emailEnabled:
+        type: boolean
+      smsEnabled:
+        type: boolean
+      pushEnabled:
+        type: boolean
+      quietHoursStart:
+        type: string
+      quietHoursEnd:
+        type: string
+  RegisterPushTokenInput:
+    type: object
+    required:
+      - token
+    properties:
+      token:
+        type: string
+      platform:
+        type: string
+        enum: [ios, android, web]
+
+paths:
+  # Pharmacy Service Endpoints
+  /api/pharmacy/products:
+    get:
+      summary: List pharmacy products
+      tags:
+        - Pharmacy
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      products:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+                      total:
+                        type: integer
+    post:
+      summary: Create a new product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductInput'
+      responses:
+        '201':
+          description: Product created
+  /api/pharmacy/products/{id}:
+    get:
+      summary: Get product by ID
+      tags:
+        - Pharmacy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product details
+    put:
+      summary: Update product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductInput'
+      responses:
+        '200':
+          description: Product updated
+    delete:
+      summary: Delete product (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product deleted
+  /api/pharmacy/categories:
+    get:
+      summary: Get product categories
+      tags:
+        - Pharmacy
+      responses:
+        '200':
+          description: Categories list
+  /api/pharmacy/orders:
+    get:
+      summary: List user orders
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Orders list
+    post:
+      summary: Create order
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderInput'
+      responses:
+        '201':
+          description: Order created
+  /api/pharmacy/orders/{id}:
+    get:
+      summary: Get order by ID
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order details
+  /api/pharmacy/orders/{id}/cancel:
+    patch:
+      summary: Cancel order (Patient only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order cancelled
+  /api/pharmacy/orders/{id}/status:
+    patch:
+      summary: Update order status (Pharmacist only)
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+  /api/pharmacy/prescriptions/fulfill:
+    post:
+      summary: Fulfill prescription
+      tags:
+        - Pharmacy
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prescriptionId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Prescription fulfilled
+
+  # Notification Service Endpoints
+  /api/notifications:
+    get:
+      summary: List notifications
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: isRead
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      notifications:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Notification'
+  /api/notifications/unread-count:
+    get:
+      summary: Get unread count
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Unread count
+  /api/notifications/read-all:
+    patch:
+      summary: Mark all as read
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All marked as read
+  /api/notifications/preferences:
+    get:
+      summary: Get preferences
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Preferences
+    put:
+      summary: Update preferences
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPreferencesInput'
+      responses:
+        '200':
+          description: Preferences updated
+  /api/notifications/push-token:
+    post:
+      summary: Register push token
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPushTokenInput'
+      responses:
+        '200':
+          description: Token registered
+  /api/notifications/{id}:
+    get:
+      summary: Get notification
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification details
+    delete:
+      summary: Delete notification
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Notification deleted
+  /api/notifications/{id}/read:
+    patch:
+      summary: Mark as read
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Marked as read
+  /api/notifications/test:
+    post:
+      summary: Send test notification (Admin)
+      tags:
+        - Notifications
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                type:
+                  type: string
+                title:
+                  type: string
+                body:
+                  type: string
+      responses:
+        '201':
+          description: Test notification sent

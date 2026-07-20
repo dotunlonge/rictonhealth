@@ -209,7 +209,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/api/users/providers/:id',
+  path: '/api/users/providers/{id}',
   summary: 'Get provider by ID',
   parameters: [
     { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },

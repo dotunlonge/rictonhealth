@@ -36,7 +36,7 @@ router.get('/providers/:id', userController.getProviderById);
 // Dashboards require specific roles
 router.get(
   '/dashboard/hospital',
-  requireRole('HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  requireRole('HOSPITAL_ADMIN'),
   userController.getHospitalDashboard
 );
 router.get('/dashboard/provider', requireRole('CONSULTANT'), userController.getProviderDashboard);
