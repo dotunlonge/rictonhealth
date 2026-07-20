@@ -14,6 +14,7 @@ import {
   VerifyConfirmInputSchema,
 } from '@ricton/shared';
 import { rateLimit } from '@ricton/shared';
+import { requireAuth } from '@ricton/auth-middleware';
 
 const router = Router();
 
@@ -84,6 +85,9 @@ router.post('/register', validateRequest(RegisterInputSchema), authController.re
  *                 type: string
  *               password:
  *                 type: string
+ *               rememberMe:
+ *                 type: boolean
+ *                 description: Extend refresh token expiry to 30 days
  *     responses:
  *       200:
  *         description: Login successful
@@ -93,6 +97,8 @@ router.post('/register', validateRequest(RegisterInputSchema), authController.re
  *               type: object
  *               properties:
  *                 token:
+ *                   type: string
+ *                 refreshToken:
  *                   type: string
  *                 user:
  *                   type: object
@@ -114,6 +120,12 @@ router.post('/oauth/apple', validateRequest(OAuthInputSchema), authController.oa
 
 router.post('/refresh', validateRequest(RefreshTokenInputSchema), authController.refresh);
 router.post('/logout', validateRequest(RefreshTokenInputSchema), authController.logout);
+
+// Session management endpoints (require authentication)
+router.post('/logout-all', requireAuth, authController.logoutAll);
+router.get('/sessions', requireAuth, authController.getSessions);
+router.delete('/sessions/:sessionId', requireAuth, authController.revokeSession);
+
 router.post(
   '/password/forgot',
   otpRateLimit,

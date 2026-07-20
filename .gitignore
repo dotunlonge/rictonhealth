@@ -7,6 +7,7 @@ dist/
 build/
 target/
 
+# Environment variables
 # Python
 __pycache__/
 *.pyc
@@ -23,6 +24,22 @@ venv/
 # Logs
 *.log
 
+# Cache directories
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pycache/
+
+# Logs
+*.log
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# IDE specific
 # Editor/IDE
 .vscode/
 .idea/
@@ -30,10 +47,21 @@ venv/
 *.swo
 *.tmp
 
-# OS
+# OS generated
 .DS_Store
 Thumbs.db
 
+# TypeScript/JavaScript build output
+*.js.map
+*.tsbuildinfo
+
+# Test coverage
+.nyc_output/
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
 # Coverage
 coverage/
 htmlcov/
