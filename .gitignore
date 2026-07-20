@@ -1,33 +1,74 @@
 ```
 # Dependencies
 node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+bower_components/
 
 # Build outputs
 dist/
 build/
+coverage/
 target/
+*.min.js
+*.min.css
+bundle.js
+bundle.css
 
-# TypeScript
-*.tsbuildinfo
-*.js.map
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Environment variables
 .env
 .env.local
-*.env.*
+.env.*
+!.env.example
 
-# IDE
+# IDE files
 .vscode/
 .idea/
-
-# OS
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
 
-# Coverage
-coverage/
-.nyc_output/
+# Node.js specific
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+node_modules/
+.pnp.cjs
+.pnp.loader.mjs
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 ```

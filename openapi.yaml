@@ -1414,7 +1414,6 @@ paths:
         type: string
         enum: [ios, android, web]
 
-paths:
   # Pharmacy Service Endpoints
   /api/pharmacy/products:
     get:
