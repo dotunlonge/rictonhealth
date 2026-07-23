@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, UserRole } from '@ricton/db';
+import { prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import { successResponse, NotFoundError, ForbiddenError, ValidationError } from '@ricton/shared';
 import {
@@ -319,12 +319,13 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
           select: { id: true },
         });
 
-        for (const msg of unreadMessages) {
-          await tx.chatMessageReceipt.create({
-            data: {
+        if (unreadMessages.length > 0) {
+          await tx.chatMessageReceipt.createMany({
+            data: unreadMessages.map((msg) => ({
               messageId: msg.id,
               userId: userPayload.userId,
-            },
+            })),
+            skipDuplicates: true,
           });
         }
       });

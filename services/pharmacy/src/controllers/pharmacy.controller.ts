@@ -334,14 +334,16 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       });
 
       // Reduce stock
-      for (const item of orderItemsData) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        orderItemsData.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { decrement: item.quantity },
+            },
+          })
+        )
+      );
 
       return newOrder;
     });
