@@ -340,7 +340,7 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
 
     // Store in Redis only after successful dispatch
     await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600); // 10 minutes expiry
-    await redis.del(`otp_attempts:${key}`);
+    await redis.set(`otp_attempts:${key}`, 0, 'EX', 600);
 
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
   } catch (error) {
@@ -364,11 +364,6 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     const parsedData = JSON.parse(storedData);
     const attemptsKey = `otp_attempts:${key}`;
     const attempts = await redis.incr(attemptsKey);
-
-    if (attempts === 1) {
-      const ttl = await redis.ttl(`otp:${key}`);
-      if (ttl > 0) await redis.expire(attemptsKey, ttl);
-    }
 
     if (attempts > 3) {
       await redis.del(`otp:${key}`, attemptsKey);
@@ -903,7 +898,7 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
 
       // Store in Redis only after dispatch
       await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
-      await redis.del(`reset_attempts:${key}`); // 10 mins
+      await redis.set(`reset_attempts:${key}`, 0, 'EX', 600); // 10 mins
     }
 
     res
@@ -932,11 +927,6 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
 
     const attemptsKey = `reset_attempts:${key}`;
     const attempts = await redis.incr(attemptsKey);
-
-    if (attempts === 1) {
-      const ttl = await redis.ttl(`reset:${key}`);
-      if (ttl > 0) await redis.expire(attemptsKey, ttl);
-    }
 
     if (attempts > 3) {
       await redis.del(`reset:${key}`, attemptsKey);
@@ -1043,7 +1033,7 @@ const sendVerificationOtp = async (
     }
 
     await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
-    await redis.del(`verify_attempts:${value}`);
+    await redis.set(`verify_attempts:${value}`, 0, 'EX', 600);
 
     res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
   } catch (error) {
@@ -1076,11 +1066,6 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
 
     const attemptsKey = `verify_attempts:${key}`;
     const attempts = await redis.incr(attemptsKey);
-
-    if (attempts === 1) {
-      const ttl = await redis.ttl(`verify:${key}`);
-      if (ttl > 0) await redis.expire(attemptsKey, ttl);
-    }
 
     if (attempts > 3) {
       await redis.del(`verify:${key}`, attemptsKey);
