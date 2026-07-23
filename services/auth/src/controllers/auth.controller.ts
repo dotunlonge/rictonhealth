@@ -53,20 +53,20 @@ const generateTokens = async (
 ) => {
   const tokenVersion = user.tokenVersion ?? 0;
   const jti = crypto.randomUUID();
-  
+
   const token = jwt.sign(
-    { 
-      userId: user.id, 
-      role: user.role, 
-      status: user.status, 
+    {
+      userId: user.id,
+      role: user.role,
+      status: user.status,
       iss: 'ricton-issuer',
       tokenVersion,
-      jti
+      jti,
     },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
-  
+
   const refreshTokenExpiry = options?.rememberMe ? '30d' : '7d';
   const refreshToken = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
     expiresIn: refreshTokenExpiry,
@@ -129,7 +129,7 @@ const auditLog = async (
         actorId,
         action,
         resourceType: 'AUTH',
-        metadata: metadata || {},
+        metadata: (metadata as any) || {},
         ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         deviceId,
@@ -226,7 +226,10 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     }
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
-      await auditLog('LOGIN_FAILURE', user.id, req, { reason: 'ACCOUNT_DISABLED', status: user.status });
+      await auditLog('LOGIN_FAILURE', user.id, req, {
+        reason: 'ACCOUNT_DISABLED',
+        status: user.status,
+      });
       throw new UnauthorizedError('Account is disabled');
     }
 
@@ -247,7 +250,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     // Check for impossible travel (simplified - compare with last login location)
     if (user.lastLoginAt) {
       const timeSinceLastLogin = Date.now() - user.lastLoginAt.getTime();
-      if (timeSinceLastLogin < 3600000) { // Less than 1 hour
+      if (timeSinceLastLogin < 3600000) {
+        // Less than 1 hour
         // Could add geo-IP check here
         riskScore += 10;
       }
@@ -265,11 +269,17 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       data: { lastLoginAt: new Date() },
     });
 
-    await auditLog('LOGIN_SUCCESS', user.id, req, { 
-      deviceId, 
-      rememberMe: rememberMe === true,
-      tokenId 
-    }, riskScore);
+    await auditLog(
+      'LOGIN_SUCCESS',
+      user.id,
+      req,
+      {
+        deviceId,
+        rememberMe: rememberMe === true,
+        tokenId,
+      },
+      riskScore
+    );
 
     res.status(200).json(
       successResponse({
@@ -329,7 +339,8 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     }
 
     // Store in Redis only after successful dispatch
-    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 minutes expiry
+    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600); // 10 minutes expiry
+    await redis.del(`otp_attempts:${key}`);
 
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
   } catch (error) {
@@ -351,20 +362,22 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     }
 
     const parsedData = JSON.parse(storedData);
+    const attemptsKey = `otp_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts === 1) {
+      const ttl = await redis.ttl(`otp:${key}`);
+      if (ttl > 0) await redis.expire(attemptsKey, ttl);
+    }
+
+    if (attempts > 3) {
+      await redis.del(`otp:${key}`, attemptsKey);
+      throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
+    }
 
     if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`otp:${key}`);
-        throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
-      } else {
-        // preserve the remaining TTL (approximate)
-        const ttl = await redis.ttl(`otp:${key}`);
-        if (ttl > 0) {
-          await redis.set(`otp:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+      if (attempts === 3) await redis.del(`otp:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const user = await prisma.user.findFirst({
@@ -374,7 +387,7 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     if (!user) throw new NotFoundError('User not found');
 
     // Delete OTP only after DB lookup succeeds
-    await redis.del(`otp:${key}`);
+    await redis.del(`otp:${key}`, attemptsKey);
 
     const { token, refreshToken } = await generateTokens(user, req);
 
@@ -511,7 +524,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string; jti?: string };
 
     const tokenHash = hashToken(refreshToken);
-    
+
     // Get the current token with family info
     const currentToken = await prisma.refreshToken.findUnique({
       where: { tokenHash },
@@ -523,65 +536,92 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       const revokedToken = await prisma.refreshToken.findUnique({
         where: { tokenHash },
       });
-      
+
       if (revokedToken && revokedToken.isRevoked) {
         // TOKEN REUSE ATTACK DETECTED - revoke entire family
-        await auditLog('TOKEN_REUSE_ATTACK', decoded.userId, req, {
-          tokenId: revokedToken.id,
-          tokenFamily: revokedToken.tokenFamily,
-        }, 90); // High risk score
-        
+        await auditLog(
+          'TOKEN_REUSE_ATTACK',
+          decoded.userId,
+          req,
+          {
+            tokenId: revokedToken.id,
+            tokenFamily: revokedToken.tokenFamily,
+          },
+          90
+        ); // High risk score
+
         // Revoke all tokens in the same family
         await prisma.refreshToken.updateMany({
-          where: { 
+          where: {
             userId: decoded.userId,
             tokenFamily: revokedToken.tokenFamily,
             isActive: true,
           },
-          data: { 
+          data: {
             isRevoked: true,
             revokedAt: new Date(),
             revokeReason: 'TOKEN_REUSE_ATTACK_DETECTED',
           },
         });
-        
+
         // Also increment tokenVersion to invalidate all access tokens
         await prisma.user.update({
           where: { id: decoded.userId },
           data: { tokenVersion: { increment: 1 } },
         });
-        
-        throw new UnauthorizedError('Security alert: Token reuse detected. All sessions invalidated.');
+
+        throw new UnauthorizedError(
+          'Security alert: Token reuse detected. All sessions invalidated.'
+        );
       }
-      
+
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
     // Grace period check: allow token refresh within 24h of expiry even if expired
     const now = new Date();
     const gracePeriodMs = 24 * 60 * 60 * 1000; // 24 hours
-    if (currentToken.expiresAt < now && currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()) {
+    if (
+      currentToken.expiresAt < now &&
+      currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()
+    ) {
       // Expired beyond grace period
-      await auditLog('REFRESH_TOKEN_EXPIRED', decoded.userId, req, {
-        expiresAt: currentToken.expiresAt,
-      }, 30);
+      await auditLog(
+        'REFRESH_TOKEN_EXPIRED',
+        decoded.userId,
+        req,
+        {
+          expiresAt: currentToken.expiresAt,
+        },
+        30
+      );
       throw new UnauthorizedError('Refresh token expired');
     }
 
     // Device fingerprint validation
     const deviceId = req.headers['x-device-id'] as string | undefined;
     const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
-    
+
     let riskScore = 0;
     if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
       riskScore += 50; // Device mismatch - high risk
-      await auditLog('DEVICE_MISMATCH', decoded.userId, req, {
-        storedDeviceId: currentToken.deviceId,
-        incomingDeviceId: deviceId,
-      }, riskScore);
+      await auditLog(
+        'DEVICE_MISMATCH',
+        decoded.userId,
+        req,
+        {
+          storedDeviceId: currentToken.deviceId,
+          incomingDeviceId: deviceId,
+        },
+        riskScore
+      );
     }
-    
-    if (deviceFingerprint && currentToken.deviceFingerprint && deviceFingerprint !== currentToken.deviceFingerprint) {
+
+    if (
+      deviceFingerprint &&
+      currentToken.deviceFingerprint &&
+      deviceFingerprint !== currentToken.deviceFingerprint
+    ) {
       riskScore += 30; // Fingerprint mismatch
     }
 
@@ -590,7 +630,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       // Mark current token as used
       await tx.refreshToken.update({
         where: { id: currentToken.id },
-        data: { 
+        data: {
           isActive: false,
           lastUsedAt: new Date(),
           usageCount: { increment: 1 },
@@ -601,11 +641,11 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       await redis.srem(`refresh:${decoded.userId}`, refreshToken);
 
       // Get user with updated tokenVersion
-      const user = await tx.user.findUnique({ 
+      const user = await tx.user.findUnique({
         where: { id: decoded.userId },
         select: { id: true, role: true, status: true, tokenVersion: true },
       });
-      
+
       if (!user) throw new NotFoundError('User not found');
       if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
         throw new UnauthorizedError('Account is disabled');
@@ -620,7 +660,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
 
       const newTokenHash = hashToken(newRefreshTokenStr);
       const ttlSeconds = 7 * 24 * 60 * 60;
-      
+
       await redis.sadd(`refresh:${user.id}`, newRefreshTokenStr);
       await redis.expire(`refresh:${user.id}`, ttlSeconds);
 
@@ -641,7 +681,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       return [newToken, newRefreshTokenStr, user];
     });
 
-    const user = await prisma.user.findUnique({ 
+    const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: { id: true, role: true, status: true, tokenVersion: true },
     });
@@ -651,24 +691,30 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     // Generate new access token with updated tokenVersion
     const jti = crypto.randomUUID();
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        role: user.role, 
-        status: user.status, 
+      {
+        userId: user.id,
+        role: user.role,
+        status: user.status,
         iss: 'ricton-issuer',
         tokenVersion: user.tokenVersion,
-        jti
+        jti,
       },
       JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    await auditLog('TOKEN_REFRESH', user.id, req, {
-      oldTokenId: currentToken.id,
-      newTokenId: newRefreshToken.id,
-      tokenFamily: currentToken.tokenFamily,
-      riskScore,
-    }, riskScore);
+    await auditLog(
+      'TOKEN_REFRESH',
+      user.id,
+      req,
+      {
+        oldTokenId: currentToken.id,
+        newTokenId: newRefreshToken.id,
+        tokenFamily: currentToken.tokenFamily,
+        riskScore,
+      },
+      riskScore
+    );
 
     res.status(200).json(successResponse({ token, refreshToken: newRefreshToken }));
   } catch (error) {
@@ -689,7 +735,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
-    
+
     // Get token info before revoking for audit
     const tokenHash = hashToken(refreshToken);
     const tokenRecord = await prisma.refreshToken.findUnique({
@@ -701,7 +747,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     if (tokenRecord) {
       await prisma.refreshToken.updateMany({
         where: { tokenHash },
-        data: { 
+        data: {
           isActive: false,
           isRevoked: true,
           revokedAt: new Date(),
@@ -734,7 +780,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
 export const logoutAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    
+
     // Revoke all refresh tokens for this user
     await prisma.refreshToken.updateMany({
       where: { userId, isActive: true },
@@ -766,7 +812,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
 export const getSessions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    
+
     const sessions = await prisma.refreshToken.findMany({
       where: { userId, isActive: true },
       select: {
@@ -793,7 +839,7 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
   try {
     const { sessionId } = req.params;
     const userId = req.user!.userId;
-    
+
     const session = await prisma.refreshToken.findUnique({
       where: { id: sessionId },
     });
@@ -815,7 +861,7 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
     // Remove from Redis
     const tokens = await redis.smembers(`refresh:${userId}`);
     // Note: We can't directly remove without the token value, but it will expire naturally
-    
+
     await auditLog('SESSION_REVOKED', userId, req, { sessionId });
 
     res.status(200).json(successResponse({ message: 'Session revoked successfully' }));
@@ -856,7 +902,8 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
       }
 
       // Store in Redis only after dispatch
-      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 mins
+      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
+      await redis.del(`reset_attempts:${key}`); // 10 mins
     }
 
     res
@@ -883,24 +930,34 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
 
     const parsedData = JSON.parse(storedData);
 
-    if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`reset:${key}`);
-        await auditLog('PASSWORD_RESET_FAILURE', null, req, { 
-          reason: 'TOO_MANY_ATTEMPTS', 
-          email, 
+    const attemptsKey = `reset_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts === 1) {
+      const ttl = await redis.ttl(`reset:${key}`);
+      if (ttl > 0) await redis.expire(attemptsKey, ttl);
+    }
+
+    if (attempts > 3) {
+      await redis.del(`reset:${key}`, attemptsKey);
+      await auditLog(
+        'PASSWORD_RESET_FAILURE',
+        null,
+        req,
+        {
+          reason: 'TOO_MANY_ATTEMPTS',
+          email,
           phone,
-          attempts: parsedData.attempts 
-        }, 40);
-        throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
-      } else {
-        const ttl = await redis.ttl(`reset:${key}`);
-        if (ttl > 0) {
-          await redis.set(`reset:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+          attempts,
+        },
+        40
+      );
+      throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
+    }
+
+    if (!verifyOtp(parsedData.hash, otp)) {
+      if (attempts === 3) await redis.del(`reset:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -911,20 +968,20 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     });
 
     if (!user) {
-      await redis.del(`reset:${key}`);
+      await redis.del(`reset:${key}`, attemptsKey);
       throw new NotFoundError('User not found');
     }
 
     // Update password and increment tokenVersion to invalidate all existing sessions
     await prisma.user.updateMany({
       where: { id: user.id },
-      data: { 
+      data: {
         passwordHash,
         tokenVersion: { increment: 1 },
       },
     });
 
-    await redis.del(`reset:${key}`);
+    await redis.del(`reset:${key}`, attemptsKey);
 
     await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
 
@@ -985,7 +1042,8 @@ const sendVerificationOtp = async (
       });
     }
 
-    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
+    await redis.del(`verify_attempts:${value}`);
 
     res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
   } catch (error) {
@@ -1016,18 +1074,22 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
 
     const parsedData = JSON.parse(storedData);
 
+    const attemptsKey = `verify_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts === 1) {
+      const ttl = await redis.ttl(`verify:${key}`);
+      if (ttl > 0) await redis.expire(attemptsKey, ttl);
+    }
+
+    if (attempts > 3) {
+      await redis.del(`verify:${key}`, attemptsKey);
+      throw new UnauthorizedError('Too many failed attempts. Please request a new code.');
+    }
+
     if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`verify:${key}`);
-        throw new UnauthorizedError('Too many failed attempts. Please request a new code.');
-      } else {
-        const ttl = await redis.ttl(`verify:${key}`);
-        if (ttl > 0) {
-          await redis.set(`verify:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+      if (attempts === 3) await redis.del(`verify:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const updateData: Record<string, boolean> = {};
@@ -1043,7 +1105,7 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
       throw new NotFoundError('User not found');
     }
 
-    await redis.del(`verify:${key}`);
+    await redis.del(`verify:${key}`, attemptsKey);
 
     res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
   } catch (error) {
