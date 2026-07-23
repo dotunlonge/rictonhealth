@@ -48,8 +48,6 @@ export const CreateOrderSchema = z.object({
   deliveryAddress: z.string().optional(),
 });
 
-import { registry } from '@ricton/shared';
-
 export const ProductsListResponse = registry.register(
   'ProductsListResponse',
   z.object({

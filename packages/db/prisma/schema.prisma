@@ -75,6 +75,7 @@ model User {
   refreshTokens           RefreshToken[]
   addresses               Address[]
   chatThreadsAsParticipant ChatParticipant[]
+  rewardTransactions      RewardTransaction[]
   chatMessagesSent        ChatMessage[]
   chatMessageReceipts     ChatMessageReceipt[]
   mdtsAsPatient           MDT[] @relation("MdtPatient")

@@ -256,14 +256,20 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     const orderItemsData = [];
     let pharmacyId: string | null = null;
 
+    // Fetch all products in a single query to avoid N+1 problem
+    const productIds = items.map((item: { productId: string }) => item.productId).filter(Boolean);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         throw new ValidationError('Each item must have productId and a positive quantity');
       }
 
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+      const product = productMap.get(item.productId);
 
       if (!product || !product.isActive) {
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
@@ -334,14 +340,16 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       });
 
       // Reduce stock
-      for (const item of orderItemsData) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        orderItemsData.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { decrement: item.quantity },
+            },
+          })
+        )
+      );
 
       return newOrder;
     });
@@ -524,12 +532,14 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           include: { product: true },
         });
 
-        for (const item of orderItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        await Promise.all(
+          orderItems.map((item) =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            })
+          )
+        );
 
         await tx.pharmacyOrder.update({
           where: { id },
@@ -597,14 +607,16 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 
     const updated = await prisma.$transaction(async (tx) => {
       // Restore stock
-      for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { increment: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        order.items.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { increment: item.quantity },
+            },
+          })
+        )
+      );
 
       // Cancel order
       return tx.pharmacyOrder.update({

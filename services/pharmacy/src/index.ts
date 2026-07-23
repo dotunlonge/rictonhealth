@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import { redis } from '@ricton/shared';
 import {
+  HTTP_STATUS,
   errorResponse,
   AppError,
   httpLogger,
@@ -42,10 +43,10 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     await redis.ping();
-    res.status(200).json({ status: 'ok', service: 'pharmacy-service' });
+    res.status(HTTP_STATUS.OK).json({ status: 'ok', service: 'pharmacy-service' });
   } catch (error) {
     res
-      .status(503)
+      .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
       .json({ status: 'error', service: 'pharmacy-service', message: 'Dependency check failed' });
   }
 });
@@ -53,7 +54,7 @@ app.get('/health', async (_req: Request, res: Response) => {
 app.use('/api/pharmacy', pharmacyRoutes);
 
 app.use((_req: Request, res: Response) => {
-  res.status(404).json(errorResponse('Endpoint not found', 'NOT_FOUND'));
+  res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse('Endpoint not found', 'NOT_FOUND'));
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -61,7 +62,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
   } else {
-    res.status(500).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+    res
+      .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
+      .json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
   }
 });
 
@@ -69,7 +72,7 @@ const server = app.listen(PORT, () => {
   logger.info(`Pharmacy service listening on port ${PORT}`);
 });
 
-server.timeout = 30000;
+server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;
 
 setupGracefulShutdown({
   app,

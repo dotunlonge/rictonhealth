@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { prisma, UserRole, UserStatus, TransactionClient } from '@ricton/db';
+import { prisma, UserRole, UserStatus, TransactionClient, Prisma } from '@ricton/db';
 import {
   successResponse,
   ConflictError,
@@ -129,7 +129,7 @@ const auditLog = async (
         actorId,
         action,
         resourceType: 'AUTH',
-        metadata: metadata || {},
+        metadata: (metadata as Prisma.InputJsonValue) || {},
         ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         deviceId,
@@ -855,9 +855,7 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
       },
     });
 
-    // Remove from Redis
-    const tokens = await redis.smembers(`refresh:${userId}`);
-    // Note: We can't directly remove without the token value, but it will expire naturally
+    // Note: Tokens in Redis will expire naturally
 
     await auditLog('SESSION_REVOKED', userId, req, { sessionId });
 

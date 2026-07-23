@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, UserRole } from '@ricton/db';
+import { prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import { successResponse, NotFoundError, ForbiddenError, ValidationError } from '@ricton/shared';
 import {
@@ -319,12 +319,13 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
           select: { id: true },
         });
 
-        for (const msg of unreadMessages) {
-          await tx.chatMessageReceipt.create({
-            data: {
+        if (unreadMessages.length > 0) {
+          await tx.chatMessageReceipt.createMany({
+            data: unreadMessages.map((msg) => ({
               messageId: msg.id,
               userId: userPayload.userId,
-            },
+            })),
+            skipDuplicates: true,
           });
         }
       });
@@ -332,21 +333,14 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
       res.status(200).json(successResponse({ success: true, markedCount: 'all' }));
     } else if (validatedData.messageIds && validatedData.messageIds.length > 0) {
       await prisma.$transaction(async (tx) => {
-        for (const messageId of validatedData.messageIds) {
-          await tx.chatMessageReceipt.upsert({
-            where: {
-              messageId_userId: {
-                messageId,
-                userId: userPayload.userId,
-              },
-            },
-            create: {
-              messageId,
-              userId: userPayload.userId,
-            },
-            update: {},
-          });
-        }
+        const data = validatedData.messageIds.map((messageId) => ({
+          messageId,
+          userId: userPayload.userId,
+        }));
+        await tx.chatMessageReceipt.createMany({
+          data,
+          skipDuplicates: true,
+        });
       });
 
       res

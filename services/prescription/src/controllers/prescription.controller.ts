@@ -43,15 +43,27 @@ export const createPrescription = async (req: Request, res: Response, next: Next
         },
       });
 
-      for (const item of items) {
-        if (!item.drugName || !item.dosage || !item.quantity || !item.frequency || !item.duration) {
-          throw new ValidationError(
-            'Each prescription item requires drugName, dosage, quantity, frequency, and duration'
-          );
-        }
-
-        await tx.prescriptionItem.create({
-          data: {
+      const prescriptionItemsData = items.map(
+        (item: {
+          drugName: string;
+          dosage: string;
+          quantity: number;
+          frequency: string;
+          duration: string;
+          instructions?: string;
+        }) => {
+          if (
+            !item.drugName ||
+            !item.dosage ||
+            !item.quantity ||
+            !item.frequency ||
+            !item.duration
+          ) {
+            throw new ValidationError(
+              'Each prescription item requires drugName, dosage, quantity, frequency, and duration'
+            );
+          }
+          return {
             prescriptionId: p.id,
             drugName: item.drugName,
             dosage: item.dosage,
@@ -59,9 +71,13 @@ export const createPrescription = async (req: Request, res: Response, next: Next
             frequency: item.frequency,
             duration: item.duration,
             instructions: item.instructions || '',
-          },
-        });
-      }
+          };
+        }
+      );
+
+      await tx.prescriptionItem.createMany({
+        data: prescriptionItemsData,
+      });
 
       return p;
     });
