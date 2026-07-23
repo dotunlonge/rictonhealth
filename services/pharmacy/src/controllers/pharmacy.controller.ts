@@ -256,14 +256,20 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     const orderItemsData = [];
     let pharmacyId: string | null = null;
 
+    // Fetch all products in a single query to avoid N+1 problem
+    const productIds = items.map((item: { productId: string }) => item.productId).filter(Boolean);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         throw new ValidationError('Each item must have productId and a positive quantity');
       }
 
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+      const product = productMap.get(item.productId);
 
       if (!product || !product.isActive) {
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
