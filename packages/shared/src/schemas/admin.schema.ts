@@ -92,11 +92,13 @@ export const AdminProviderPendingListResponseSchema = registry.register(
         specialty: z.string(),
         licenseNumber: z.string(),
         submittedAt: z.string().datetime(),
-        documents: z.array(z.object({
-          type: z.string(),
-          url: z.string(),
-          status: z.enum(['PENDING', 'APPROVED', 'REJECTED']),
-        })),
+        documents: z.array(
+          z.object({
+            type: z.string(),
+            url: z.string(),
+            status: z.enum(['PENDING', 'APPROVED', 'REJECTED']),
+          })
+        ),
       })
     ),
     meta: z.object({

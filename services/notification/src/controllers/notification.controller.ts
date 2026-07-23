@@ -182,7 +182,7 @@ export const registerPushToken = async (req: Request, res: Response, next: NextF
     // Store in Redis or database for push notification delivery
     // This is a simplified implementation - in production, use a dedicated tokens table
     const key = `push_token:${userPayload.userId}:${platform || 'mobile'}`;
-    
+
     // Using a simple storage approach - integrate with Redis in production
     console.log(`Registering push token for user ${userPayload.userId}: ${key}`);
 
@@ -236,7 +236,7 @@ export const deleteNotification = async (req: Request, res: Response, next: Next
 export const sendTestNotification = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.SUPER_ADMIN) {
       throw new ValidationError('Only admins can send test notifications');
     }

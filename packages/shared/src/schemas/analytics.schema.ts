@@ -1,5 +1,5 @@
-import { z } from '@ricton/shared';
-import { registry } from './registry';
+import { z } from 'zod';
+import { registry } from './openapi.registry';
 
 export const RangeQuerySchema = registry.register(
   'AnalyticsRangeQuery',

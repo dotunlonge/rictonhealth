@@ -9,7 +9,8 @@
   },
   "workspaces": [
     "packages/*",
-    "services/*"
+    "services/*",
+    "apps/*"
   ],
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",

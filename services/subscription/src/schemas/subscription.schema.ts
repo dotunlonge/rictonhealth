@@ -23,11 +23,13 @@ export const SubscriptionSchema = z.object({
   currentPeriodEnd: z.string().datetime(),
   cancelAtPeriodEnd: z.boolean(),
   cancelledAt: z.string().datetime().nullable(),
-  payment: z.object({
-    amount: z.number(),
-    providerReference: z.string(),
-    createdAt: z.string().datetime(),
-  }).nullable(),
+  payment: z
+    .object({
+      amount: z.number(),
+      providerReference: z.string(),
+      createdAt: z.string().datetime(),
+    })
+    .nullable(),
   createdAt: z.string().datetime(),
 });
 

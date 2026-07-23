@@ -51,9 +51,11 @@ app.get('/health', async (_req: Request, res: Response) => {
     await redis.ping();
     res.status(200).json({ status: 'ok', service: 'notification-service' });
   } catch (error) {
-    res
-      .status(503)
-      .json({ status: 'error', service: 'notification-service', message: 'Dependency check failed' });
+    res.status(503).json({
+      status: 'error',
+      service: 'notification-service',
+      message: 'Dependency check failed',
+    });
   }
 });
 
