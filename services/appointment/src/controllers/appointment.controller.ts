@@ -42,7 +42,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     // Also check previous day for appointments that extend past midnight
     const prevDay = new Date(startOfDay);
     prevDay.setDate(prevDay.getDate() - 1);
@@ -118,6 +118,175 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
   }
 };
 
+const validateAppointmentDate = (scheduledAt: string): Date => {
+  const scheduledDate = new Date(scheduledAt);
+  const now = new Date();
+
+  if (scheduledDate < now) {
+    throw new ValidationError('Cannot book appointments in the past');
+  }
+
+  if (scheduledDate.getSeconds() !== 0 || scheduledDate.getMilliseconds() !== 0) {
+    throw new ValidationError(
+      'Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)'
+    );
+  }
+
+  return scheduledDate;
+};
+
+const checkProviderAvailability = async (
+  providerId: string,
+  scheduledDate: Date,
+  durationMinutes: number | undefined
+): Promise<{ slotDuration: number; slotStart: Date; slotEnd: Date }> => {
+  const dayOfWeek = (scheduledDate.getDay() + 6) % 7;
+
+  const availability = await prisma.providerAvailability.findFirst({
+    where: {
+      providerId,
+      dayOfWeek,
+      isActive: true,
+    },
+  });
+
+  if (!availability) {
+    throw new ValidationError('Provider is not available on this day');
+  }
+
+  const [startHour, startMin] = availability.startTime.split(':').map(Number);
+  const [endHour, endMin] = availability.endTime.split(':').map(Number);
+  const slotDuration = durationMinutes || availability.slotDurationMinutes;
+
+  if (slotDuration <= 0) {
+    throw new ValidationError('Slot duration must be positive');
+  }
+
+  const reqHour = scheduledDate.getHours();
+  const reqMin = scheduledDate.getMinutes();
+  const reqMinutes = reqHour * 60 + reqMin;
+  const startMinutes = startHour * 60 + startMin;
+  const endMinutes = endHour * 60 + endMin;
+
+  if (reqMinutes < startMinutes || reqMinutes + slotDuration > endMinutes) {
+    throw new ValidationError('Requested time is outside the provider availability window');
+  }
+
+  if ((reqMinutes - startMinutes) % availability.slotDurationMinutes !== 0) {
+    throw new ValidationError('Requested time must align to the provider slot grid');
+  }
+
+  const slotStart = new Date(scheduledDate);
+  const slotEnd = new Date(slotStart);
+  slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+  return { slotDuration, slotStart, slotEnd };
+};
+
+const checkAppointmentConflicts = async (
+  providerId: string,
+  scheduledDate: Date,
+  slotStart: Date,
+  slotEnd: Date
+): Promise<void> => {
+  const conflictingAppointments = await prisma.appointment.findMany({
+    where: {
+      providerId,
+      scheduledAt: {
+        gte: new Date(new Date(scheduledDate).setHours(0, 0, 0, 0)),
+        lte: new Date(new Date(scheduledDate).setHours(23, 59, 59, 999)),
+      },
+      status: {
+        in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED, AppointmentStatus.IN_PROGRESS],
+      },
+    },
+  });
+
+  const hasConflict = conflictingAppointments.some((apt) => {
+    const aptStart = new Date(apt.scheduledAt);
+    const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
+    return slotStart < aptEnd && slotEnd > aptStart;
+  });
+
+  if (hasConflict) {
+    throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
+  }
+};
+
+const resolveHospitalId = async (
+  providerId: string,
+  hospitalId?: string
+): Promise<string | undefined> => {
+  let finalHospitalId = hospitalId;
+
+  if (!finalHospitalId) {
+    const provider = await prisma.user.findUnique({
+      where: { id: providerId },
+      include: { providerProfile: true },
+    });
+    if (provider?.providerProfile?.hospitalId) {
+      finalHospitalId = provider.providerProfile.hospitalId;
+    }
+  } else {
+    const provider = await prisma.user.findUnique({
+      where: { id: providerId },
+      include: { providerProfile: true },
+    });
+    if (provider?.providerProfile?.hospitalId !== finalHospitalId) {
+      throw new ValidationError('Provider does not belong to the specified hospital');
+    }
+  }
+
+  return finalHospitalId;
+};
+
+const createAppointmentTransaction = async (
+  patientId: string,
+  providerId: string,
+  hospitalId: string | undefined,
+  slotStart: Date,
+  slotDuration: number,
+  type: AppointmentType,
+  reason: string
+) => {
+  return await prisma.$transaction(async (tx) => {
+    const appt = await tx.appointment.create({
+      data: {
+        patientId,
+        providerId,
+        hospitalId,
+        scheduledAt: slotStart,
+        durationMinutes: slotDuration,
+        type,
+        reason,
+        status: AppointmentStatus.PENDING,
+      },
+      include: {
+        patient: {
+          select: { id: true, email: true, phone: true, patientProfile: true },
+        },
+        provider: {
+          select: { id: true, email: true, phone: true, providerProfile: true },
+        },
+      },
+    });
+
+    if (type === AppointmentType.VIDEO) {
+      await tx.telemedicineRoom.create({
+        data: {
+          providerId,
+          appointmentId: appt.id,
+          roomType: 'ONE_ON_ONE',
+          externalRoomId: `room-${appt.id}`,
+          status: 'CREATED',
+        },
+      });
+    }
+
+    return appt;
+  });
+};
+
 export const createAppointment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
@@ -133,163 +302,24 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       );
     }
 
-    const scheduledDate = new Date(scheduledAt);
-    
-    // Validate that scheduledAt is not in the past
-    const now = new Date();
-    if (scheduledDate < now) {
-      throw new ValidationError('Cannot book appointments in the past');
-    }
-    
-    // Validate seconds and milliseconds are zero for proper slot alignment
-    if (scheduledDate.getSeconds() !== 0 || scheduledDate.getMilliseconds() !== 0) {
-      throw new ValidationError('Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)');
-    }
+    const scheduledDate = validateAppointmentDate(scheduledAt);
+    const { slotDuration, slotStart, slotEnd } = await checkProviderAvailability(
+      providerId,
+      scheduledDate,
+      durationMinutes
+    );
+    await checkAppointmentConflicts(providerId, scheduledDate, slotStart, slotEnd);
+    const finalHospitalId = await resolveHospitalId(providerId, hospitalId);
 
-    // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
-    const dayOfWeek = (scheduledDate.getDay() + 6) % 7;
-
-    // Check provider availability
-    const availability = await prisma.providerAvailability.findFirst({
-      where: {
-        providerId,
-        dayOfWeek,
-        isActive: true,
-      },
-    });
-
-    if (!availability) {
-      throw new ValidationError('Provider is not available on this day');
-    }
-
-    // Validate slot duration is positive to prevent infinite loops
-    const [startHour, startMin] = availability.startTime.split(':').map(Number);
-    const [endHour, endMin] = availability.endTime.split(':').map(Number);
-    const slotDuration = durationMinutes || availability.slotDurationMinutes;
-
-    if (slotDuration <= 0) {
-      throw new ValidationError('Slot duration must be positive');
-    }
-
-    // Calculate requested time in minutes
-    const reqHour = scheduledDate.getHours();
-    const reqMin = scheduledDate.getMinutes();
-    const reqMinutes = reqHour * 60 + reqMin;
-    const startMinutes = startHour * 60 + startMin;
-    const endMinutes = endHour * 60 + endMin;
-
-    // Validate requested time falls within availability window
-    if (reqMinutes < startMinutes || reqMinutes + slotDuration > endMinutes) {
-      throw new ValidationError('Requested time is outside the provider availability window');
-    }
-
-    // Validate slot alignment to provider's configured grid
-    if ((reqMinutes - startMinutes) % availability.slotDurationMinutes !== 0) {
-      throw new ValidationError('Requested time must align to the provider slot grid');
-    }
-
-    // Use the requested scheduledDate directly (not overwritten to startTime)
-    const slotStart = new Date(scheduledDate);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
-
-    // Find conflicting appointments
-    const conflictingAppointments = await prisma.appointment.findMany({
-      where: {
-        providerId,
-        scheduledAt: {
-          gte: new Date(scheduledDate.setHours(0, 0, 0, 0)),
-          lte: new Date(scheduledDate.setHours(23, 59, 59, 999)),
-        },
-        status: {
-          in: [
-            AppointmentStatus.PENDING,
-            AppointmentStatus.CONFIRMED,
-            AppointmentStatus.IN_PROGRESS,
-          ],
-        },
-      },
-    });
-
-    const hasConflict = conflictingAppointments.some((apt) => {
-      const aptStart = new Date(apt.scheduledAt);
-      const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
-      return slotStart < aptEnd && slotEnd > aptStart;
-    });
-
-    if (hasConflict) {
-      throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
-    }
-
-    // Derive hospitalId from provider if not provided, or validate it matches provider's hospital
-    let finalHospitalId = hospitalId;
-    if (!finalHospitalId) {
-      const provider = await prisma.user.findUnique({
-        where: { id: providerId },
-        include: { providerProfile: true },
-      });
-      if (provider?.providerProfile?.hospitalId) {
-        finalHospitalId = provider.providerProfile.hospitalId;
-      }
-    } else {
-      // Validate that the provider belongs to the specified hospital
-      const provider = await prisma.user.findUnique({
-        where: { id: providerId },
-        include: { providerProfile: true },
-      });
-      if (provider?.providerProfile?.hospitalId !== finalHospitalId) {
-        throw new ValidationError('Provider does not belong to the specified hospital');
-      }
-    }
-
-    // Create appointment with telemedicine room in a single transaction
-    const appointment = await prisma.$transaction(async (tx) => {
-      const appt = await tx.appointment.create({
-        data: {
-          patientId: userPayload.userId,
-          providerId,
-          hospitalId: finalHospitalId,
-          scheduledAt: slotStart,
-          durationMinutes: slotDuration,
-          type,
-          reason,
-          status: AppointmentStatus.PENDING,
-        },
-        include: {
-          patient: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              patientProfile: true,
-            },
-          },
-          provider: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              providerProfile: true,
-            },
-          },
-        },
-      });
-
-      // Auto-create telemedicine room for VIDEO appointments
-      if (type === AppointmentType.VIDEO) {
-        await tx.telemedicineRoom.create({
-          data: {
-            providerId,
-            appointmentId: appt.id,
-            roomType: 'ONE_ON_ONE',
-            externalRoomId: `room-${appt.id}`,
-            status: 'CREATED',
-          },
-        });
-      }
-
-      return appt;
-    });
+    const appointment = await createAppointmentTransaction(
+      userPayload.userId,
+      providerId,
+      finalHospitalId,
+      slotStart,
+      slotDuration,
+      type,
+      reason
+    );
 
     res.status(201).json(successResponse(appointment));
   } catch (error) {
@@ -519,7 +549,13 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
 
     // Prevent cancellation of terminal status appointments
-    if ([AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, AppointmentStatus.CANCELLED].includes(appointment.status)) {
+    if (
+      [
+        AppointmentStatus.COMPLETED,
+        AppointmentStatus.NO_SHOW,
+        AppointmentStatus.CANCELLED,
+      ].includes(appointment.status)
+    ) {
       throw new ValidationError(`Cannot cancel an appointment with status ${appointment.status}`);
     }
 
