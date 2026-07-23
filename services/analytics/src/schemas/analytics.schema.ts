@@ -120,13 +120,13 @@ registry.registerPath({
   summary: 'Platform overview analytics',
   security: [{ bearerAuth: [] }],
   responses: {
-    200: { 
+    200: {
       description: 'Platform overview',
-      content: { 
-        'application/json': { 
-          schema: OverviewResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: OverviewResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -148,13 +148,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Appointment trends',
-      content: { 
-        'application/json': { 
-          schema: AppointmentsTrendResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: AppointmentsTrendResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -176,13 +176,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Revenue analytics',
-      content: { 
-        'application/json': { 
-          schema: RevenueResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: RevenueResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -204,13 +204,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'User growth stats',
-      content: { 
-        'application/json': { 
-          schema: UserGrowthResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: UserGrowthResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -232,13 +232,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Provider performance',
-      content: { 
-        'application/json': { 
-          schema: ProviderPerformanceResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: ProviderPerformanceResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -260,13 +260,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Pharmacy metrics',
-      content: { 
-        'application/json': { 
-          schema: PharmacyMetricsResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: PharmacyMetricsResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },

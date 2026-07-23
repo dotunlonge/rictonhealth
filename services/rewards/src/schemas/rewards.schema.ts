@@ -14,7 +14,14 @@ export const RewardsBalanceResponseSchema = z.object({
 export const RewardEarningSchema = z.object({
   id: z.string(),
   points: z.number().int().positive(),
-  source: z.enum(['APPOINTMENT', 'PRESCRIPTION', 'PHARMACY_ORDER', 'REFERRAL', 'SIGNUP', 'PROMOTION']),
+  source: z.enum([
+    'APPOINTMENT',
+    'PRESCRIPTION',
+    'PHARMACY_ORDER',
+    'REFERRAL',
+    'SIGNUP',
+    'PROMOTION',
+  ]),
   description: z.string(),
   referenceId: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -89,13 +96,15 @@ export const RedeemRewardRequestSchema = registry.register(
   'RedeemRewardRequest',
   z.object({
     rewardId: z.string(),
-    shippingAddress: z.object({
-      street: z.string(),
-      city: z.string(),
-      state: z.string(),
-      country: z.string(),
-      postalCode: z.string(),
-    }).optional(),
+    shippingAddress: z
+      .object({
+        street: z.string(),
+        city: z.string(),
+        state: z.string(),
+        country: z.string(),
+        postalCode: z.string(),
+      })
+      .optional(),
   })
 );
 
@@ -132,7 +141,14 @@ export const EarnPointsRequestSchema = registry.register(
   'EarnPointsRequest',
   z.object({
     userId: z.string(),
-    source: z.enum(['APPOINTMENT', 'PRESCRIPTION', 'PHARMACY_ORDER', 'REFERRAL', 'SIGNUP', 'PROMOTION']),
+    source: z.enum([
+      'APPOINTMENT',
+      'PRESCRIPTION',
+      'PHARMACY_ORDER',
+      'REFERRAL',
+      'SIGNUP',
+      'PROMOTION',
+    ]),
     referenceId: z.string(),
     basePoints: z.number().int().positive(),
   })

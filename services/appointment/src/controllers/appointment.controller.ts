@@ -42,7 +42,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     // Also check previous day for appointments that extend past midnight
     const prevDay = new Date(startOfDay);
     prevDay.setDate(prevDay.getDate() - 1);
@@ -134,16 +134,18 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     }
 
     const scheduledDate = new Date(scheduledAt);
-    
+
     // Validate that scheduledAt is not in the past
     const now = new Date();
     if (scheduledDate < now) {
       throw new ValidationError('Cannot book appointments in the past');
     }
-    
+
     // Validate seconds and milliseconds are zero for proper slot alignment
     if (scheduledDate.getSeconds() !== 0 || scheduledDate.getMilliseconds() !== 0) {
-      throw new ValidationError('Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)');
+      throw new ValidationError(
+        'Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)'
+      );
     }
 
     // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
@@ -519,7 +521,13 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
 
     // Prevent cancellation of terminal status appointments
-    if ([AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, AppointmentStatus.CANCELLED].includes(appointment.status)) {
+    if (
+      [
+        AppointmentStatus.COMPLETED,
+        AppointmentStatus.NO_SHOW,
+        AppointmentStatus.CANCELLED,
+      ].includes(appointment.status)
+    ) {
       throw new ValidationError(`Cannot cancel an appointment with status ${appointment.status}`);
     }
 
