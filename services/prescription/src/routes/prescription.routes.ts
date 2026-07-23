@@ -1,10 +1,18 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as controller from '../controllers/prescription.controller';
 
 const router = Router();
 
+const prescriptionRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyPrefix: 'prescription',
+});
+
 router.use(requireAuth);
+router.use(prescriptionRateLimit);
 
 /**
  * @openapi

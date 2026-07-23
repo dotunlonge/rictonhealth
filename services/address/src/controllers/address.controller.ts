@@ -17,7 +17,7 @@ export const getAddresses = async (req: Request, res: Response, next: NextFuncti
     });
 
     res.status(200).json(successResponse({ addresses }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -40,7 +40,7 @@ export const getAddressById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -93,7 +93,7 @@ export const createAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(201).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -151,7 +151,7 @@ export const updateAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -179,7 +179,7 @@ export const deleteAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse({ message: 'Address deleted successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -215,7 +215,7 @@ export const setDefaultAddress = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json(successResponse(updatedAddress));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -263,7 +263,7 @@ export const validateAddress = async (req: Request, res: Response, next: NextFun
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

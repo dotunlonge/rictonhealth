@@ -38,6 +38,11 @@ export const UpgradeSubscriptionSchema = z.object({
   paymentMethod: z.enum(['CARD', 'BANK_TRANSFER']).default('CARD'),
 });
 
+// Type exports
+export type SubscriptionPlanSchema = z.infer<typeof SubscriptionPlanSchema>;
+export type SubscriptionSchema = z.infer<typeof SubscriptionSchema>;
+export type UpgradeSubscriptionSchema = z.infer<typeof UpgradeSubscriptionSchema>;
+
 import { registry } from './openapi.registry';
 
 export const PlansListResponse = registry.register(

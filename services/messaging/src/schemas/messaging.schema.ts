@@ -91,3 +91,12 @@ export const MessagesListResponseSchema = z.object({
     hasMore: z.boolean(),
   }),
 });
+
+// Type exports
+export type CreateConversationSchema = z.infer<typeof CreateConversationSchema>;
+export type SendMessageSchema = z.infer<typeof SendMessageSchema>;
+export type MarkAsReadSchema = z.infer<typeof MarkAsReadSchema>;
+export type ConversationResponseSchema = z.infer<typeof ConversationResponseSchema>;
+export type MessageResponseSchema = z.infer<typeof MessageResponseSchema>;
+export type ConversationsListResponseSchema = z.infer<typeof ConversationsListResponseSchema>;
+export type MessagesListResponseSchema = z.infer<typeof MessagesListResponseSchema>;

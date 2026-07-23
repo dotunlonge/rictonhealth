@@ -76,3 +76,12 @@ export const CancelSubscriptionResponse = registry.register(
     message: z.string(),
   })
 );
+
+// Type exports
+export type SubscriptionPlanSchema = z.infer<typeof SubscriptionPlanSchema>;
+export type SubscriptionSchema = z.infer<typeof SubscriptionSchema>;
+export type UpgradeSubscriptionSchema = z.infer<typeof UpgradeSubscriptionSchema>;
+export type PlansListResponse = z.infer<typeof PlansListResponse>;
+export type SubscriptionDetailResponse = z.infer<typeof SubscriptionDetailResponse>;
+export type UpgradeSubscriptionResponse = z.infer<typeof UpgradeSubscriptionResponse>;
+export type CancelSubscriptionResponse = z.infer<typeof CancelSubscriptionResponse>;

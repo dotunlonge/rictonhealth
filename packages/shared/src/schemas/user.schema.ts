@@ -50,6 +50,14 @@ export const UserProfileSchema = registry.register(
       })
       .nullable()
       .optional(),
+    pharmacyProfile: z
+      .object({
+        pharmacyName: z.string(),
+        licenseNumber: z.string().nullable().optional(),
+        isVerified: z.boolean().optional(),
+      })
+      .nullable()
+      .optional(),
   })
 );
 
@@ -168,6 +176,16 @@ export const ProviderDashboardResponseSchema = registry.register(
     }),
   })
 );
+
+// Type exports
+export type UserProfileSchema = z.infer<typeof UserProfileSchema>;
+export type GetUserResponseSchema = z.infer<typeof GetUserResponseSchema>;
+export type UpdateProfileInputSchema = z.infer<typeof UpdateProfileInputSchema>;
+export type AvatarUploadInputSchema = z.infer<typeof AvatarUploadInputSchema>;
+export type MedicalHistoryInputSchema = z.infer<typeof MedicalHistoryInputSchema>;
+export type GetProvidersQuerySchema = z.infer<typeof GetProvidersQuerySchema>;
+export type HospitalDashboardResponseSchema = z.infer<typeof HospitalDashboardResponseSchema>;
+export type ProviderDashboardResponseSchema = z.infer<typeof ProviderDashboardResponseSchema>;
 
 registry.registerPath({
   method: 'get',

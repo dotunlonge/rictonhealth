@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
 
+process.env.JWT_SECRET = 'docs-generation-secret';
+
 import { generateOpenApiSpec } from '@ricton/shared';
 // Import the schemas so they register themselves before generation
 import '@ricton/shared';

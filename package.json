@@ -60,6 +60,7 @@
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "bullmq": "^5.20.0"
   }
 }

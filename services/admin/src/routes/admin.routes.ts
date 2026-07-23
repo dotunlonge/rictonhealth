@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireRole } from '@ricton/shared';
+import { requireRole } from '@ricton/auth-middleware';
 import * as adminController from '../controllers/admin.controller';
 
 const router = Router();

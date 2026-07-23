@@ -1,7 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, NotificationChannel, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError } from '@ricton/shared';
+import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
+
+function decodeCursor(cursor: string): { id: string; timestamp: string } | null {
+  try {
+    const str = Buffer.from(cursor, 'base64').toString('utf8');
+    const [id, timestamp] = str.split(':');
+    return id && timestamp ? { id, timestamp } : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeCursor(id: string, timestamp: string): string {
+  return Buffer.from(`${id}:${timestamp}`).toString('base64');
+}
 
 /**
  * List notifications for current user
@@ -9,7 +23,9 @@ import { successResponse, NotFoundError, ValidationError } from '@ricton/shared'
 export const getNotifications = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const { isRead, limit = 20, offset = 0 } = req.query;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const cursor = req.query.cursor as string | undefined;
+    const { isRead } = req.query;
 
     const where: Prisma.NotificationWhereInput = {
       userId: userPayload.userId,
@@ -19,25 +35,39 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
       where.isRead = isRead === 'true';
     }
 
-    const [notifications, total] = await Promise.all([
+    if (cursor) {
+      const decoded = decodeCursor(cursor);
+      if (decoded) {
+        where.createdAt = { lt: new Date(decoded.timestamp) };
+      }
+    }
+
+    const [notifications] = await Promise.all([
       prisma.notification.findMany({
         where,
-        take: Number(limit),
-        skip: Number(offset),
         orderBy: { createdAt: 'desc' },
+        take: limit + 1,
       }),
-      prisma.notification.count({ where }),
     ]);
+
+    const hasMore = notifications.length > limit;
+    const data = hasMore ? notifications.slice(0, limit) : notifications;
+
+    const nextCursor =
+      hasMore && data.length > 0
+        ? encodeCursor(data[data.length - 1].id, data[data.length - 1].createdAt.toISOString())
+        : null;
 
     res.status(200).json(
       successResponse({
-        notifications,
-        total,
-        limit: Number(limit),
-        offset: Number(offset),
+        notifications: data,
+        pagination: {
+          nextCursor,
+          hasMore,
+        },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -71,7 +101,7 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -100,7 +130,7 @@ export const markAllAsRead = async (req: Request, res: Response, next: NextFunct
         count: result.count,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -129,7 +159,7 @@ export const getPreferences = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(preferences));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -162,7 +192,7 @@ export const updatePreferences = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -191,7 +221,7 @@ export const registerPushToken = async (req: Request, res: Response, next: NextF
         message: 'Push token registered successfully',
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -225,7 +255,7 @@ export const deleteNotification = async (req: Request, res: Response, next: Next
         message: 'Notification deleted successfully',
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -263,7 +293,7 @@ export const sendTestNotification = async (req: Request, res: Response, next: Ne
         notification,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -287,7 +317,30 @@ export const getUnreadCount = async (req: Request, res: Response, next: NextFunc
         count,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
+    next(error);
+  }
+};
+
+export const getNotificationById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+
+    const notification = await prisma.notification.findUnique({
+      where: { id },
+    });
+
+    if (!notification) {
+      throw new NotFoundError('Notification not found');
+    }
+
+    if (notification.userId !== userPayload.userId) {
+      throw new ForbiddenError('Not authorized to view this notification');
+    }
+
+    res.status(200).json(successResponse(notification));
+  } catch (error: unknown) {
     next(error);
   }
 };

@@ -153,3 +153,18 @@ export const EarnPointsRequestSchema = registry.register(
     basePoints: z.number().int().positive(),
   })
 );
+
+// Type exports
+export type RewardsBalanceResponseSchema = z.infer<typeof RewardsBalanceResponseSchema>;
+export type RewardEarningSchema = z.infer<typeof RewardEarningSchema>;
+export type RewardRedemptionSchema = z.infer<typeof RewardRedemptionSchema>;
+export type RewardCatalogItemSchema = z.infer<typeof RewardCatalogItemSchema>;
+export type LoyaltyTierSchema = z.infer<typeof LoyaltyTierSchema>;
+export type RewardsBalanceResponse = z.infer<typeof RewardsBalanceResponse>;
+export type RewardsEarningsListResponse = z.infer<typeof RewardsEarningsListResponse>;
+export type RewardsRedemptionsListResponse = z.infer<typeof RewardsRedemptionsListResponse>;
+export type RedeemRewardRequestSchema = z.infer<typeof RedeemRewardRequestSchema>;
+export type RedeemRewardResponse = z.infer<typeof RedeemRewardResponse>;
+export type RewardsCatalogResponse = z.infer<typeof RewardsCatalogResponse>;
+export type LoyaltyTiersResponse = z.infer<typeof LoyaltyTiersResponse>;
+export type EarnPointsRequestSchema = z.infer<typeof EarnPointsRequestSchema>;

@@ -1,14 +1,22 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as subscriptionController from '../controllers/subscription.controller';
 
 const router = Router();
+
+const subscriptionRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyPrefix: 'subscription',
+});
 
 // Webhook does not require auth, it uses signature verification
 router.post('/webhook', subscriptionController.handleWebhook);
 
 // All other subscription routes require authentication
 router.use(requireAuth);
+router.use(subscriptionRateLimit);
 
 /**
  * @openapi

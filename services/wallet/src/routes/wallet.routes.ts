@@ -4,7 +4,19 @@ import * as walletController from '../controllers/wallet.controller';
 
 const router = Router();
 
-// Webhook does not require auth, it uses signature verification
+/**
+ * @openapi
+ * /api/wallets/webhook:
+ *   post:
+ *     summary: Handle Paystack Nuban DVA wallet topup webhooks
+ *     tags:
+ *       - Wallets
+ *     responses:
+ *       200:
+ *         description: Webhook received and processed
+ *       401:
+ *         description: Invalid signature
+ */
 router.post('/webhook', walletController.paystackWebhook);
 
 // All other wallet routes require authentication

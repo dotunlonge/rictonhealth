@@ -10,12 +10,12 @@ until docker compose -f docker-compose.test.yml exec -T test-db pg_isready -U ri
   sleep 1
 done
 
-sleep 2
+sleep 8
 
 export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public"
 
-echo "Running Prisma migrations against test database..."
-npm run migrate --workspace=@ricton/db
+echo "Pushing Prisma schema to test database..."
+npx prisma db push --schema=packages/db/prisma/schema.prisma --accept-data-loss
 
 export NODE_ENV=test
 

@@ -82,3 +82,13 @@ export const UnreadCountResponse = registry.register(
     }),
   })
 );
+
+// Type exports
+export type NotificationSchema = z.infer<typeof NotificationSchema>;
+export type SendNotificationSchema = z.infer<typeof SendNotificationSchema>;
+export type SendBulkNotificationSchema = z.infer<typeof SendBulkNotificationSchema>;
+export type MarkAsReadSchema = z.infer<typeof MarkAsReadSchema>;
+export type NotificationsListResponse = z.infer<typeof NotificationsListResponse>;
+export type NotificationDetailResponse = z.infer<typeof NotificationDetailResponse>;
+export type SendNotificationResponse = z.infer<typeof SendNotificationResponse>;
+export type UnreadCountResponse = z.infer<typeof UnreadCountResponse>;

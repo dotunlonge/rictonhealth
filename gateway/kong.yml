@@ -61,4 +61,90 @@ services:
           - /api/wallets
         strip_path: false
 
-# Other services will be added here as they are built
+  - name: appointment-service
+    url: http://appointment-service:3005
+    routes:
+      - name: appointment-routes
+        paths:
+          - /api/appointments
+        strip_path: false
+
+  - name: prescription-service
+    url: http://prescription-service:3004
+    routes:
+      - name: prescription-routes
+        paths:
+          - /api/prescriptions
+        strip_path: false
+
+  - name: telemedicine-service
+    url: http://telemedicine-service:3013
+    routes:
+      - name: telemedicine-routes
+        paths:
+          - /api/telemedicine
+        strip_path: false
+
+  - name: pharmacy-service
+    url: http://pharmacy-service:3014
+    routes:
+      - name: pharmacy-routes
+        paths:
+          - /api/pharmacy
+        strip_path: false
+
+  - name: notification-service
+    url: http://notification-service:3016
+    routes:
+      - name: notification-routes
+        paths:
+          - /api/notifications
+        strip_path: false
+
+  - name: messaging-service
+    url: http://messaging-service:3012
+    routes:
+      - name: messaging-routes
+        paths:
+          - /api/messages
+        strip_path: false
+
+  - name: subscription-service
+    url: http://subscription-service:3009
+    routes:
+      - name: subscription-routes
+        paths:
+          - /api/subscriptions
+        strip_path: false
+
+  - name: rewards-service
+    url: http://rewards-service:3011
+    routes:
+      - name: rewards-routes
+        paths:
+          - /api/rewards
+        strip_path: false
+
+  - name: address-service
+    url: http://address-service:3015
+    routes:
+      - name: address-routes
+        paths:
+          - /api/addresses
+        strip_path: false
+
+  - name: analytics-service
+    url: http://analytics-service:3006
+    routes:
+      - name: analytics-routes
+        paths:
+          - /api/analytics
+        strip_path: false
+
+  - name: admin-service
+    url: http://admin-service:3010
+    routes:
+      - name: admin-routes
+        paths:
+          - /api/admin
+        strip_path: false
