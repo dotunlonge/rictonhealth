@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, WalletTransactionType, WalletReferenceType, PaymentType } from '@ricton/db';
+import { prisma, WalletTransactionType, WalletReferenceType } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -172,6 +172,8 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
         email: user.email,
         amount: Math.round(amount * 100), // Convert to kobo
         reference: `WALLET_TOPUP_${userId}_${Date.now()}`,
+        first_name: firstName,
+        last_name: lastName,
         metadata: {
           custom_fields: [
             {
@@ -378,7 +380,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         if (!wallet && user) {
           wallet = await prisma.wallet.upsert({
             where: { userId: user.id },
-            create: { userId: user.id, balance: 0 },
+            create: { userId: user.id },
             update: {},
           });
         }
@@ -393,7 +395,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
           if (!existingTx) {
             const transactions = await prisma.walletTransaction.findMany({
-              where: { walletId: user.wallet.id },
+              where: { walletId: wallet.id },
             });
             const currentBalance = transactions.reduce((acc, tx) => {
               if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
@@ -403,7 +405,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
             await prisma.walletTransaction.create({
               data: {
-                walletId: user.wallet.id,
+                walletId: wallet.id,
                 type: WalletTransactionType.CREDIT,
                 amount: amountInNaira,
                 balanceAfter: currentBalance + amountInNaira,

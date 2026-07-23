@@ -36,7 +36,7 @@ export const SendBulkNotificationSchema = z.object({
   data: z.record(z.any()).optional(),
 });
 
-export const MarkAsReadSchema = z.object({
+export const MarkNotificationAsReadSchema = z.object({
   notificationIds: z.array(z.string().uuid()).optional(),
   markAll: z.boolean().default(false),
 });

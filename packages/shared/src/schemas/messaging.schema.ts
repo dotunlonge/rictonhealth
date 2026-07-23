@@ -16,7 +16,7 @@ export const SendMessageSchema = z.object({
   fileSize: z.number().int().positive().optional(),
 });
 
-export const MarkAsReadSchema = z.object({
+export const MarkMessageAsReadSchema = z.object({
   messageIds: z.array(z.string().uuid()).optional(),
   markAll: z.boolean().default(false),
 });
