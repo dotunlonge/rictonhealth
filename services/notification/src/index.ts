@@ -7,7 +7,7 @@ ddTrace.init({
 
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import { redis } from '@ricton/shared';
 import {
@@ -22,6 +22,8 @@ import {
 import notificationRoutes from './routes/notification.routes';
 
 dotenv.config({ path: '../../.env' });
+
+// Environment is loaded
 
 initSentry('notification-service');
 
@@ -50,10 +52,12 @@ app.get('/health', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     await redis.ping();
     res.status(200).json({ status: 'ok', service: 'notification-service' });
-  } catch (error) {
-    res
-      .status(503)
-      .json({ status: 'error', service: 'notification-service', message: 'Dependency check failed' });
+  } catch (error: unknown) {
+    res.status(503).json({
+      status: 'error',
+      service: 'notification-service',
+      message: 'Dependency check failed',
+    });
   }
 });
 

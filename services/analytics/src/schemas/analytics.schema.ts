@@ -1,5 +1,5 @@
-import { z } from '@ricton/shared';
-import { registry } from './registry';
+import { z } from 'zod';
+import { registry } from '@ricton/shared';
 
 export const RangeQuerySchema = registry.register(
   'AnalyticsRangeQuery',
@@ -114,19 +114,28 @@ export const PharmacyMetricsResponseSchema = registry.register(
   })
 );
 
+// Type exports
+export type RangeQuerySchema = z.infer<typeof RangeQuerySchema>;
+export type OverviewResponseSchema = z.infer<typeof OverviewResponseSchema>;
+export type AppointmentsTrendResponseSchema = z.infer<typeof AppointmentsTrendResponseSchema>;
+export type RevenueResponseSchema = z.infer<typeof RevenueResponseSchema>;
+export type UserGrowthResponseSchema = z.infer<typeof UserGrowthResponseSchema>;
+export type ProviderPerformanceResponseSchema = z.infer<typeof ProviderPerformanceResponseSchema>;
+export type PharmacyMetricsResponseSchema = z.infer<typeof PharmacyMetricsResponseSchema>;
+
 registry.registerPath({
   method: 'get',
   path: '/api/analytics/overview',
   summary: 'Platform overview analytics',
   security: [{ bearerAuth: [] }],
   responses: {
-    200: { 
+    200: {
       description: 'Platform overview',
-      content: { 
-        'application/json': { 
-          schema: OverviewResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: OverviewResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -148,13 +157,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Appointment trends',
-      content: { 
-        'application/json': { 
-          schema: AppointmentsTrendResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: AppointmentsTrendResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -176,13 +185,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Revenue analytics',
-      content: { 
-        'application/json': { 
-          schema: RevenueResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: RevenueResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -204,13 +213,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'User growth stats',
-      content: { 
-        'application/json': { 
-          schema: UserGrowthResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: UserGrowthResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -232,13 +241,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Provider performance',
-      content: { 
-        'application/json': { 
-          schema: ProviderPerformanceResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: ProviderPerformanceResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },
@@ -260,13 +269,13 @@ registry.registerPath({
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
   ],
   responses: {
-    200: { 
+    200: {
       description: 'Pharmacy metrics',
-      content: { 
-        'application/json': { 
-          schema: PharmacyMetricsResponseSchema 
-        } 
-      }
+      content: {
+        'application/json': {
+          schema: PharmacyMetricsResponseSchema,
+        },
+      },
     },
     401: { description: 'Unauthorized' },
     403: { description: 'Forbidden' },

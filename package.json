@@ -12,7 +12,7 @@
     "services/*"
   ],
   "scripts": {
-    "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",
+    "dev": "npm run format && npm run lint:fix && npm run docs:generate && docker-compose run --rm db-migrate && docker-compose up -d && npm run services:dev",
     "services:dev": "concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
     "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service --workspace=@ricton/appointment-service",
     "test": "./scripts/test-e2e.sh",
@@ -25,7 +25,8 @@
     "db:migrate": "npm run migrate --workspace=@ricton/db",
     "db:generate": "npm run generate --workspace=@ricton/db",
     "db:seed": "npm run seed --workspace=@ricton/db",
-    "docs:generate": "npx tsx scripts/generate-docs.ts",
+    "docs:generate": "JWT_SECRET=docs-generation-secret npx tsx scripts/generate-docs.ts",
+    "worker": "npx tsx -e \"import('./packages/shared/src/jobs/processors.ts').then(m => m.startJobProcessors())\"",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -56,6 +57,10 @@
     "swagger-jsdoc": "^6.2.8",
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.23.1",
     "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "bullmq": "^5.20.0"
   }
 }

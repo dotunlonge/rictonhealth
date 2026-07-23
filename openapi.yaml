@@ -294,7 +294,7 @@ components:
         success:
           type: boolean
         data:
-          $ref: "#/components/schemas/UserProfile"
+          $ref: '#/components/schemas/UserProfile'
       required:
         - success
         - data
@@ -351,6 +351,17 @@ components:
               - condition
       required:
         - medicalHistory
+    GetProvidersQuery:
+      type: object
+      properties:
+        specialty:
+          type: string
+        name:
+          type: string
+        limit:
+          type: string
+        offset:
+          type: string
     HospitalDashboardResponse:
       type: object
       properties:
@@ -476,6 +487,15 @@ components:
         cancellationReason:
           type: string
           nullable: true
+        reason:
+          type: string
+          nullable: true
+        reminderSentAt:
+          type: string
+          nullable: true
+        cancelledBy:
+          type: string
+          nullable: true
         createdAt:
           type: string
         updatedAt:
@@ -491,6 +511,9 @@ components:
         - status
         - notes
         - cancellationReason
+        - reason
+        - reminderSentAt
+        - cancelledBy
         - createdAt
         - updatedAt
     GetSlotsResponse:
@@ -524,16 +547,23 @@ components:
             - VIDEO
         notes:
           type: string
+        reason:
+          type: string
+        durationMinutes:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true
       required:
         - providerId
         - scheduledAt
+        - type
     GetAppointmentResponse:
       type: object
       properties:
         success:
           type: boolean
         data:
-          $ref: "#/components/schemas/Appointment"
+          $ref: '#/components/schemas/Appointment'
       required:
         - success
         - data
@@ -543,12 +573,106 @@ components:
         success:
           type: boolean
         data:
-          type: array
-          items:
-            $ref: "#/components/schemas/Appointment"
+          type: object
+          properties:
+            appointments:
+              type: array
+              items:
+                $ref: '#/components/schemas/Appointment'
+            meta:
+              type: object
+              properties:
+                total:
+                  type: number
+                limit:
+                  type: number
+                offset:
+                  type: number
+                hasMore:
+                  type: boolean
+              required:
+                - total
+                - limit
+                - offset
+                - hasMore
+          required:
+            - appointments
+            - meta
       required:
         - success
         - data
+    CreateAppointment:
+      type: object
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        scheduledAt:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum:
+            - IN_PERSON
+            - VIDEO
+        reason:
+          type: string
+        durationMinutes:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true
+        hospitalId:
+          type: string
+          format: uuid
+      required:
+        - providerId
+        - scheduledAt
+        - type
+    UpdateAppointmentStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - PENDING
+            - CONFIRMED
+            - IN_PROGRESS
+            - COMPLETED
+            - CANCELLED
+            - NO_SHOW
+        cancellationReason:
+          type: string
+      required:
+        - status
+    GetAvailabilityQuery:
+      type: object
+      properties:
+        providerId:
+          type: string
+          format: uuid
+        date:
+          type: string
+          pattern: ^\d{4}-\d{2}-\d{2}$
+      required:
+        - providerId
+        - date
+    GetAppointmentsQuery:
+      type: object
+      properties:
+        status:
+          type: string
+        type:
+          type: string
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        limit:
+          type: string
+        offset:
+          type: string
     PrescriptionItem:
       type: object
       properties:
@@ -618,7 +742,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/PrescriptionItem"
+            $ref: '#/components/schemas/PrescriptionItem'
       required:
         - id
         - appointmentId
@@ -688,7 +812,7 @@ components:
         success:
           type: boolean
         data:
-          $ref: "#/components/schemas/Prescription"
+          $ref: '#/components/schemas/Prescription'
       required:
         - success
         - data
@@ -700,7 +824,7 @@ components:
         data:
           type: array
           items:
-            $ref: "#/components/schemas/Prescription"
+            $ref: '#/components/schemas/Prescription'
       required:
         - success
         - data
@@ -766,13 +890,1837 @@ components:
             token:
               type: string
             room:
-              $ref: "#/components/schemas/TelemedicineRoom"
+              $ref: '#/components/schemas/TelemedicineRoom'
           required:
             - token
             - room
       required:
         - success
         - data
+    Address:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+          nullable: true
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        postalCode:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - addressLine1
+        - addressLine2
+        - city
+        - state
+        - country
+        - postalCode
+        - latitude
+        - longitude
+        - isDefault
+        - createdAt
+    CreateAddressInput:
+      type: object
+      properties:
+        addressLine1:
+          type: string
+          minLength: 5
+        addressLine2:
+          type: string
+        city:
+          type: string
+          minLength: 2
+        state:
+          type: string
+          minLength: 2
+        country:
+          type: string
+          default: Nigeria
+        postalCode:
+          type: string
+          pattern: ^\d{6}$
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        isDefault:
+          type: boolean
+          default: false
+      required:
+        - addressLine1
+        - city
+        - state
+    UpdateAddressInput:
+      type: object
+      properties:
+        addressLine1:
+          type: string
+          minLength: 5
+        addressLine2:
+          type: string
+        city:
+          type: string
+          minLength: 2
+        state:
+          type: string
+          minLength: 2
+        country:
+          type: string
+        postalCode:
+          type: string
+          pattern: ^\d{6}$
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        isDefault:
+          type: boolean
+    ValidateAddressInput:
+      type: object
+      properties:
+        addressLine1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        postalCode:
+          type: string
+      required:
+        - addressLine1
+        - city
+        - state
+    AddressListResponse:
+      type: object
+      properties:
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/Address'
+      required:
+        - addresses
+    ProductsListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            products:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  description:
+                    type: string
+                    nullable: true
+                  price:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                  category:
+                    type: string
+                  imageUrl:
+                    type: string
+                    nullable: true
+                    format: uri
+                  stock:
+                    type: integer
+                    minimum: 0
+                  isActive:
+                    type: boolean
+                  pharmacyId:
+                    type: string
+                    format: uuid
+                  createdAt:
+                    type: string
+                    format: date-time
+                required:
+                  - id
+                  - name
+                  - description
+                  - price
+                  - category
+                  - imageUrl
+                  - stock
+                  - isActive
+                  - pharmacyId
+                  - createdAt
+            total:
+              type: number
+            limit:
+              type: number
+            offset:
+              type: number
+          required:
+            - products
+            - total
+            - limit
+            - offset
+      required:
+        - success
+        - data
+    ProductDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            description:
+              type: string
+              nullable: true
+            price:
+              type: number
+              minimum: 0
+              exclusiveMinimum: true
+            category:
+              type: string
+            imageUrl:
+              type: string
+              nullable: true
+              format: uri
+            stock:
+              type: integer
+              minimum: 0
+            isActive:
+              type: boolean
+            pharmacyId:
+              type: string
+              format: uuid
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - name
+            - description
+            - price
+            - category
+            - imageUrl
+            - stock
+            - isActive
+            - pharmacyId
+            - createdAt
+      required:
+        - success
+        - data
+    CategoriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: string
+      required:
+        - success
+        - data
+    OrdersListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            orders:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  userId:
+                    type: string
+                    format: uuid
+                  pharmacyId:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum: &a1
+                      - PENDING
+                      - CONFIRMED
+                      - PROCESSING
+                      - SHIPPED
+                      - DELIVERED
+                      - CANCELLED
+                  totalAmount:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                  deliveryType:
+                    type: string
+                    enum: &a2
+                      - HOME_DELIVERY
+                      - PICKUP
+                  deliveryAddress:
+                    type: string
+                    nullable: true
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        productId:
+                          type: string
+                          format: uuid
+                        quantity:
+                          type: integer
+                          minimum: 0
+                          exclusiveMinimum: true
+                        unitPrice:
+                          type: number
+                          minimum: 0
+                          exclusiveMinimum: true
+                      required:
+                        - productId
+                        - quantity
+                        - unitPrice
+                  createdAt:
+                    type: string
+                    format: date-time
+                required:
+                  - id
+                  - userId
+                  - pharmacyId
+                  - status
+                  - totalAmount
+                  - deliveryType
+                  - deliveryAddress
+                  - items
+                  - createdAt
+            total:
+              type: number
+            limit:
+              type: number
+            offset:
+              type: number
+          required:
+            - orders
+            - total
+            - limit
+            - offset
+      required:
+        - success
+        - data
+    OrderDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            pharmacyId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: *a1
+            totalAmount:
+              type: number
+              minimum: 0
+              exclusiveMinimum: true
+            deliveryType:
+              type: string
+              enum: *a2
+            deliveryAddress:
+              type: string
+              nullable: true
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  productId:
+                    type: string
+                    format: uuid
+                  quantity:
+                    type: integer
+                    minimum: 0
+                    exclusiveMinimum: true
+                  unitPrice:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                required:
+                  - productId
+                  - quantity
+                  - unitPrice
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - userId
+            - pharmacyId
+            - status
+            - totalAmount
+            - deliveryType
+            - deliveryAddress
+            - items
+            - createdAt
+      required:
+        - success
+        - data
+    CreateOrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            pharmacyId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: *a1
+            totalAmount:
+              type: number
+              minimum: 0
+              exclusiveMinimum: true
+            deliveryType:
+              type: string
+              enum: *a2
+            deliveryAddress:
+              type: string
+              nullable: true
+            items:
+              type: array
+              items:
+                type: object
+                properties:
+                  productId:
+                    type: string
+                    format: uuid
+                  quantity:
+                    type: integer
+                    minimum: 0
+                    exclusiveMinimum: true
+                  unitPrice:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                required:
+                  - productId
+                  - quantity
+                  - unitPrice
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - userId
+            - pharmacyId
+            - status
+            - totalAmount
+            - deliveryType
+            - deliveryAddress
+            - items
+            - createdAt
+      required:
+        - success
+        - data
+    NotificationsListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            notifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  userId:
+                    type: string
+                    format: uuid
+                  type:
+                    type: string
+                    enum: &a3
+                      - EMAIL
+                      - SMS
+                      - PUSH
+                      - IN_APP
+                  channel:
+                    type: string
+                    enum: &a4
+                      - EMAIL
+                      - SMS
+                      - PUSH
+                      - IN_APP
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    nullable: true
+                    additionalProperties:
+                      nullable: true
+                  isRead:
+                    type: boolean
+                  readAt:
+                    type: string
+                    nullable: true
+                    format: date-time
+                  sentAt:
+                    type: string
+                    nullable: true
+                    format: date-time
+                  deliveredAt:
+                    type: string
+                    nullable: true
+                    format: date-time
+                  failedAt:
+                    type: string
+                    nullable: true
+                    format: date-time
+                  failureReason:
+                    type: string
+                    nullable: true
+                  createdAt:
+                    type: string
+                    format: date-time
+                required:
+                  - id
+                  - userId
+                  - type
+                  - channel
+                  - title
+                  - message
+                  - data
+                  - isRead
+                  - readAt
+                  - sentAt
+                  - deliveredAt
+                  - failedAt
+                  - failureReason
+                  - createdAt
+            total:
+              type: number
+            unreadCount:
+              type: number
+            limit:
+              type: number
+            offset:
+              type: number
+          required:
+            - notifications
+            - total
+            - unreadCount
+            - limit
+            - offset
+      required:
+        - success
+        - data
+    NotificationDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            type:
+              type: string
+              enum: *a3
+            channel:
+              type: string
+              enum: *a4
+            title:
+              type: string
+            message:
+              type: string
+            data:
+              type: object
+              nullable: true
+              additionalProperties:
+                nullable: true
+            isRead:
+              type: boolean
+            readAt:
+              type: string
+              nullable: true
+              format: date-time
+            sentAt:
+              type: string
+              nullable: true
+              format: date-time
+            deliveredAt:
+              type: string
+              nullable: true
+              format: date-time
+            failedAt:
+              type: string
+              nullable: true
+              format: date-time
+            failureReason:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - userId
+            - type
+            - channel
+            - title
+            - message
+            - data
+            - isRead
+            - readAt
+            - sentAt
+            - deliveredAt
+            - failedAt
+            - failureReason
+            - createdAt
+      required:
+        - success
+        - data
+    SendNotificationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            type:
+              type: string
+              enum: *a3
+            channel:
+              type: string
+              enum: *a4
+            title:
+              type: string
+            message:
+              type: string
+            data:
+              type: object
+              nullable: true
+              additionalProperties:
+                nullable: true
+            isRead:
+              type: boolean
+            readAt:
+              type: string
+              nullable: true
+              format: date-time
+            sentAt:
+              type: string
+              nullable: true
+              format: date-time
+            deliveredAt:
+              type: string
+              nullable: true
+              format: date-time
+            failedAt:
+              type: string
+              nullable: true
+              format: date-time
+            failureReason:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - userId
+            - type
+            - channel
+            - title
+            - message
+            - data
+            - isRead
+            - readAt
+            - sentAt
+            - deliveredAt
+            - failedAt
+            - failureReason
+            - createdAt
+      required:
+        - success
+        - data
+    UnreadCountResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            count:
+              type: number
+          required:
+            - count
+      required:
+        - success
+        - data
+    PlansListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            plans:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  code:
+                    type: string
+                    enum:
+                      - FREE
+                      - PREMIUM
+                  price:
+                    type: number
+                    minimum: 0
+                  currency:
+                    type: string
+                  billingPeriod:
+                    type: string
+                  features:
+                    type: array
+                    items:
+                      type: string
+                  limitations:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - id
+                  - name
+                  - code
+                  - price
+                  - currency
+                  - billingPeriod
+                  - features
+                  - limitations
+          required:
+            - plans
+      required:
+        - success
+        - data
+    SubscriptionDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            userId:
+              type: string
+              format: uuid
+            plan:
+              type: string
+              enum:
+                - FREE
+                - PREMIUM
+            status:
+              type: string
+              enum:
+                - ACTIVE
+                - CANCELLED
+                - EXPIRED
+                - PAST_DUE
+            currentPeriodStart:
+              type: string
+              format: date-time
+            currentPeriodEnd:
+              type: string
+              format: date-time
+            cancelAtPeriodEnd:
+              type: boolean
+            cancelledAt:
+              type: string
+              nullable: true
+              format: date-time
+            payment:
+              type: object
+              nullable: true
+              properties:
+                amount:
+                  type: number
+                providerReference:
+                  type: string
+                createdAt:
+                  type: string
+                  format: date-time
+              required:
+                - amount
+                - providerReference
+                - createdAt
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - userId
+            - plan
+            - status
+            - currentPeriodStart
+            - currentPeriodEnd
+            - cancelAtPeriodEnd
+            - cancelledAt
+            - payment
+            - createdAt
+      required:
+        - success
+        - data
+    UpgradeSubscriptionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            authorizationUrl:
+              type: string
+              format: uri
+            reference:
+              type: string
+          required:
+            - authorizationUrl
+            - reference
+      required:
+        - success
+        - data
+    CancelSubscriptionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+    RewardsBalanceResponse:
+      type: object
+      properties:
+        userId:
+          type: string
+        balance:
+          type: integer
+          minimum: 0
+        tier:
+          type: string
+          enum:
+            - BRONZE
+            - SILVER
+            - GOLD
+            - PLATINUM
+        nextTierPoints:
+          type: number
+        pointsToNextTier:
+          type: number
+      required:
+        - userId
+        - balance
+        - tier
+    RewardsEarningsListResponse:
+      type: object
+      properties:
+        earnings:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              points:
+                type: integer
+                minimum: 0
+                exclusiveMinimum: true
+              source:
+                type: string
+                enum:
+                  - APPOINTMENT
+                  - PRESCRIPTION
+                  - PHARMACY_ORDER
+                  - REFERRAL
+                  - SIGNUP
+                  - PROMOTION
+              description:
+                type: string
+              referenceId:
+                type: string
+                nullable: true
+              createdAt:
+                type: string
+                format: date-time
+            required:
+              - id
+              - points
+              - source
+              - description
+              - referenceId
+              - createdAt
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+      required:
+        - earnings
+        - meta
+    RewardsRedemptionsListResponse:
+      type: object
+      properties:
+        redemptions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              pointsUsed:
+                type: integer
+                minimum: 0
+                exclusiveMinimum: true
+              reward:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  description:
+                    type: string
+                  pointsCost:
+                    type: integer
+                    minimum: 0
+                    exclusiveMinimum: true
+                required:
+                  - id
+                  - name
+                  - description
+                  - pointsCost
+              status:
+                type: string
+                enum: &a5
+                  - PENDING
+                  - PROCESSING
+                  - DELIVERED
+                  - REDEEMED
+                  - CANCELLED
+              deliveredAt:
+                type: string
+                nullable: true
+                format: date-time
+              createdAt:
+                type: string
+                format: date-time
+            required:
+              - id
+              - pointsUsed
+              - reward
+              - status
+              - deliveredAt
+              - createdAt
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+      required:
+        - redemptions
+        - meta
+    RedeemRewardRequest:
+      type: object
+      properties:
+        rewardId:
+          type: string
+        shippingAddress:
+          type: object
+          properties:
+            street:
+              type: string
+            city:
+              type: string
+            state:
+              type: string
+            country:
+              type: string
+            postalCode:
+              type: string
+          required:
+            - street
+            - city
+            - state
+            - country
+            - postalCode
+      required:
+        - rewardId
+    RedeemRewardResponse:
+      type: object
+      properties:
+        redemption:
+          type: object
+          properties:
+            id:
+              type: string
+            pointsUsed:
+              type: integer
+              minimum: 0
+              exclusiveMinimum: true
+            reward:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                pointsCost:
+                  type: integer
+                  minimum: 0
+                  exclusiveMinimum: true
+              required:
+                - id
+                - name
+                - description
+                - pointsCost
+            status:
+              type: string
+              enum: *a5
+            deliveredAt:
+              type: string
+              nullable: true
+              format: date-time
+            createdAt:
+              type: string
+              format: date-time
+          required:
+            - id
+            - pointsUsed
+            - reward
+            - status
+            - deliveredAt
+            - createdAt
+        newBalance:
+          type: integer
+          minimum: 0
+      required:
+        - redemption
+        - newBalance
+    RewardsCatalogResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              description:
+                type: string
+              pointsCost:
+                type: integer
+                minimum: 0
+                exclusiveMinimum: true
+              category:
+                type: string
+              imageUrl:
+                type: string
+                nullable: true
+                format: uri
+              stock:
+                type: integer
+                minimum: 0
+              isActive:
+                type: boolean
+              tierRequired:
+                type: string
+                nullable: true
+                enum:
+                  - BRONZE
+                  - SILVER
+                  - GOLD
+                  - PLATINUM
+            required:
+              - id
+              - name
+              - description
+              - pointsCost
+              - category
+              - imageUrl
+              - stock
+              - isActive
+              - tierRequired
+        categories:
+          type: array
+          items:
+            type: string
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+      required:
+        - items
+        - categories
+        - meta
+    LoyaltyTiersResponse:
+      type: object
+      properties:
+        tiers:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum:
+                  - BRONZE
+                  - SILVER
+                  - GOLD
+                  - PLATINUM
+              minPoints:
+                type: integer
+                minimum: 0
+              benefits:
+                type: array
+                items:
+                  type: string
+              multiplier:
+                type: number
+                minimum: 0
+                exclusiveMinimum: true
+            required:
+              - name
+              - minPoints
+              - benefits
+              - multiplier
+        userTier:
+          type: string
+          enum:
+            - BRONZE
+            - SILVER
+            - GOLD
+            - PLATINUM
+      required:
+        - tiers
+        - userTier
+    EarnPointsRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        source:
+          type: string
+          enum:
+            - APPOINTMENT
+            - PRESCRIPTION
+            - PHARMACY_ORDER
+            - REFERRAL
+            - SIGNUP
+            - PROMOTION
+        referenceId:
+          type: string
+        basePoints:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true
+      required:
+        - userId
+        - source
+        - referenceId
+        - basePoints
+    AnalyticsRangeQuery:
+      type: object
+      properties:
+        range:
+          type: string
+          enum:
+            - 7d
+            - 30d
+            - 90d
+            - 12m
+            - all
+          default: 30d
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+    AnalyticsOverviewResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            totalUsers:
+              type: number
+            totalPatients:
+              type: number
+            totalProviders:
+              type: number
+            totalPharmacists:
+              type: number
+            totalHospitals:
+              type: number
+            totalAppointments:
+              type: number
+            completedAppointments:
+              type: number
+            totalRevenue:
+              type: number
+            activeSubscriptions:
+              type: number
+          required:
+            - totalUsers
+            - totalPatients
+            - totalProviders
+            - totalPharmacists
+            - totalHospitals
+            - totalAppointments
+            - completedAppointments
+            - totalRevenue
+            - activeSubscriptions
+      required:
+        - success
+        - data
+    AnalyticsAppointmentsTrendResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            total:
+              type: number
+            byStatus:
+              type: object
+              additionalProperties:
+                type: number
+            byType:
+              type: object
+              additionalProperties:
+                type: number
+            trend:
+              type: array
+              items:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  count:
+                    type: number
+                required:
+                  - period
+                  - count
+          required:
+            - total
+            - byStatus
+            - byType
+            - trend
+      required:
+        - success
+        - data
+    AnalyticsRevenueResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            totalRevenue:
+              type: number
+            byType:
+              type: object
+              additionalProperties:
+                type: number
+            trend:
+              type: array
+              items:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  amount:
+                    type: number
+                required:
+                  - period
+                  - amount
+          required:
+            - totalRevenue
+            - byType
+            - trend
+      required:
+        - success
+        - data
+    AnalyticsUserGrowthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            totalUsers:
+              type: number
+            byRole:
+              type: object
+              additionalProperties:
+                type: number
+            trend:
+              type: array
+              items:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  count:
+                    type: number
+                required:
+                  - period
+                  - count
+          required:
+            - totalUsers
+            - byRole
+            - trend
+      required:
+        - success
+        - data
+    AnalyticsProviderPerformanceResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            providers:
+              type: array
+              items:
+                type: object
+                properties:
+                  providerId:
+                    type: string
+                  name:
+                    type: string
+                  specialty:
+                    type: string
+                    nullable: true
+                  appointmentCount:
+                    type: number
+                  completedCount:
+                    type: number
+                  rating:
+                    type: number
+                    nullable: true
+                required:
+                  - providerId
+                  - name
+                  - specialty
+                  - appointmentCount
+                  - completedCount
+                  - rating
+            total:
+              type: number
+          required:
+            - providers
+            - total
+      required:
+        - success
+        - data
+    AnalyticsPharmacyMetricsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            totalPharmacies:
+              type: number
+            verifiedPharmacies:
+              type: number
+            totalOrders:
+              type: number
+            ordersByStatus:
+              type: object
+              additionalProperties:
+                type: number
+            totalOrderValue:
+              type: number
+          required:
+            - totalPharmacies
+            - verifiedPharmacies
+            - totalOrders
+            - ordersByStatus
+            - totalOrderValue
+      required:
+        - success
+        - data
+    AdminUserListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              email:
+                type: string
+                nullable: true
+                format: email
+              phone:
+                type: string
+                nullable: true
+              firstName:
+                type: string
+              lastName:
+                type: string
+              role:
+                type: string
+                enum:
+                  - PATIENT
+                  - CONSULTANT
+                  - PHARMACIST
+                  - HOSPITAL_ADMIN
+                  - SUPER_ADMIN
+              status:
+                type: string
+                enum:
+                  - ACTIVE
+                  - SUSPENDED
+                  - PENDING
+                  - DEACTIVATED
+              isVerified:
+                type: boolean
+              createdAt:
+                type: string
+                format: date-time
+              lastLoginAt:
+                type: string
+                nullable: true
+                format: date-time
+            required:
+              - id
+              - email
+              - phone
+              - firstName
+              - lastName
+              - role
+              - status
+              - isVerified
+              - createdAt
+              - lastLoginAt
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+            totalPages:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+            - totalPages
+      required:
+        - users
+        - meta
+    AdminProviderPendingListResponse:
+      type: object
+      properties:
+        providers:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              userId:
+                type: string
+              firstName:
+                type: string
+              lastName:
+                type: string
+              specialty:
+                type: string
+              licenseNumber:
+                type: string
+              submittedAt:
+                type: string
+                format: date-time
+              documents:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    url:
+                      type: string
+                    status:
+                      type: string
+                      enum:
+                        - PENDING
+                        - APPROVED
+                        - REJECTED
+                  required:
+                    - type
+                    - url
+                    - status
+            required:
+              - id
+              - userId
+              - firstName
+              - lastName
+              - specialty
+              - licenseNumber
+              - submittedAt
+              - documents
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+      required:
+        - providers
+        - meta
+    AdminHospitalResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        address:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        website:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - ACTIVE
+            - INACTIVE
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - description
+        - address
+        - city
+        - state
+        - country
+        - email
+        - phone
+        - website
+        - status
+        - createdAt
+    AdminAuditLogResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              userId:
+                type: string
+              action:
+                type: string
+              resource:
+                type: string
+              resourceId:
+                type: string
+                nullable: true
+              details:
+                type: object
+                additionalProperties:
+                  nullable: true
+              ipAddress:
+                type: string
+              userAgent:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+            required:
+              - id
+              - userId
+              - action
+              - resource
+              - resourceId
+              - details
+              - ipAddress
+              - userAgent
+              - createdAt
+        meta:
+          type: object
+          properties:
+            total:
+              type: number
+            page:
+              type: number
+            limit:
+              type: number
+          required:
+            - total
+            - page
+            - limit
+      required:
+        - logs
+        - meta
+    AdminAnalyticsResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            totalUsers:
+              type: number
+            totalProviders:
+              type: number
+            totalHospitals:
+              type: number
+            totalAppointments:
+              type: number
+            totalRevenue:
+              type: number
+            activeSubscriptions:
+              type: number
+          required:
+            - totalUsers
+            - totalProviders
+            - totalHospitals
+            - totalAppointments
+            - totalRevenue
+            - activeSubscriptions
+        growth:
+          type: object
+          properties:
+            userGrowth:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  count:
+                    type: number
+                required:
+                  - date
+                  - count
+            appointmentGrowth:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  count:
+                    type: number
+                required:
+                  - date
+                  - count
+            revenueGrowth:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  amount:
+                    type: number
+                required:
+                  - date
+                  - amount
+          required:
+            - userGrowth
+            - appointmentGrowth
+            - revenueGrowth
+        topProviders:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              appointmentsCount:
+                type: number
+              revenue:
+                type: number
+              rating:
+                type: number
+                nullable: true
+            required:
+              - id
+              - name
+              - appointmentsCount
+              - revenue
+              - rating
+      required:
+        - overview
+        - growth
+        - topProviders
   parameters: {}
 paths:
   /api/auth/register:
@@ -782,11 +2730,11 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RegisterInput"
+              $ref: '#/components/schemas/RegisterInput'
       responses:
-        "201":
+        '201':
           description: User registered successfully
-        "400":
+        '400':
           description: Validation Error
   /api/auth/login:
     post:
@@ -795,15 +2743,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/LoginInput"
+              $ref: '#/components/schemas/LoginInput'
       responses:
-        "200":
+        '200':
           description: User logged in successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
-        "401":
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
           description: Unauthorized
   /api/auth/otp/send:
     post:
@@ -812,9 +2760,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SendOtpInput"
+              $ref: '#/components/schemas/SendOtpInput'
       responses:
-        "200":
+        '200':
           description: OTP Sent
   /api/auth/otp/verify:
     post:
@@ -823,14 +2771,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/VerifyOtpInput"
+              $ref: '#/components/schemas/VerifyOtpInput'
       responses:
-        "200":
+        '200':
           description: OTP Verified
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
+                $ref: '#/components/schemas/AuthResponse'
   /api/auth/oauth/google:
     post:
       summary: Login/Register via Google
@@ -838,14 +2786,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OAuthInput"
+              $ref: '#/components/schemas/OAuthInput'
       responses:
-        "200":
+        '200':
           description: Google Login Successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
+                $ref: '#/components/schemas/AuthResponse'
   /api/auth/oauth/apple:
     post:
       summary: Login/Register via Apple
@@ -853,14 +2801,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/OAuthInput"
+              $ref: '#/components/schemas/OAuthInput'
       responses:
-        "200":
+        '200':
           description: Apple Login Successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
+                $ref: '#/components/schemas/AuthResponse'
   /api/auth/refresh:
     post:
       summary: Refresh access token
@@ -868,14 +2816,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RefreshTokenInput"
+              $ref: '#/components/schemas/RefreshTokenInput'
       responses:
-        "200":
+        '200':
           description: Token refreshed
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AuthResponse"
+                $ref: '#/components/schemas/AuthResponse'
   /api/auth/logout:
     post:
       summary: Logout and invalidate refresh token
@@ -883,9 +2831,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RefreshTokenInput"
+              $ref: '#/components/schemas/RefreshTokenInput'
       responses:
-        "200":
+        '200':
           description: Logged out successfully
   /api/auth/password/forgot:
     post:
@@ -894,9 +2842,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SendOtpInput"
+              $ref: '#/components/schemas/SendOtpInput'
       responses:
-        "200":
+        '200':
           description: OTP Sent
   /api/auth/password/reset:
     post:
@@ -905,9 +2853,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PasswordResetInput"
+              $ref: '#/components/schemas/PasswordResetInput'
       responses:
-        "200":
+        '200':
           description: Password reset successful
   /api/auth/verify-email:
     post:
@@ -916,9 +2864,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/VerifyEmailInput"
+              $ref: '#/components/schemas/VerifyEmailInput'
       responses:
-        "200":
+        '200':
           description: Verification OTP sent
   /api/auth/verify-phone:
     post:
@@ -927,9 +2875,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/VerifyPhoneInput"
+              $ref: '#/components/schemas/VerifyPhoneInput'
       responses:
-        "200":
+        '200':
           description: Verification OTP sent
   /api/auth/verify/confirm:
     post:
@@ -938,9 +2886,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/VerifyConfirmInput"
+              $ref: '#/components/schemas/VerifyConfirmInput'
       responses:
-        "200":
+        '200':
           description: Contact verified successfully
   /api/users/me:
     get:
@@ -948,13 +2896,13 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: User profile retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetUserResponse"
-        "401":
+                $ref: '#/components/schemas/GetUserResponse'
+        '401':
           description: Unauthorized
   /api/users/dashboard/hospital:
     get:
@@ -962,40 +2910,113 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: Hospital Admin dashboard analytics
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HospitalDashboardResponse"
-        "401":
+                $ref: '#/components/schemas/HospitalDashboardResponse'
+        '401':
           description: Unauthorized
-        "403":
+        '403':
           description: Forbidden
+  /api/users/providers:
+    get:
+      summary: Search providers
+      parameters:
+        - name: specialty
+          in: query
+          schema:
+            type: string
+        - name: name
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Providers list
+  '/api/users/providers/{id}':
+    get:
+      summary: Get provider by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Provider details
+        '404':
+          description: Provider not found
   /api/users/dashboard/provider:
     get:
       summary: Get dashboard analytics and schedule for Consultant/Doctor portal
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: Provider dashboard analytics and schedule queue
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ProviderDashboardResponse"
-        "401":
+                $ref: '#/components/schemas/ProviderDashboardResponse'
+        '401':
           description: Unauthorized
-        "403":
+        '403':
           description: Forbidden
-  /api/appointments/slots:
+  /api/appointments/availability:
+    post:
+      summary: Set provider availability
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dayOfWeek:
+                  type: integer
+                  minimum: 0
+                  maximum: 6
+                startTime:
+                  type: string
+                endTime:
+                  type: string
+                slotDurationMinutes:
+                  type: integer
+                  minimum: 0
+                  exclusiveMinimum: true
+              required:
+                - dayOfWeek
+                - startTime
+                - endTime
+                - slotDurationMinutes
+      responses:
+        '200':
+          description: Availability set
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  '/api/appointments/slots/{providerId}':
     get:
-      summary: Retrieve available schedule slots for a provider
+      summary: Get available slots for provider
       security:
         - bearerAuth: []
       parameters:
         - name: providerId
-          in: query
+          in: path
           required: true
           schema:
             type: string
@@ -1007,43 +3028,111 @@ paths:
             type: string
             format: date
       responses:
-        "200":
-          description: Slots list retrieved
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetSlotsResponse"
+        '200':
+          description: Available slots
+        '401':
+          description: Unauthorized
   /api/appointments:
     post:
-      summary: Book a new medical appointment
+      summary: Book appointment
       security:
         - bearerAuth: []
       requestBody:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/BookAppointmentInput"
+              $ref: '#/components/schemas/CreateAppointment'
       responses:
-        "201":
-          description: Appointment created successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetAppointmentResponse"
+        '201':
+          description: Appointment created
+        '400':
+          description: Validation error
+        '409':
+          description: Slot conflict
     get:
-      summary: List authenticated patient/provider appointments
+      summary: List appointments
       security:
         - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: string
       responses:
-        "200":
-          description: List retrieved
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ListAppointmentsResponse"
-  "/api/appointments/{id}/cancel":
+        '200':
+          description: Appointments list
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  '/api/appointments/{id}':
+    get:
+      summary: Get appointment by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Appointment details
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  '/api/appointments/{id}/status':
     patch:
-      summary: Cancel a booked appointment
+      summary: Update appointment status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAppointmentStatus'
+      responses:
+        '200':
+          description: Status updated
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  '/api/appointments/{id}/cancel':
+    patch:
+      summary: Cancel appointment
       security:
         - bearerAuth: []
       parameters:
@@ -1062,12 +3151,12 @@ paths:
                 reason:
                   type: string
       responses:
-        "200":
-          description: Appointment cancelled successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetAppointmentResponse"
+        '200':
+          description: Appointment cancelled
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
   /api/prescriptions:
     post:
       summary: Create a new prescription in DRAFT status
@@ -1077,26 +3166,26 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreatePrescriptionInput"
+              $ref: '#/components/schemas/CreatePrescriptionInput'
       responses:
-        "201":
+        '201':
           description: Prescription drafted successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPrescriptionResponse"
+                $ref: '#/components/schemas/GetPrescriptionResponse'
     get:
       summary: List patient/provider/pharmacist accessible prescriptions
       security:
         - bearerAuth: []
       responses:
-        "200":
+        '200':
           description: List retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListPrescriptionsResponse"
-  "/api/prescriptions/{id}":
+                $ref: '#/components/schemas/ListPrescriptionsResponse'
+  '/api/prescriptions/{id}':
     get:
       summary: Get full prescription details including line items
       security:
@@ -1109,13 +3198,13 @@ paths:
             type: string
             format: uuid
       responses:
-        "200":
+        '200':
           description: Details retrieved successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPrescriptionResponse"
-  "/api/prescriptions/{id}/sign":
+                $ref: '#/components/schemas/GetPrescriptionResponse'
+  '/api/prescriptions/{id}/sign':
     post:
       summary: Digitally sign a DRAFT prescription with clinical license check and OTP
       security:
@@ -1131,15 +3220,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SignPrescriptionInput"
+              $ref: '#/components/schemas/SignPrescriptionInput'
       responses:
-        "200":
+        '200':
           description: Prescription signed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPrescriptionResponse"
-  "/api/prescriptions/{id}/dispense":
+                $ref: '#/components/schemas/GetPrescriptionResponse'
+  '/api/prescriptions/{id}/dispense':
     patch:
       summary: Mark a prescription as dispensed by a pharmacist
       security:
@@ -1152,12 +3241,12 @@ paths:
             type: string
             format: uuid
       responses:
-        "200":
+        '200':
           description: Prescription marked as dispensed successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetPrescriptionResponse"
+                $ref: '#/components/schemas/GetPrescriptionResponse'
   /api/telemedicine/rooms:
     post:
       summary: Initialize a telemedicine video room
@@ -1178,13 +3267,13 @@ paths:
                     - ONE_ON_ONE
                     - MDT
       responses:
-        "201":
+        '201':
           description: Telemedicine room created successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TelemedicineRoom"
-  "/api/telemedicine/rooms/{id}/token":
+                $ref: '#/components/schemas/TelemedicineRoom'
+  '/api/telemedicine/rooms/{id}/token':
     post:
       summary: Retrieve Twilio Video participant join token
       security:
@@ -1197,13 +3286,13 @@ paths:
             type: string
             format: uuid
       responses:
-        "200":
+        '200':
           description: Join token issued successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GetTokenResponse"
-  "/api/telemedicine/rooms/{id}/end":
+                $ref: '#/components/schemas/GetTokenResponse'
+  '/api/telemedicine/rooms/{id}/end':
     post:
       summary: End telemedicine consultation room sessions
       security:
@@ -1216,232 +3305,194 @@ paths:
             type: string
             format: uuid
       responses:
-        "200":
+        '200':
           description: Room session ended successfully
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TelemedicineRoom"
-
-  # Pharmacy Service Schemas
-  Product:
-    type: object
-    properties:
-      id:
-        type: string
-        format: uuid
-      pharmacyId:
-        type: string
-        format: uuid
-      name:
-        type: string
-      description:
-        type: string
-      price:
-        type: number
-      stock:
-        type: integer
-      category:
-        type: string
-      imageUrl:
-        type: string
-      isActive:
-        type: boolean
-      createdAt:
-        type: string
-        format: date-time
-      updatedAt:
-        type: string
-        format: date-time
-  OrderItem:
-    type: object
-    properties:
-      id:
-        type: string
-        format: uuid
-      productId:
-        type: string
-        format: uuid
-      quantity:
-        type: integer
-      unitPrice:
-        type: number
-      product:
-        $ref: '#/components/schemas/Product'
-  PharmacyOrder:
-    type: object
-    properties:
-      id:
-        type: string
-        format: uuid
-      patientId:
-        type: string
-        format: uuid
-      pharmacyId:
-        type: string
-        format: uuid
-      status:
-        type: string
-        enum: [PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
-      deliveryType:
-        type: string
-        enum: [DELIVERY, PICKUP]
-      deliveryAddress:
-        type: object
-      totalAmount:
-        type: number
-      items:
-        type: array
-        items:
-          $ref: '#/components/schemas/OrderItem'
-      createdAt:
-        type: string
-        format: date-time
-  CreateProductInput:
-    type: object
-    required:
-      - name
-      - price
-    properties:
-      name:
-        type: string
-      description:
-        type: string
-      price:
-        type: number
-      stock:
-        type: integer
-      category:
-        type: string
-      imageUrl:
-        type: string
-  CreateOrderInput:
-    type: object
-    required:
-      - items
-    properties:
-      items:
-        type: array
-        items:
-          type: object
-          required:
-            - productId
-            - quantity
-          properties:
-            productId:
-              type: string
-              format: uuid
-            quantity:
-              type: integer
-      deliveryType:
-        type: string
-        enum: [DELIVERY, PICKUP]
-      notes:
-        type: string
-
-  # Notification Service Schemas
-  Notification:
-    type: object
-    properties:
-      id:
-        type: string
-        format: uuid
-      userId:
-        type: string
-        format: uuid
-      type:
-        type: string
-      title:
-        type: string
-      body:
-        type: string
-      channel:
-        type: string
-        enum: [IN_APP, SMS, EMAIL, PUSH]
-      isRead:
-        type: boolean
-      metadata:
-        type: object
-      createdAt:
-        type: string
-        format: date-time
-      readAt:
-        type: string
-        format: date-time
-  NotificationPreference:
-    type: object
-    properties:
-      id:
-        type: string
-        format: uuid
-      userId:
-        type: string
-        format: uuid
-      emailEnabled:
-        type: boolean
-      smsEnabled:
-        type: boolean
-      pushEnabled:
-        type: boolean
-      quietHoursStart:
-        type: string
-      quietHoursEnd:
-        type: string
-      updatedAt:
-        type: string
-        format: date-time
-  UpdateNotificationPreferencesInput:
-    type: object
-    properties:
-      emailEnabled:
-        type: boolean
-      smsEnabled:
-        type: boolean
-      pushEnabled:
-        type: boolean
-      quietHoursStart:
-        type: string
-      quietHoursEnd:
-        type: string
-  RegisterPushTokenInput:
-    type: object
-    required:
-      - token
-    properties:
-      token:
-        type: string
-      platform:
-        type: string
-        enum: [ios, android, web]
-
-  # Pharmacy Service Endpoints
-  /api/pharmacy/products:
+                $ref: '#/components/schemas/TelemedicineRoom'
+  /api/addresses:
     get:
-      summary: List pharmacy products
+      description: List all addresses for the current user
       tags:
-        - Pharmacy
-      parameters:
-        - name: category
-          in: query
-          schema:
-            type: string
-        - name: search
-          in: query
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - Addresses
+      security:
+        - bearerAuth: []
       responses:
         '200':
-          description: List of products
+          description: List of user addresses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/AddressListResponse'
+                required:
+                  - success
+                  - data
+    post:
+      description: Create a new address
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAddressInput'
+      responses:
+        '201':
+          description: Address created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+                required:
+                  - success
+                  - data
+  '/api/addresses/{id}':
+    get:
+      description: Get address by ID
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Address details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+                required:
+                  - success
+                  - data
+    put:
+      description: Update an existing address
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAddressInput'
+      responses:
+        '200':
+          description: Address updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+                required:
+                  - success
+                  - data
+    delete:
+      description: Delete an address
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Address deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+  '/api/addresses/{id}/set-default':
+    patch:
+      description: Set an address as the default
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Address set as default
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Address'
+                required:
+                  - success
+                  - data
+  /api/addresses/validate:
+    post:
+      description: Validate an address format
+      tags:
+        - Addresses
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateAddressInput'
+      responses:
+        '200':
+          description: Validation result
           content:
             application/json:
               schema:
@@ -1452,375 +3503,208 @@ paths:
                   data:
                     type: object
                     properties:
-                      products:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Product'
-                      total:
-                        type: integer
-    post:
-      summary: Create a new product (Pharmacist only)
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateProductInput'
-      responses:
-        '201':
-          description: Product created
-  /api/pharmacy/products/{id}:
+                      isValid:
+                        type: boolean
+                      normalizedAddress:
+                        type: object
+                        properties:
+                          addressLine1:
+                            type: string
+                          city:
+                            type: string
+                          state:
+                            type: string
+                          country:
+                            type: string
+                          postalCode:
+                            type: string
+                            nullable: true
+                        required:
+                          - addressLine1
+                          - city
+                          - state
+                          - country
+                          - postalCode
+                    required:
+                      - isValid
+                      - normalizedAddress
+                required:
+                  - success
+                  - data
+  /api/analytics/overview:
     get:
-      summary: Get product by ID
-      tags:
-        - Pharmacy
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Product details
-    put:
-      summary: Update product (Pharmacist only)
-      tags:
-        - Pharmacy
+      summary: Platform overview analytics
       security:
         - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateProductInput'
       responses:
         '200':
-          description: Product updated
-    delete:
-      summary: Delete product (Pharmacist only)
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Product deleted
-  /api/pharmacy/categories:
+          description: Platform overview
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/analytics/appointments:
     get:
-      summary: Get product categories
-      tags:
-        - Pharmacy
-      responses:
-        '200':
-          description: Categories list
-  /api/pharmacy/orders:
-    get:
-      summary: List user orders
-      tags:
-        - Pharmacy
+      summary: Appointment trends analytics
       security:
         - bearerAuth: []
       parameters:
-        - name: status
+        - name: range
           in: query
           schema:
             type: string
-        - name: limit
+            enum:
+              - 7d
+              - 30d
+              - 90d
+              - 12m
+              - all
+        - name: from
           in: query
           schema:
-            type: integer
-            default: 20
-        - name: offset
+            type: string
+            format: date-time
+        - name: to
           in: query
           schema:
-            type: integer
-            default: 0
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Orders list
-    post:
-      summary: Create order
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateOrderInput'
-      responses:
-        '201':
-          description: Order created
-  /api/pharmacy/orders/{id}:
+          description: Appointment trends
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/analytics/revenue:
     get:
-      summary: Get order by ID
-      tags:
-        - Pharmacy
+      summary: Revenue analytics
       security:
         - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Order details
-  /api/pharmacy/orders/{id}/cancel:
-    patch:
-      summary: Cancel order (Patient only)
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Order cancelled
-  /api/pharmacy/orders/{id}/status:
-    patch:
-      summary: Update order status (Pharmacist only)
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                status:
-                  type: string
-      responses:
-        '200':
-          description: Status updated
-  /api/pharmacy/prescriptions/fulfill:
-    post:
-      summary: Fulfill prescription
-      tags:
-        - Pharmacy
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                prescriptionId:
-                  type: string
-                  format: uuid
-      responses:
-        '201':
-          description: Prescription fulfilled
-
-  # Notification Service Endpoints
-  /api/notifications:
-    get:
-      summary: List notifications
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: isRead
+        - name: range
           in: query
           schema:
-            type: boolean
-        - name: limit
+            type: string
+            enum:
+              - 7d
+              - 30d
+              - 90d
+              - 12m
+              - all
+        - name: from
           in: query
           schema:
-            type: integer
-            default: 20
-        - name: offset
+            type: string
+            format: date-time
+        - name: to
           in: query
           schema:
-            type: integer
-            default: 0
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Notifications list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  data:
-                    type: object
-                    properties:
-                      notifications:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Notification'
-  /api/notifications/unread-count:
+          description: Revenue analytics
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/analytics/users:
     get:
-      summary: Get unread count
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Unread count
-  /api/notifications/read-all:
-    patch:
-      summary: Mark all as read
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: All marked as read
-  /api/notifications/preferences:
-    get:
-      summary: Get preferences
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Preferences
-    put:
-      summary: Update preferences
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateNotificationPreferencesInput'
-      responses:
-        '200':
-          description: Preferences updated
-  /api/notifications/push-token:
-    post:
-      summary: Register push token
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterPushTokenInput'
-      responses:
-        '200':
-          description: Token registered
-  /api/notifications/{id}:
-    get:
-      summary: Get notification
-      tags:
-        - Notifications
+      summary: User growth analytics
       security:
         - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
+        - name: range
+          in: query
           schema:
             type: string
-            format: uuid
+            enum:
+              - 7d
+              - 30d
+              - 90d
+              - 12m
+              - all
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Notification details
-    delete:
-      summary: Delete notification
-      tags:
-        - Notifications
+          description: User growth stats
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/analytics/providers:
+    get:
+      summary: Provider performance analytics
       security:
         - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
+        - name: range
+          in: query
           schema:
             type: string
-            format: uuid
+            enum:
+              - 7d
+              - 30d
+              - 90d
+              - 12m
+              - all
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Notification deleted
-  /api/notifications/{id}/read:
-    patch:
-      summary: Mark as read
-      tags:
-        - Notifications
+          description: Provider performance
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  /api/analytics/pharmacies:
+    get:
+      summary: Pharmacy metrics analytics
       security:
         - bearerAuth: []
       parameters:
-        - name: id
-          in: path
-          required: true
+        - name: range
+          in: query
           schema:
             type: string
-            format: uuid
+            enum:
+              - 7d
+              - 30d
+              - 90d
+              - 12m
+              - all
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
-          description: Marked as read
-  /api/notifications/test:
-    post:
-      summary: Send test notification (Admin)
-      tags:
-        - Notifications
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userId:
-                  type: string
-                  format: uuid
-                type:
-                  type: string
-                title:
-                  type: string
-                body:
-                  type: string
-      responses:
-        '201':
-          description: Test notification sent
+          description: Pharmacy metrics
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden

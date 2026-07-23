@@ -1,7 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, WalletTransactionType, WalletReferenceType, PaymentType } from '@ricton/db';
+import { prisma, WalletTransactionType, WalletReferenceType, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, AppError, UnauthorizedError, NotFoundError, ValidationError } from '@ricton/shared';
+import {
+  successResponse,
+  AppError,
+  UnauthorizedError,
+  NotFoundError,
+  ValidationError,
+  timingSafeEqual,
+  paystackBreaker,
+} from '@ricton/shared';
 import crypto from 'crypto';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -61,16 +69,19 @@ export const getMyWallet = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
-    // Calculate balance
-    const transactions = await prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id },
-    });
+    // Calculate balance using aggregation
+    const [creditSum, debitSum] = await Promise.all([
+      prisma.walletTransaction.aggregate({
+        where: { walletId: wallet.id, type: WalletTransactionType.CREDIT },
+        _sum: { amount: true },
+      }),
+      prisma.walletTransaction.aggregate({
+        where: { walletId: wallet.id, type: WalletTransactionType.DEBIT },
+        _sum: { amount: true },
+      }),
+    ]);
 
-    const balance = transactions.reduce((acc, tx) => {
-      if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-      if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-      return acc;
-    }, 0);
+    const balance = Number(creditSum._sum.amount || 0) - Number(debitSum._sum.amount || 0);
 
     res.status(200).json(
       successResponse({
@@ -78,7 +89,7 @@ export const getMyWallet = async (req: Request, res: Response, next: NextFunctio
         balance,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -121,7 +132,7 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
         offset: Number(offset),
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -151,12 +162,8 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
 
     if (!user) throw new NotFoundError('User not found');
 
-    const profile = user.patientProfile || user.providerProfile || user.pharmacyProfile;
-    const firstName = profile && 'firstName' in profile ? profile.firstName : 'Ricton';
-    const lastName = profile && 'lastName' in profile ? profile.lastName : 'User';
-
     // Initialize Paystack payment
-    const initializeRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
+    const initializeRes = await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -194,7 +201,7 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
         amount,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -228,7 +235,7 @@ export const createVirtualAccount = async (req: Request, res: Response, next: Ne
     const firstName = profile && 'firstName' in profile ? profile.firstName : 'Ricton';
     const lastName = profile && 'lastName' in profile ? profile.lastName : 'User';
 
-    const customerRes = await fetch(`${PAYSTACK_API_URL}/customer`, {
+    const customerRes = await paystackBreaker.fire(`${PAYSTACK_API_URL}/customer`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -254,7 +261,7 @@ export const createVirtualAccount = async (req: Request, res: Response, next: Ne
     const customerCode = customerData.data.customer_code;
 
     // 2. Create Dedicated Virtual Account
-    const dvaRes = await fetch(`${PAYSTACK_API_URL}/dedicated_account`, {
+    const dvaRes = await paystackBreaker.fire(`${PAYSTACK_API_URL}/dedicated_account`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -289,7 +296,7 @@ export const createVirtualAccount = async (req: Request, res: Response, next: Ne
     });
 
     res.status(200).json(successResponse(wallet));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -303,7 +310,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       .createHmac('sha512', PAYSTACK_SECRET_KEY)
       .update(JSON.stringify(req.body))
       .digest('hex');
-    if (hash !== req.headers['x-paystack-signature']) {
+    if (!timingSafeEqual(hash, req.headers['x-paystack-signature'] as string)) {
       throw new UnauthorizedError('Invalid signature');
     }
 
@@ -319,36 +326,48 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       });
 
       if (user && user.wallet) {
-        // Find current balance to save snapshot
-        const transactions = await prisma.walletTransaction.findMany({
-          where: { walletId: user.wallet.id },
-        });
-        const currentBalance = transactions.reduce((acc, tx) => {
-          if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-          if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-          return acc;
-        }, 0);
+        const walletId = user.wallet.id;
+        await prisma.$transaction(
+          async (tx) => {
+            // Prevent duplicate webhooks by checking reference inside transaction
+            const existingTx = await tx.walletTransaction.findFirst({
+              where: {
+                referenceId: event.data.reference,
+              },
+            });
 
-        // Prevent duplicate webhooks by checking reference
-        const existingTx = await prisma.walletTransaction.findFirst({
-          where: {
-            referenceId: event.data.reference,
+            if (!existingTx) {
+              // Find current balance inside transaction to prevent dirty reads
+              const [creditSum, debitSum] = await Promise.all([
+                tx.walletTransaction.aggregate({
+                  where: { walletId, type: WalletTransactionType.CREDIT },
+                  _sum: { amount: true },
+                }),
+                tx.walletTransaction.aggregate({
+                  where: { walletId, type: WalletTransactionType.DEBIT },
+                  _sum: { amount: true },
+                }),
+              ]);
+              const currentBalance =
+                Number(creditSum._sum.amount || 0) - Number(debitSum._sum.amount || 0);
+
+              await tx.walletTransaction.create({
+                data: {
+                  walletId,
+                  type: WalletTransactionType.CREDIT,
+                  amount: amountInNaira,
+                  balanceAfter: currentBalance + amountInNaira,
+                  description: 'Wallet top-up via Bank Transfer',
+                  referenceType: WalletReferenceType.TOPUP,
+                  referenceId: event.data.reference,
+                },
+              });
+            }
           },
-        });
-
-        if (!existingTx) {
-          await prisma.walletTransaction.create({
-            data: {
-              walletId: user.wallet.id,
-              type: WalletTransactionType.CREDIT,
-              amount: amountInNaira,
-              balanceAfter: currentBalance + amountInNaira,
-              description: 'Wallet top-up via Bank Transfer',
-              referenceType: WalletReferenceType.TOPUP,
-              referenceId: event.data.reference,
-            },
-          });
-        }
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          }
+        );
       }
     }
 
@@ -372,47 +391,66 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         if (!wallet && user) {
           wallet = await prisma.wallet.upsert({
             where: { userId: user.id },
-            create: { userId: user.id, balance: 0 },
+            create: { userId: user.id },
             update: {},
           });
         }
 
         if (user && wallet) {
-          // Check for duplicate
-          const existingTx = await prisma.walletTransaction.findFirst({
-            where: {
-              referenceId: event.data.reference,
-            },
-          });
+          const targetWalletId = wallet.id;
+          try {
+            await prisma.$transaction(
+              async (tx) => {
+                const existingTx = await tx.walletTransaction.findFirst({
+                  where: {
+                    referenceId: event.data.reference,
+                    referenceType: WalletReferenceType.TOPUP,
+                  },
+                });
 
-          if (!existingTx) {
-            const transactions = await prisma.walletTransaction.findMany({
-              where: { walletId: user.wallet.id },
-            });
-            const currentBalance = transactions.reduce((acc, tx) => {
-              if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-              if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-              return acc;
-            }, 0);
+                if (!existingTx) {
+                  const [creditSum, debitSum] = await Promise.all([
+                    tx.walletTransaction.aggregate({
+                      where: { walletId: targetWalletId, type: WalletTransactionType.CREDIT },
+                      _sum: { amount: true },
+                    }),
+                    tx.walletTransaction.aggregate({
+                      where: { walletId: targetWalletId, type: WalletTransactionType.DEBIT },
+                      _sum: { amount: true },
+                    }),
+                  ]);
+                  const currentBalance =
+                    Number(creditSum._sum.amount || 0) - Number(debitSum._sum.amount || 0);
 
-            await prisma.walletTransaction.create({
-              data: {
-                walletId: user.wallet.id,
-                type: WalletTransactionType.CREDIT,
-                amount: amountInNaira,
-                balanceAfter: currentBalance + amountInNaira,
-                description: 'Wallet top-up via Card/Bank Transfer',
-                referenceType: WalletReferenceType.TOPUP,
-                referenceId: event.data.reference,
+                  await tx.walletTransaction.create({
+                    data: {
+                      walletId: targetWalletId,
+                      type: WalletTransactionType.CREDIT,
+                      amount: amountInNaira,
+                      balanceAfter: currentBalance + amountInNaira,
+                      description: 'Wallet top-up via Card/Bank Transfer',
+                      referenceType: WalletReferenceType.TOPUP,
+                      referenceId: event.data.reference,
+                    },
+                  });
+                }
               },
-            });
+              {
+                isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+              }
+            );
+          } catch (createError: unknown) {
+            const err = createError as { code?: string };
+            if (err.code !== 'P2002') {
+              throw createError;
+            }
           }
         }
       }
     }
 
     res.sendStatus(200);
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

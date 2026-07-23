@@ -18,10 +18,13 @@ import {
   setupGracefulShutdown,
   createCors,
   checkDatabase,
+  validateEnv,
 } from '@ricton/shared';
 import telemedicineRoutes from './routes/telemedicine.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('telemedicine-service');
 
@@ -49,7 +52,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
     res.status(200).json({ status: 'ok', service: 'telemedicine-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(503).json({
       status: 'error',
       service: 'telemedicine-service',

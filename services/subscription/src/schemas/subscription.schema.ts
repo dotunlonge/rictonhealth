@@ -23,11 +23,13 @@ export const SubscriptionSchema = z.object({
   currentPeriodEnd: z.string().datetime(),
   cancelAtPeriodEnd: z.boolean(),
   cancelledAt: z.string().datetime().nullable(),
-  payment: z.object({
-    amount: z.number(),
-    providerReference: z.string(),
-    createdAt: z.string().datetime(),
-  }).nullable(),
+  payment: z
+    .object({
+      amount: z.number(),
+      providerReference: z.string(),
+      createdAt: z.string().datetime(),
+    })
+    .nullable(),
   createdAt: z.string().datetime(),
 });
 
@@ -74,3 +76,12 @@ export const CancelSubscriptionResponse = registry.register(
     message: z.string(),
   })
 );
+
+// Type exports
+export type SubscriptionPlanSchema = z.infer<typeof SubscriptionPlanSchema>;
+export type SubscriptionSchema = z.infer<typeof SubscriptionSchema>;
+export type UpgradeSubscriptionSchema = z.infer<typeof UpgradeSubscriptionSchema>;
+export type PlansListResponse = z.infer<typeof PlansListResponse>;
+export type SubscriptionDetailResponse = z.infer<typeof SubscriptionDetailResponse>;
+export type UpgradeSubscriptionResponse = z.infer<typeof UpgradeSubscriptionResponse>;
+export type CancelSubscriptionResponse = z.infer<typeof CancelSubscriptionResponse>;

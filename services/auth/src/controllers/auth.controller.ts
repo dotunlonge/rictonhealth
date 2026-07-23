@@ -12,9 +12,9 @@ import {
   redis,
   hashOtp,
   verifyOtp,
+  emailQueue,
+  smsQueue,
 } from '@ricton/shared';
-import twilio from 'twilio';
-import sgMail from '@sendgrid/mail';
 import { OAuth2Client } from 'google-auth-library';
 import appleSigninAuth from 'apple-signin-auth';
 import crypto from 'crypto';
@@ -26,16 +26,7 @@ if (!JWT_SECRET || !REFRESH_SECRET) {
   throw new Error('FATAL: JWT_SECRET or REFRESH_SECRET environment variable is missing.');
 }
 
-// Twilio Config
-const twilioClient =
-  process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
-    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
-    : null;
-
-// SendGrid Config
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-}
+const DUMMY_HASH = '$2b$12$dummyhashforbcryptcomparisontopreventtimingattacks';
 
 // Google Config
 const googleClient = process.env.GOOGLE_CLIENT_ID
@@ -53,32 +44,26 @@ const generateTokens = async (
 ) => {
   const tokenVersion = user.tokenVersion ?? 0;
   const jti = crypto.randomUUID();
-  
+
   const token = jwt.sign(
-    { 
-      userId: user.id, 
-      role: user.role, 
-      status: user.status, 
+    {
+      userId: user.id,
+      role: user.role,
+      status: user.status,
       iss: 'ricton-issuer',
       tokenVersion,
-      jti
+      jti,
     },
     JWT_SECRET,
     { expiresIn: '15m' }
   );
-  
+
   const refreshTokenExpiry = options?.rememberMe ? '30d' : '7d';
   const refreshToken = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
     expiresIn: refreshTokenExpiry,
   });
 
   const tokenHash = hashToken(refreshToken);
-
-  // Store token in Redis set with appropriate TTL
-  const refreshKey = `refresh:${user.id}`;
-  const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
-  await redis.sadd(refreshKey, refreshToken);
-  await redis.expire(refreshKey, ttlSeconds);
 
   // Get device info from request
   const deviceIp = req
@@ -101,6 +86,12 @@ const generateTokens = async (
       tokenFamily: options?.deviceId || jti.split('-')[0], // Use deviceId or first part of jti as family
     },
   });
+
+  // Store token in Redis hash with sessionId as field for precise revocation
+  const refreshKey = `refresh:${user.id}`;
+  const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
+  await redis.hset(refreshKey, newRefreshToken.id, refreshToken);
+  await redis.expire(refreshKey, ttlSeconds);
 
   return { token, refreshToken, tokenId: newRefreshToken.id };
 };
@@ -129,14 +120,14 @@ const auditLog = async (
         actorId,
         action,
         resourceType: 'AUTH',
-        metadata: metadata || {},
+        metadata: metadata ? JSON.parse(JSON.stringify(metadata)) : undefined,
         ipAddress: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
         userAgent: req.headers['user-agent'],
         deviceId,
         riskScore,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     // Don't fail auth flow if audit logging fails
     console.error('Audit log failed:', error);
   }
@@ -144,7 +135,7 @@ const auditLog = async (
 
 export const register = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, phone, password, role, firstName, lastName, consentVersion } = req.body;
+    const { email, phone, password, firstName, lastName, role, consentVersion } = req.body;
 
     if (!email && !phone) {
       throw new ValidationError('Email or phone is required');
@@ -162,11 +153,13 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     if (existingUser) {
       await auditLog('REGISTER_FAILURE', null, req, { reason: 'USER_EXISTS', email, phone });
-      throw new ConflictError('User already exists with this email or phone');
+      throw new ConflictError('Unable to complete registration');
     }
 
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(12);
     const passwordHash = await bcrypt.hash(password, salt);
+
+    const targetRole = (role as UserRole) || UserRole.PATIENT;
 
     const user = await prisma.$transaction(async (tx: TransactionClient) => {
       const newUser = await tx.user.create({
@@ -174,31 +167,45 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
           email,
           phone,
           passwordHash,
-          role,
+          role: targetRole,
           status: UserStatus.PENDING,
           consentVersion: consentVersion || null,
           consentAt: consentVersion ? new Date() : null,
         },
       });
 
-      if (role === UserRole.PATIENT) {
+      if (newUser.role === UserRole.PATIENT) {
         await tx.patientProfile.create({
           data: { userId: newUser.id, firstName, lastName },
         });
-      } else if (role === UserRole.CONSULTANT) {
+      } else if (newUser.role === UserRole.CONSULTANT) {
         await tx.providerProfile.create({
           data: { userId: newUser.id, firstName, lastName },
+        });
+      } else if (newUser.role === UserRole.PHARMACIST) {
+        await tx.pharmacyProfile.create({
+          data: {
+            userId: newUser.id,
+            pharmacyName:
+              firstName && lastName
+                ? `${firstName} ${lastName} Pharmacy`
+                : 'Pharmacy [Pending Onboarding]',
+          },
         });
       }
 
       return newUser;
     });
 
-    await auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone });
+    await auditLog('REGISTER_SUCCESS', user.id, req, { role: user.role, email, phone });
 
     res.status(201).json(successResponse({ id: user.id, role: user.role, status: user.status }));
-  } catch (error) {
-    next(error);
+  } catch (error: any) {
+    if (error && typeof error === 'object' && error.code === 'P2002') {
+      next(new ConflictError('A user with this email or phone number already exists'));
+    } else {
+      next(error);
+    }
   }
 };
 
@@ -216,6 +223,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 
     if (!user || !user.passwordHash) {
       await auditLog('LOGIN_FAILURE', null, req, { reason: 'INVALID_CREDENTIALS', email, phone });
+      // Prevent timing attack: compare against dummy hash
+      await bcrypt.compare(password, DUMMY_HASH);
       throw new UnauthorizedError('Invalid credentials');
     }
 
@@ -226,7 +235,10 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     }
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
-      await auditLog('LOGIN_FAILURE', user.id, req, { reason: 'ACCOUNT_DISABLED', status: user.status });
+      await auditLog('LOGIN_FAILURE', user.id, req, {
+        reason: 'ACCOUNT_DISABLED',
+        status: user.status,
+      });
       throw new UnauthorizedError('Account is disabled');
     }
 
@@ -247,7 +259,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     // Check for impossible travel (simplified - compare with last login location)
     if (user.lastLoginAt) {
       const timeSinceLastLogin = Date.now() - user.lastLoginAt.getTime();
-      if (timeSinceLastLogin < 3600000) { // Less than 1 hour
+      if (timeSinceLastLogin < 3600000) {
+        // Less than 1 hour
         // Could add geo-IP check here
         riskScore += 10;
       }
@@ -265,11 +278,17 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       data: { lastLoginAt: new Date() },
     });
 
-    await auditLog('LOGIN_SUCCESS', user.id, req, { 
-      deviceId, 
-      rememberMe: rememberMe === true,
-      tokenId 
-    }, riskScore);
+    await auditLog(
+      'LOGIN_SUCCESS',
+      user.id,
+      req,
+      {
+        deviceId,
+        rememberMe: rememberMe === true,
+        tokenId,
+      },
+      riskScore
+    );
 
     res.status(200).json(
       successResponse({
@@ -284,7 +303,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -295,44 +314,26 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
     const key = email || phone;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const otpHash = hashOtp(otp);
 
     if (phone) {
-      if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new AppError(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await twilioClient.messages.create({
-        body: `Your Ricton Health verification code is: ${otp}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
+      await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+      await smsQueue.add('send-otp', {
         to: phone,
+        message: `Your Ricton Health verification code is: ${otp}`,
       });
     } else if (email) {
-      if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new AppError(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await sgMail.send({
+      await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+      await emailQueue.add('send-email', {
         to: email,
-        from: process.env.SENDGRID_FROM_EMAIL,
         subject: 'Ricton Health - Verification Code',
-        text: `Your Ricton Health verification code is: ${otp}`,
-        html: `<strong>Your Ricton Health verification code is: ${otp}</strong>`,
+        body: `Your Ricton Health verification code is: ${otp}`,
       });
     }
 
-    // Store in Redis only after successful dispatch
-    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 minutes expiry
-
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -391,14 +392,14 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
 
 export const oauthGoogle = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { token, role } = req.body;
+    const { token } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
     if (!googleClient)
@@ -416,11 +417,10 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      if (!role) throw new ValidationError('Role is required for new OAuth users');
       user = await prisma.user.create({
         data: {
           email,
-          role,
+          role: UserRole.PATIENT,
           status: UserStatus.PENDING,
           oauthProvider: 'GOOGLE',
           oauthId: payload.sub,
@@ -443,14 +443,14 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
 
 export const oauthApple = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { token, role } = req.body;
+    const { token } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
     const verifyOpts = process.env.APPLE_CLIENT_ID
@@ -471,11 +471,10 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      if (!role) throw new ValidationError('Role is required for new OAuth users');
       user = await prisma.user.create({
         data: {
           email,
-          role,
+          role: UserRole.PATIENT,
           status: UserStatus.PENDING,
           oauthProvider: 'APPLE',
           oauthId: payload.sub,
@@ -498,7 +497,7 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -511,7 +510,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string; jti?: string };
 
     const tokenHash = hashToken(refreshToken);
-    
+
     // Get the current token with family info
     const currentToken = await prisma.refreshToken.findUnique({
       where: { tokenHash },
@@ -523,65 +522,92 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       const revokedToken = await prisma.refreshToken.findUnique({
         where: { tokenHash },
       });
-      
+
       if (revokedToken && revokedToken.isRevoked) {
         // TOKEN REUSE ATTACK DETECTED - revoke entire family
-        await auditLog('TOKEN_REUSE_ATTACK', decoded.userId, req, {
-          tokenId: revokedToken.id,
-          tokenFamily: revokedToken.tokenFamily,
-        }, 90); // High risk score
-        
+        await auditLog(
+          'TOKEN_REUSE_ATTACK',
+          decoded.userId,
+          req,
+          {
+            tokenId: revokedToken.id,
+            tokenFamily: revokedToken.tokenFamily,
+          },
+          90
+        ); // High risk score
+
         // Revoke all tokens in the same family
         await prisma.refreshToken.updateMany({
-          where: { 
+          where: {
             userId: decoded.userId,
             tokenFamily: revokedToken.tokenFamily,
             isActive: true,
           },
-          data: { 
+          data: {
             isRevoked: true,
             revokedAt: new Date(),
             revokeReason: 'TOKEN_REUSE_ATTACK_DETECTED',
           },
         });
-        
+
         // Also increment tokenVersion to invalidate all access tokens
         await prisma.user.update({
           where: { id: decoded.userId },
           data: { tokenVersion: { increment: 1 } },
         });
-        
-        throw new UnauthorizedError('Security alert: Token reuse detected. All sessions invalidated.');
+
+        throw new UnauthorizedError(
+          'Security alert: Token reuse detected. All sessions invalidated.'
+        );
       }
-      
+
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
     // Grace period check: allow token refresh within 24h of expiry even if expired
     const now = new Date();
     const gracePeriodMs = 24 * 60 * 60 * 1000; // 24 hours
-    if (currentToken.expiresAt < now && currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()) {
+    if (
+      currentToken.expiresAt < now &&
+      currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()
+    ) {
       // Expired beyond grace period
-      await auditLog('REFRESH_TOKEN_EXPIRED', decoded.userId, req, {
-        expiresAt: currentToken.expiresAt,
-      }, 30);
+      await auditLog(
+        'REFRESH_TOKEN_EXPIRED',
+        decoded.userId,
+        req,
+        {
+          expiresAt: currentToken.expiresAt,
+        },
+        30
+      );
       throw new UnauthorizedError('Refresh token expired');
     }
 
     // Device fingerprint validation
     const deviceId = req.headers['x-device-id'] as string | undefined;
     const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
-    
+
     let riskScore = 0;
     if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
       riskScore += 50; // Device mismatch - high risk
-      await auditLog('DEVICE_MISMATCH', decoded.userId, req, {
-        storedDeviceId: currentToken.deviceId,
-        incomingDeviceId: deviceId,
-      }, riskScore);
+      await auditLog(
+        'DEVICE_MISMATCH',
+        decoded.userId,
+        req,
+        {
+          storedDeviceId: currentToken.deviceId,
+          incomingDeviceId: deviceId,
+        },
+        riskScore
+      );
     }
-    
-    if (deviceFingerprint && currentToken.deviceFingerprint && deviceFingerprint !== currentToken.deviceFingerprint) {
+
+    if (
+      deviceFingerprint &&
+      currentToken.deviceFingerprint &&
+      deviceFingerprint !== currentToken.deviceFingerprint
+    ) {
       riskScore += 30; // Fingerprint mismatch
     }
 
@@ -590,22 +616,22 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       // Mark current token as used
       await tx.refreshToken.update({
         where: { id: currentToken.id },
-        data: { 
+        data: {
           isActive: false,
           lastUsedAt: new Date(),
           usageCount: { increment: 1 },
         },
       });
 
-      // Remove from Redis
-      await redis.srem(`refresh:${decoded.userId}`, refreshToken);
+      // Remove from Redis by sessionId
+      await redis.hdel(`refresh:${decoded.userId}`, currentToken.id);
 
       // Get user with updated tokenVersion
-      const user = await tx.user.findUnique({ 
+      const user = await tx.user.findUnique({
         where: { id: decoded.userId },
         select: { id: true, role: true, status: true, tokenVersion: true },
       });
-      
+
       if (!user) throw new NotFoundError('User not found');
       if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
         throw new UnauthorizedError('Account is disabled');
@@ -620,9 +646,6 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
 
       const newTokenHash = hashToken(newRefreshTokenStr);
       const ttlSeconds = 7 * 24 * 60 * 60;
-      
-      await redis.sadd(`refresh:${user.id}`, newRefreshTokenStr);
-      await redis.expire(`refresh:${user.id}`, ttlSeconds);
 
       const newToken = await tx.refreshToken.create({
         data: {
@@ -638,10 +661,13 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
         },
       });
 
+      await redis.hset(`refresh:${user.id}`, newToken.id, newRefreshTokenStr);
+      await redis.expire(`refresh:${user.id}`, ttlSeconds);
+
       return [newToken, newRefreshTokenStr, user];
     });
 
-    const user = await prisma.user.findUnique({ 
+    const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: { id: true, role: true, status: true, tokenVersion: true },
     });
@@ -651,27 +677,33 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     // Generate new access token with updated tokenVersion
     const jti = crypto.randomUUID();
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        role: user.role, 
-        status: user.status, 
+      {
+        userId: user.id,
+        role: user.role,
+        status: user.status,
         iss: 'ricton-issuer',
         tokenVersion: user.tokenVersion,
-        jti
+        jti,
       },
       JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    await auditLog('TOKEN_REFRESH', user.id, req, {
-      oldTokenId: currentToken.id,
-      newTokenId: newRefreshToken.id,
-      tokenFamily: currentToken.tokenFamily,
-      riskScore,
-    }, riskScore);
+    await auditLog(
+      'TOKEN_REFRESH',
+      user.id,
+      req,
+      {
+        oldTokenId: currentToken.id,
+        newTokenId: newRefreshToken.id,
+        tokenFamily: currentToken.tokenFamily,
+        riskScore,
+      },
+      riskScore
+    );
 
     res.status(200).json(successResponse({ token, refreshToken: newRefreshToken }));
-  } catch (error) {
+  } catch (error: unknown) {
     if (
       error instanceof ValidationError ||
       error instanceof UnauthorizedError ||
@@ -689,19 +721,18 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
     const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
-    
+
     // Get token info before revoking for audit
     const tokenHash = hashToken(refreshToken);
     const tokenRecord = await prisma.refreshToken.findUnique({
       where: { tokenHash },
     });
 
-    await redis.srem(`refresh:${decoded.userId}`, refreshToken);
-
     if (tokenRecord) {
+      await redis.hdel(`refresh:${decoded.userId}`, tokenRecord.id);
       await prisma.refreshToken.updateMany({
         where: { tokenHash },
-        data: { 
+        data: {
           isActive: false,
           isRevoked: true,
           revokedAt: new Date(),
@@ -725,7 +756,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     await auditLog('LOGOUT', decoded.userId, req, { tokenId: tokenRecord?.id });
 
     res.status(200).json(successResponse({ message: 'Logged out successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     if (error instanceof ValidationError) return next(error);
     next(new UnauthorizedError('Invalid refresh token'));
   }
@@ -734,7 +765,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
 export const logoutAll = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    
+
     // Revoke all refresh tokens for this user
     await prisma.refreshToken.updateMany({
       where: { userId, isActive: true },
@@ -758,7 +789,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
     await auditLog('LOGOUT_ALL', userId, req);
 
     res.status(200).json(successResponse({ message: 'Logged out from all devices' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -766,7 +797,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
 export const getSessions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    
+
     const sessions = await prisma.refreshToken.findMany({
       where: { userId, isActive: true },
       select: {
@@ -784,7 +815,7 @@ export const getSessions = async (req: Request, res: Response, next: NextFunctio
     });
 
     res.status(200).json(successResponse({ sessions }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -793,7 +824,7 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
   try {
     const { sessionId } = req.params;
     const userId = req.user!.userId;
-    
+
     const session = await prisma.refreshToken.findUnique({
       where: { id: sessionId },
     });
@@ -812,14 +843,13 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
       },
     });
 
-    // Remove from Redis
-    const tokens = await redis.smembers(`refresh:${userId}`);
-    // Note: We can't directly remove without the token value, but it will expire naturally
-    
+    // Remove from Redis by sessionId
+    await redis.hdel(`refresh:${userId}`, sessionId);
+
     await auditLog('SESSION_REVOKED', userId, req, { sessionId });
 
     res.status(200).json(successResponse({ message: 'Session revoked successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -830,7 +860,7 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
     const key = email || phone;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const otpHash = hashOtp(otp);
 
     // Fire-and-forget user lookup
@@ -840,29 +870,26 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
 
     // Only send the OTP if the user exists, but don't leak this fact
     if (user) {
-      if (phone && twilioClient && process.env.TWILIO_PHONE_NUMBER) {
-        await twilioClient.messages.create({
-          body: `Your Ricton Health password reset code is: ${otp}`,
-          from: process.env.TWILIO_PHONE_NUMBER,
+      if (phone) {
+        await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+        await smsQueue.add('send-otp', {
           to: phone,
+          message: `Your Ricton Health password reset code is: ${otp}`,
         });
-      } else if (email && process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) {
-        await sgMail.send({
+      } else if (email) {
+        await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+        await emailQueue.add('send-email', {
           to: email,
-          from: process.env.SENDGRID_FROM_EMAIL,
           subject: 'Ricton Health - Password Reset',
-          text: `Your password reset code is: ${otp}`,
+          body: `Your password reset code is: ${otp}`,
         });
       }
-
-      // Store in Redis only after dispatch
-      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 mins
     }
 
     res
       .status(200)
       .json(successResponse({ message: `If an account exists, a reset code was sent.` }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -887,12 +914,18 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
       parsedData.attempts += 1;
       if (parsedData.attempts >= 3) {
         await redis.del(`reset:${key}`);
-        await auditLog('PASSWORD_RESET_FAILURE', null, req, { 
-          reason: 'TOO_MANY_ATTEMPTS', 
-          email, 
-          phone,
-          attempts: parsedData.attempts 
-        }, 40);
+        await auditLog(
+          'PASSWORD_RESET_FAILURE',
+          null,
+          req,
+          {
+            reason: 'TOO_MANY_ATTEMPTS',
+            email,
+            phone,
+            attempts: parsedData.attempts,
+          },
+          40
+        );
         throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
       } else {
         const ttl = await redis.ttl(`reset:${key}`);
@@ -918,7 +951,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     // Update password and increment tokenVersion to invalidate all existing sessions
     await prisma.user.updateMany({
       where: { id: user.id },
-      data: { 
+      data: {
         passwordHash,
         tokenVersion: { increment: 1 },
       },
@@ -929,7 +962,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
 
     res.status(200).json(successResponse({ message: 'Password reset successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -952,43 +985,26 @@ const sendVerificationOtp = async (
       throw new NotFoundError('User not found');
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const otpHash = hashOtp(otp);
 
     if (channel === 'phone') {
-      if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new AppError(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await twilioClient.messages.create({
-        body: `Your Ricton Health verification code is: ${otp}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
+      await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+      await smsQueue.add('send-otp', {
         to: value,
+        message: `Your Ricton Health verification code is: ${otp}`,
       });
     } else {
-      if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new AppError(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await sgMail.send({
+      await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+      await emailQueue.add('send-email', {
         to: value,
-        from: process.env.SENDGRID_FROM_EMAIL,
         subject: 'Ricton Health - Verification Code',
-        text: `Your Ricton Health verification code is: ${otp}`,
-        html: `<strong>Your Ricton Health verification code is: ${otp}</strong>`,
+        body: `Your Ricton Health verification code is: ${otp}`,
       });
     }
 
-    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
-
     res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -1046,7 +1062,7 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
     await redis.del(`verify:${key}`);
 
     res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

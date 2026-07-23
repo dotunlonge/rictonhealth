@@ -70,6 +70,7 @@ model User {
   auditLogsAsActor        AuditLog[]
   providerEarnings        ProviderEarning[]
   rewardPoints            RewardPoint[]
+  rewardTransactions      RewardTransaction[]
   subscriptions           Subscription[]
   providerAvailabilities  ProviderAvailability[]
   refreshTokens           RefreshToken[]
@@ -106,9 +107,13 @@ model RefreshToken {
   tokenFamily     String?  // Family ID for tracking token rotation chain
   expiresAt       DateTime @db.Timestamptz(6)
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
   lastUsedAt      DateTime? @db.Timestamptz(6)
   usageCount      Int      @default(0)
 
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([userId, isActive])
   @@map("refresh_tokens")
 }
 
@@ -125,6 +130,7 @@ model PatientProfile {
   medicalHistory   Json?     // Structured history
   emergencyContact Json?     // { name, phone, relationship }
   avatarUrl        String?
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
   @@map("patient_profiles")
 }
@@ -148,7 +154,10 @@ model ProviderProfile {
   rating           Decimal? @db.Decimal(3, 2)
   onboardingStep   Int      @default(1)
   documents        Json?
+  verificationNotes String?
   idVerifiedAt     DateTime? @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
   @@map("provider_profiles")
 }
@@ -166,6 +175,7 @@ model PharmacyProfile {
   bankDetails      Json?
   onboardingComplete Boolean @default(false)
   isVerified       Boolean  @default(false)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
   @@map("pharmacy_profiles")
 }
@@ -187,6 +197,7 @@ model Hospital {
   departments      Json?
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
   providers        ProviderProfile[]
   appointments     Appointment[]
@@ -206,6 +217,8 @@ model ProviderAvailability {
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([providerId])
+  @@index([providerId, isActive])
   @@map("provider_availability")
 }
 
@@ -226,11 +239,11 @@ enum AppointmentStatus {
 model Appointment {
   id                  String   @id @default(uuid()) @db.Uuid
   patientId           String   @db.Uuid
-  patient             User     @relation("PatientAppointments", fields: [patientId], references: [id])
+  patient             User     @relation("PatientAppointments", fields: [patientId], references: [id], onDelete: Cascade)
   providerId          String   @db.Uuid
-  provider            User     @relation("ProviderAppointments", fields: [providerId], references: [id])
+  provider            User     @relation("ProviderAppointments", fields: [providerId], references: [id], onDelete: Cascade)
   hospitalId          String?  @db.Uuid
-  hospital            Hospital? @relation(fields: [hospitalId], references: [id])
+  hospital            Hospital? @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
   scheduledAt         DateTime @db.Timestamptz(6)
   durationMinutes     Int
   type                AppointmentType
@@ -250,6 +263,12 @@ model Appointment {
   prescriptions       Prescription[]
   providerEarnings    ProviderEarning[]
 
+  @@index([patientId])
+  @@index([providerId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([patientId, status])
+  @@index([providerId, status])
   @@map("appointments")
 }
 
@@ -266,11 +285,11 @@ model Prescription {
   appointmentId    String?  @db.Uuid
   appointment      Appointment? @relation(fields: [appointmentId], references: [id])
   patientId        String   @db.Uuid
-  patient          User     @relation("PatientPrescriptions", fields: [patientId], references: [id])
+  patient          User     @relation("PatientPrescriptions", fields: [patientId], references: [id], onDelete: Cascade)
   providerId       String   @db.Uuid
-  provider         User     @relation("ProviderPrescriptions", fields: [providerId], references: [id])
+  provider         User     @relation("ProviderPrescriptions", fields: [providerId], references: [id], onDelete: Cascade)
   pharmacyId       String?  @db.Uuid
-  pharmacy         User?    @relation("PharmacyPrescriptions", fields: [pharmacyId], references: [id])
+  pharmacy         User?    @relation("PharmacyPrescriptions", fields: [pharmacyId], references: [id], onDelete: SetNull)
   status           PrescriptionStatus @default(DRAFT)
   signedAt         DateTime? @db.Timestamptz(6)
   notes            String?
@@ -280,6 +299,10 @@ model Prescription {
   items            PrescriptionItem[]
   pharmacyOrders   PharmacyOrder[]
 
+  @@index([patientId])
+  @@index([providerId])
+  @@index([status])
+  @@index([patientId, status])
   @@map("prescriptions")
 }
 
@@ -295,6 +318,7 @@ model PrescriptionItem {
   instructions     String?
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([prescriptionId])
   @@map("prescription_items")
 }
 
@@ -314,7 +338,7 @@ model TelemedicineRoom {
   appointmentId    String?  @unique @db.Uuid
   appointment      Appointment? // Relation handled from Appointment side
   providerId       String   @db.Uuid
-  provider         User     @relation(fields: [providerId], references: [id])
+  provider         User     @relation(fields: [providerId], references: [id], onDelete: Cascade)
   roomType         TelemedicineRoomType @default(ONE_ON_ONE)
   externalRoomId   String   // Twilio SID
   externalRoomUrl  String?
@@ -324,9 +348,12 @@ model TelemedicineRoom {
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @db.Timestamptz(6)
   mdtId            String?  @db.Uuid
-  mdt              MDT?      @relation(fields: [mdtId], references: [id])
+  mdt              MDT?      @relation(fields: [mdtId], references: [id], onDelete: SetNull)
   participants     TelemedicineParticipant[]
 
+  @@index([providerId])
+  @@index([status])
+  @@index([appointmentId])
   @@map("telemedicine_rooms")
 }
 
@@ -345,7 +372,10 @@ model TelemedicineParticipant {
   joinedAt         DateTime? @db.Timestamptz(6)
   leftAt           DateTime? @db.Timestamptz(6)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
+  @@index([roomId])
+  @@index([userId])
   @@map("telemedicine_participants")
 }
 
@@ -371,11 +401,11 @@ enum DeliveryType {
 model PharmacyOrder {
   id               String   @id @default(uuid()) @db.Uuid
   patientId        String   @db.Uuid
-  patient          User     @relation("PatientOrders", fields: [patientId], references: [id])
+  patient          User     @relation("PatientOrders", fields: [patientId], references: [id], onDelete: Cascade)
   pharmacyId       String   @db.Uuid
-  pharmacy         User     @relation("PharmacyOrders", fields: [pharmacyId], references: [id])
+  pharmacy         User     @relation("PharmacyOrders", fields: [pharmacyId], references: [id], onDelete: Cascade)
   prescriptionId   String?  @db.Uuid
-  prescription     Prescription? @relation(fields: [prescriptionId], references: [id])
+  prescription     Prescription? @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
   status           OrderStatus @default(PLACED)
   deliveryAddress  Json?
   deliveryType     DeliveryType @default(PICKUP)
@@ -388,6 +418,10 @@ model PharmacyOrder {
 
   items            OrderItem[]
 
+  @@index([patientId])
+  @@index([pharmacyId])
+  @@index([status])
+  @@index([patientId, status])
   @@map("pharmacy_orders")
 }
 
@@ -395,12 +429,16 @@ model OrderItem {
   id               String   @id @default(uuid()) @db.Uuid
   orderId          String   @db.Uuid
   order            PharmacyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId        String   @db.Uuid
+  product          Product  @relation(fields: [productId], references: [id])
   drugName         String
   quantity         Int
   unitPrice        Decimal  @db.Decimal(10, 2)
   subtotal         Decimal  @db.Decimal(10, 2)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([orderId])
+  @@index([productId])
   @@map("order_items")
 }
 
@@ -426,7 +464,7 @@ enum PaymentProvider {
 model Payment {
   id               String   @id @default(uuid()) @db.Uuid
   userId           String   @db.Uuid
-  user             User     @relation(fields: [userId], references: [id])
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   amount           Decimal  @db.Decimal(10, 2)
   currency         String   @default("NGN")
   type             PaymentType
@@ -442,6 +480,9 @@ model Payment {
   order            PharmacyOrder? @relation("OrderPayment")
   subscription     Subscription? @relation("SubscriptionPayment")
 
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
   @@map("payments")
 }
 
@@ -485,6 +526,8 @@ model WalletTransaction {
   referenceId      String?
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([walletId])
+  @@index([walletId, createdAt])
   @@map("wallet_transactions")
 }
 
@@ -494,6 +537,7 @@ enum SubscriptionPlan {
 }
 
 enum SubscriptionStatus {
+  PENDING
   ACTIVE
   CANCELLED
   EXPIRED
@@ -513,6 +557,8 @@ model Subscription {
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
+  @@index([userId])
+  @@index([userId, status])
   @@map("subscriptions")
 }
 
@@ -540,6 +586,9 @@ model Notification {
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   readAt           DateTime? @db.Timestamptz(6)
 
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
   @@map("notifications")
 }
 
@@ -560,7 +609,7 @@ model NotificationPreference {
 model AuditLog {
   id               String   @id @default(uuid()) @db.Uuid
   actorId          String?  @db.Uuid
-  actor            User?    @relation(fields: [actorId], references: [id])
+  actor            User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
   action           String
   resourceType     String
   resourceId       String?
@@ -571,6 +620,10 @@ model AuditLog {
   riskScore        Int?     // 0-100 risk score for the event
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([actorId])
+  @@index([action])
+  @@index([resourceType])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -583,15 +636,18 @@ enum ProviderEarningStatus {
 model ProviderEarning {
   id               String   @id @default(uuid()) @db.Uuid
   providerId       String   @db.Uuid
-  provider         User     @relation(fields: [providerId], references: [id])
+  provider         User     @relation(fields: [providerId], references: [id], onDelete: Cascade)
   appointmentId    String   @db.Uuid
-  appointment      Appointment @relation(fields: [appointmentId], references: [id])
+  appointment      Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   amount           Decimal  @db.Decimal(10, 2)
   status           ProviderEarningStatus @default(PENDING)
   payoutReference  String?
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
+  @@index([providerId])
+  @@index([appointmentId])
+  @@index([providerId, status])
   @@map("provider_earnings")
 }
 
@@ -605,6 +661,7 @@ model RewardPoint {
   referenceId      String?
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([userId])
   @@map("reward_points")
 }
 
@@ -619,13 +676,16 @@ model RewardTransaction {
   referenceId     String?
   status          TransactionStatus @default(COMPLETED)
   rewardCatalogId String?       @db.Uuid
-  rewardCatalog   RewardCatalog? @relation(fields: [rewardCatalogId], references: [id])
+  rewardCatalog   RewardCatalog? @relation(fields: [rewardCatalogId], references: [id], onDelete: SetNull)
   shippingAddress Json?
   deliveredAt     DateTime?     @db.Timestamptz(6)
   createdAt       DateTime      @default(now()) @db.Timestamptz(6)
 
   // Unique constraint to prevent duplicate point awards for same event
   @@unique([userId, source, referenceId, type])
+  @@index([userId])
+  @@index([status])
+  @@index([userId, status])
   @@map("reward_transactions")
 }
 
@@ -668,6 +728,7 @@ model Address {
   isDefault    Boolean  @default(false)
   createdAt    DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([userId])
   @@map("addresses")
 }
 
@@ -690,6 +751,7 @@ model ChatParticipant {
   joinedAt  DateTime   @default(now()) @db.Timestamptz(6)
 
   @@unique([threadId, userId])
+  @@index([userId])
   @@map("chat_participants")
 }
 
@@ -706,6 +768,9 @@ model ChatMessage {
   createdAt  DateTime    @default(now()) @db.Timestamptz(6)
   receipts   ChatMessageReceipt[]
 
+  @@index([threadId])
+  @@index([senderId])
+  @@index([threadId, createdAt])
   @@map("chat_messages")
 }
 
@@ -718,6 +783,7 @@ model ChatMessageReceipt {
   readAt    DateTime    @default(now()) @db.Timestamptz(6)
 
   @@unique([messageId, userId])
+  @@index([userId])
   @@map("chat_message_receipts")
 }
 
@@ -732,9 +798,9 @@ model MDT {
   id          String        @id @default(uuid()) @db.Uuid
   title       String
   patientId   String        @db.Uuid
-  patient     User          @relation("MdtPatient", fields: [patientId], references: [id])
+  patient     User          @relation("MdtPatient", fields: [patientId], references: [id], onDelete: Cascade)
   creatorId   String        @db.Uuid
-  creator     User          @relation("MdtCreator", fields: [creatorId], references: [id])
+  creator     User          @relation("MdtCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   status      MDTStatus     @default(OPEN)
   complaint   String        @db.Text
   history     String?       @db.Text
@@ -746,6 +812,9 @@ model MDT {
   participants MDTParticipant[]
   rooms        TelemedicineRoom[]
 
+  @@index([patientId])
+  @@index([creatorId])
+  @@index([status])
   @@map("mdts")
 }
 
@@ -776,6 +845,12 @@ model Product {
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @db.Timestamptz(6)
 
+  orderItems  OrderItem[]
+
+  @@index([pharmacyId])
+  @@index([isActive])
+  @@index([pharmacyId, isActive])
+  @@index([category])
   @@map("products")
 }
 
@@ -790,6 +865,7 @@ model RewardCatalog {
   isActive    Boolean  @default(true)
   tierRequired RewardTier?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
   redeemedBy  User[]   @relation("RewardRedeemedBy")
   transactions RewardTransaction[]
 

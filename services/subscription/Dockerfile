@@ -1,24 +1,37 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache openssl curl
 
 WORKDIR /app
 
-# Install dependencies - copy root package files first for workspace resolution
-COPY ../../package*.json ./
-COPY ../../packages ./packages
-COPY ./package*.json ./services/subscription/
-COPY ./services/subscription ./services/subscription
+COPY package*.json ./
+COPY tsconfig*.json ./
 
-RUN npm install
+COPY packages/ ./packages/
+COPY services/subscription/ ./services/subscription/
 
-# Build TypeScript
-RUN npm run build
+RUN npm ci
 
-# Expose port
+RUN npm run generate --workspace=@ricton/db
+
+RUN npm run build --workspace=@ricton/shared --workspace=@ricton/db --workspace=@ricton/auth-middleware
+RUN npm run build --workspace=@ricton/subscription
+
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/services/subscription ./services/subscription
+
 EXPOSE 3009
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT_SUBSCRIPTION:-3009}/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=5   CMD curl -f http://localhost:3009/health || exit 1
 
-# Start service
-CMD ["npm", "start"]
+CMD ["node", "services/subscription/dist/src/index.js"]

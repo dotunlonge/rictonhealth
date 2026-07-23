@@ -1,7 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, UserStatus, AppointmentStatus, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  getCached,
+  setCached,
+  makeCacheKey,
+  UserProfileSchema,
+} from '@ricton/shared';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { s3Client, S3_BUCKET_NAME } from '../config/s3';
@@ -36,8 +45,9 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
       throw new NotFoundError('User not found');
     }
 
-    res.status(200).json(successResponse(user));
-  } catch (error) {
+    const serializedUser = UserProfileSchema.parse(user);
+    res.status(200).json(successResponse(serializedUser));
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -100,7 +110,7 @@ export const getHospitalDashboard = async (req: Request, res: Response, next: Ne
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -158,7 +168,7 @@ export const getProviderDashboard = async (req: Request, res: Response, next: Ne
         upcomingAppointments,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -208,7 +218,7 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
     }
 
     res.status(200).json(successResponse(updatedProfile));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -218,6 +228,11 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
     const userPayload = req.user as JwtPayload;
     const { fileType } = req.body;
     if (!fileType) throw new ValidationError('fileType is required (e.g. image/jpeg)');
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(fileType)) {
+      throw new ValidationError(`Invalid file type. Allowed: ${allowedTypes.join(', ')}`);
+    }
 
     const key = `avatars/${userPayload.userId}-${Date.now()}`;
     const command = new PutObjectCommand({
@@ -232,9 +247,10 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
       successResponse({
         uploadUrl: presignedUrl,
         publicUrl: `https://${S3_BUCKET_NAME}.s3.amazonaws.com/${key}`,
+        maxSizeBytes: 2 * 1024 * 1024, // 2MB
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -254,6 +270,20 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
       }),
     };
 
+    const cacheKey = makeCacheKey([
+      'providers',
+      specialty as string | undefined,
+      name as string | undefined,
+      limit as string | undefined,
+      offset as string | undefined,
+    ]);
+    const cached = await getCached<{ providers: any[]; total: number }>(cacheKey, {
+      ttlSeconds: 300,
+    });
+    if (cached) {
+      return res.status(200).json(successResponse(cached));
+    }
+
     const [providers, total] = await Promise.all([
       prisma.providerProfile.findMany({
         where,
@@ -264,10 +294,11 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
       prisma.providerProfile.count({ where }),
     ]);
 
-    res
-      .status(200)
-      .json(successResponse({ providers, total, limit: Number(limit), offset: Number(offset) }));
-  } catch (error) {
+    const result = { providers, total, limit: Number(limit), offset: Number(offset) };
+    await setCached(cacheKey, result, { ttlSeconds: 300 });
+
+    res.status(200).json(successResponse(result));
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -282,7 +313,7 @@ export const getProviderById = async (req: Request, res: Response, next: NextFun
 
     if (!provider) throw new NotFoundError('Provider not found');
     res.status(200).json(successResponse(provider));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -305,7 +336,7 @@ export const updateMedicalHistory = async (req: Request, res: Response, next: Ne
     });
 
     res.status(200).json(successResponse(updatedProfile.medicalHistory));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

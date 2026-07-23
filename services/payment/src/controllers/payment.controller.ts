@@ -8,6 +8,9 @@ import {
   UnauthorizedError,
   ForbiddenError,
   AppError,
+  timingSafeEqual,
+  webhookQueue,
+  paystackBreaker,
 } from '@ricton/shared';
 import crypto from 'crypto';
 
@@ -112,7 +115,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
 
-    const paystackRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
+    const paystackRes = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -136,7 +139,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
           ],
         },
       }),
-    });
+    })) as any;
 
     const data = (await paystackRes.json()) as PaystackInitializeResponse;
     if (!paystackRes.ok || !data.status) {
@@ -184,7 +187,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         paymentId: payment.id,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -195,17 +198,33 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
+    const userPayload = req.user as JwtPayload;
     const { reference } = req.params;
     if (!reference) {
       throw new ValidationError('Reference is required');
     }
 
-    const paystackRes = await fetch(`${PAYSTACK_API_URL}/transaction/verify/${reference}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-      },
+    const payment = await prisma.payment.findUnique({
+      where: { providerReference: reference },
     });
+
+    if (!payment) {
+      throw new NotFoundError('Payment not found');
+    }
+
+    if (payment.userId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to verify this payment');
+    }
+
+    const paystackRes = (await paystackBreaker.fire(
+      `${PAYSTACK_API_URL}/transaction/verify/${reference}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    )) as any;
 
     const data = (await paystackRes.json()) as PaystackVerifyResponse;
     if (!paystackRes.ok || !data.status) {
@@ -230,12 +249,12 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       data: {
         status: paymentStatus,
         providerTxId: data.data.id?.toString(),
-        metadata: data.data as Prisma.InputJsonValue, // store response JSON
+        metadata: data.data as Prisma.InputJsonValue,
       },
     });
 
     res.status(200).json(successResponse(updatedPayment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -250,7 +269,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       .createHmac('sha512', PAYSTACK_SECRET_KEY)
       .update(JSON.stringify(req.body))
       .digest('hex');
-    if (hash !== req.headers['x-paystack-signature']) {
+    if (!timingSafeEqual(hash, req.headers['x-paystack-signature'] as string)) {
       throw new UnauthorizedError('Invalid signature');
     }
 
@@ -259,7 +278,19 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
     if (event.event === 'charge.success') {
       const reference = event.data.reference;
 
-      await prisma.payment.update({
+      const payment = await prisma.payment.findUnique({
+        where: { providerReference: reference },
+      });
+
+      if (!payment) {
+        throw new NotFoundError('Payment not found');
+      }
+
+      if (payment.status === PaymentStatus.SUCCESS) {
+        return res.sendStatus(200);
+      }
+
+      const updatedPayment = await prisma.payment.update({
         where: { providerReference: reference },
         data: {
           status: PaymentStatus.SUCCESS,
@@ -268,13 +299,36 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         },
       });
 
-      // Notify other services via internal event
-      // In a real system, this would publish to Redis pub/sub or a message queue
-      // For now, we rely on the client polling or the service-specific webhooks
+      await webhookQueue.add('deliver', {
+        url: `${process.env.INTERNAL_NOTIFICATION_URL || 'http://notification-service:3016'}/api/internal/payment/success`,
+        payload: {
+          paymentId: updatedPayment.id,
+          userId: updatedPayment.userId,
+          reference,
+          amount: updatedPayment.amount,
+          type: updatedPayment.type,
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+        },
+      });
     } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
       const reference = event.data.reference;
 
-      await prisma.payment.update({
+      const payment = await prisma.payment.findUnique({
+        where: { providerReference: reference },
+      });
+
+      if (!payment) {
+        throw new NotFoundError('Payment not found');
+      }
+
+      if (payment.status === PaymentStatus.FAILED) {
+        return res.sendStatus(200);
+      }
+
+      const updatedPayment = await prisma.payment.update({
         where: { providerReference: reference },
         data: {
           status: PaymentStatus.FAILED,
@@ -282,11 +336,26 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           metadata: event.data as Prisma.InputJsonValue,
         },
       });
+
+      await webhookQueue.add('deliver', {
+        url: `${process.env.INTERNAL_NOTIFICATION_URL || 'http://notification-service:3016'}/api/internal/payment/failed`,
+        payload: {
+          paymentId: updatedPayment.id,
+          userId: updatedPayment.userId,
+          reference,
+          amount: updatedPayment.amount,
+          type: updatedPayment.type,
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+        },
+      });
     }
 
     // Acknowledge receipt of webhook
     res.sendStatus(200);
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -301,7 +370,7 @@ export const getPayments = async (req: Request, res: Response, next: NextFunctio
     });
 
     res.status(200).json(successResponse(payments));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -324,7 +393,7 @@ export const getPaymentById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(payment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

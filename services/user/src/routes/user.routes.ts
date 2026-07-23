@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as userController from '../controllers/user.controller';
 import {
   validateRequest,
@@ -12,8 +13,11 @@ import {
 
 const router = Router();
 
+const userRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'user' });
+
 // All user routes require authentication
 router.use(requireAuth);
+router.use(userRateLimit);
 
 // Public within auth
 router.get('/me', userController.getCurrentUser);

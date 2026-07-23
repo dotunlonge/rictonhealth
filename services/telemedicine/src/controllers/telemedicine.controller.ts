@@ -11,8 +11,12 @@ import { successResponse, NotFoundError, ForbiddenError, AppError } from '@ricto
 import twilio from 'twilio';
 
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_API_KEY = process.env.TWILIO_API_KEY || 'SK_test_replace_me';
-const TWILIO_API_SECRET = process.env.TWILIO_API_SECRET || 'secret_replace_me';
+const TWILIO_API_KEY = process.env.TWILIO_API_KEY;
+const TWILIO_API_SECRET = process.env.TWILIO_API_SECRET;
+
+if (!TWILIO_ACCOUNT_SID || !TWILIO_API_KEY || !TWILIO_API_SECRET) {
+  throw new AppError('Twilio credentials are not configured', 500, 'SERVICE_NOT_CONFIGURED');
+}
 
 export const createRoom = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -43,7 +47,7 @@ export const createRoom = async (req: Request, res: Response, next: NextFunction
       hostProviderId = appt.providerId; // Always assign the Doctor as the Room host
     }
 
-    const externalRoomId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const externalRoomId = `room-${Date.now()}-${crypto.randomUUID().split('-')[0]}`;
     const externalRoomUrl = `https://video.twilio.com/v1/Rooms/${externalRoomId}`;
 
     const room = await prisma.$transaction(async (tx) => {
@@ -96,7 +100,7 @@ export const createRoom = async (req: Request, res: Response, next: NextFunction
     });
 
     res.status(201).json(successResponse(room));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -188,7 +192,7 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
     }
 
     res.status(200).json(successResponse({ token: tokenStr, room }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -225,7 +229,7 @@ export const endRoom = async (req: Request, res: Response, next: NextFunction) =
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -237,28 +241,42 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
 
     const room = await prisma.telemedicineRoom.findUnique({
       where: { id },
-      include: { 
+      include: {
         participants: {
           include: {
             user: {
               select: {
                 id: true,
-                firstName: true,
-                lastName: true,
                 email: true,
                 role: true,
-                avatarUrl: true,
-              }
-            }
-          }
-        }
+                patientProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
+                providerProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
     if (!room) throw new NotFoundError('Telemedicine room not found');
 
     // Secure boundary check: verify user is in participant list or is the assigned doctor/patient
-    const isParticipant = room.participants.some((p) => p.userId === userPayload.userId);
+    const roomWithParticipants = room as any;
+    const isParticipant = roomWithParticipants.participants.some(
+      (p: any) => p.userId === userPayload.userId
+    );
     const isOwner = room.providerId === userPayload.userId;
 
     let isAuthorized = isParticipant || isOwner;
@@ -274,21 +292,34 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
     }
 
     if (!isAuthorized && userPayload.role !== UserRole.SUPER_ADMIN) {
-      throw new ForbiddenError('You are not authorized to view participants in this telemedicine session');
+      throw new ForbiddenError(
+        'You are not authorized to view participants in this telemedicine session'
+      );
     }
 
-    const participantsWithDetails = room.participants.map(p => ({
-      id: p.id,
-      userId: p.userId,
-      roomId: p.roomId,
-      role: p.role,
-      joinedAt: p.joinedAt,
-      leftAt: p.leftAt,
-      user: p.user,
-    }));
+    const participantsWithDetails = roomWithParticipants.participants.map((p: any) => {
+      const user = p.user;
+      const profile = user.role === UserRole.PATIENT ? user.patientProfile : user.providerProfile;
+      return {
+        id: p.id,
+        userId: p.userId,
+        roomId: p.roomId,
+        role: p.role,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          firstName: profile?.firstName || '',
+          lastName: profile?.lastName || '',
+          avatarUrl: profile?.avatarUrl || null,
+        },
+      };
+    });
 
     res.status(200).json(successResponse({ participants: participantsWithDetails, room }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

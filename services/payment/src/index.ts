@@ -20,10 +20,13 @@ import {
   checkDatabase,
   checkRedis,
   redis,
+  validateEnv,
 } from '@ricton/shared';
 import paymentRoutes from './routes/payment.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('payment-service');
 
@@ -52,7 +55,7 @@ app.get('/health', async (_req: Request, res: Response) => {
     await checkDatabase(prisma);
     await checkRedis(redis);
     res.status(200).json({ status: 'ok', service: 'payment-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res
       .status(503)
       .json({ status: 'error', service: 'payment-service', message: 'Dependency check failed' });

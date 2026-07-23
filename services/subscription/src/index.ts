@@ -9,7 +9,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
-import { redis } from '@ricton/shared';
+import { redis, validateEnv } from '@ricton/shared';
 import {
   errorResponse,
   AppError,
@@ -22,6 +22,8 @@ import {
 import subscriptionRoutes from './routes/subscription.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('subscription-service');
 
@@ -51,10 +53,12 @@ app.get('/health', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     await redis.ping();
     res.status(200).json({ status: 'ok', service: 'subscription-service' });
-  } catch (error) {
-    res
-      .status(503)
-      .json({ status: 'error', service: 'subscription-service', message: 'Dependency check failed' });
+  } catch (error: unknown) {
+    res.status(503).json({
+      status: 'error',
+      service: 'subscription-service',
+      message: 'Dependency check failed',
+    });
   }
 });
 

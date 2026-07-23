@@ -43,25 +43,19 @@ export const createPrescription = async (req: Request, res: Response, next: Next
         },
       });
 
-      for (const item of items) {
-        if (!item.drugName || !item.dosage || !item.quantity || !item.frequency || !item.duration) {
-          throw new ValidationError(
-            'Each prescription item requires drugName, dosage, quantity, frequency, and duration'
-          );
-        }
+      const prescriptionItems = items.map((item) => ({
+        prescriptionId: p.id,
+        drugName: item.drugName,
+        dosage: item.dosage,
+        quantity: Number(item.quantity),
+        frequency: item.frequency,
+        duration: item.duration,
+        instructions: item.instructions || '',
+      }));
 
-        await tx.prescriptionItem.create({
-          data: {
-            prescriptionId: p.id,
-            drugName: item.drugName,
-            dosage: item.dosage,
-            quantity: Number(item.quantity),
-            frequency: item.frequency,
-            duration: item.duration,
-            instructions: item.instructions || '',
-          },
-        });
-      }
+      await tx.prescriptionItem.createMany({
+        data: prescriptionItems,
+      });
 
       return p;
     });
@@ -73,7 +67,7 @@ export const createPrescription = async (req: Request, res: Response, next: Next
     });
 
     res.status(201).json(successResponse(fullPrescription));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -157,7 +151,7 @@ export const signPrescription = async (req: Request, res: Response, next: NextFu
     });
 
     res.status(200).json(successResponse(signed));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -196,7 +190,7 @@ export const dispensePrescription = async (req: Request, res: Response, next: Ne
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -242,7 +236,7 @@ export const listPrescriptions = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json(successResponse(prescriptions));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -289,7 +283,7 @@ export const getPrescriptionById = async (req: Request, res: Response, next: Nex
     }
 
     res.status(200).json(successResponse(prescription));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

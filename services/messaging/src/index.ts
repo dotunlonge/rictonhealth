@@ -8,6 +8,9 @@ ddTrace.init({
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import http from 'http';
+import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import { prisma } from '@ricton/db';
 import {
   errorResponse,
@@ -20,10 +23,13 @@ import {
   checkDatabase,
   checkRedis,
   redis,
+  validateEnv,
 } from '@ricton/shared';
 import messagingRoutes from './routes/messaging.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('messaging-service');
 
@@ -45,7 +51,7 @@ app.use(httpLogger);
  *     responses:
  *       200:
  *         description: Service is healthy
- */
+ * */
 app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
@@ -59,8 +65,8 @@ app.get('/health', async (_req: Request, res: Response) => {
         redis: 'connected',
       },
     });
-  } catch (error) {
-    logger.error('Health check failed', error);
+  } catch (error: unknown) {
+    logger.error({ err: error }, 'Health check failed');
     res.status(503).json({
       status: 'unhealthy',
       service: 'messaging-service',
@@ -79,13 +85,71 @@ app.use((_req: Request, _res: Response, next: NextFunction) => {
 });
 
 // Global error handler
-app.use(errorResponse);
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, 'Unhandled error in messaging-service');
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
+  } else {
+    res.status(500).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+  }
+});
+
+// Create HTTP server wrapper for WebSockets
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
+
+io.use((socket, next) => {
+  const token =
+    socket.handshake.auth.token || socket.handshake.headers['authorization']?.split(' ')[1];
+  if (!token) {
+    return next(new Error('Authentication error'));
+  }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'test-jwt-secret');
+    socket.data.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
+io.on('connection', (socket) => {
+  logger.info(`Socket connected: ${socket.id} (user: ${socket.data.user?.userId})`);
+
+  socket.on('join', (threadId: string) => {
+    socket.join(threadId);
+    logger.info(`User ${socket.data.user?.userId} joined room/thread ${threadId}`);
+  });
+
+  socket.on('leave', (threadId: string) => {
+    socket.leave(threadId);
+    logger.info(`User ${socket.data.user?.userId} left room/thread ${threadId}`);
+  });
+
+  socket.on('disconnect', () => {
+    logger.info(`Socket disconnected: ${socket.id}`);
+  });
+});
+
+app.set('io', io);
 
 // Graceful shutdown
-setupGracefulShutdown(app, redis, prisma);
-
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   logger.info(`💬 Messaging Service running on port ${PORT}`);
+});
+
+setupGracefulShutdown({
+  server,
+  serviceName: 'messaging-service',
+  onShutdown: async () => {
+    await prisma.$disconnect();
+    await redis.quit();
+  },
 });
 
 export default app;

@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as pharmacyController from '../controllers/pharmacy.controller';
 
 const router = Router();
+
+const pharmacyRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'pharmacy' });
 
 // Public endpoints (no auth required for browsing)
 /**
@@ -74,6 +77,7 @@ router.get('/categories', pharmacyController.getCategories);
 
 // Protected endpoints
 router.use(requireAuth);
+router.use(pharmacyRateLimit);
 
 /**
  * @openapi

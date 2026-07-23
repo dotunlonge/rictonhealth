@@ -1,6 +1,6 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import { redis } from '@ricton/shared';
 import {
@@ -15,6 +15,8 @@ import {
 import pharmacyRoutes from './routes/pharmacy.routes';
 
 dotenv.config({ path: '../../.env' });
+
+// Environment is loaded
 
 initSentry('pharmacy-service');
 
@@ -43,7 +45,7 @@ app.get('/health', async (_req: Request, res: Response) => {
     await prisma.$queryRaw`SELECT 1`;
     await redis.ping();
     res.status(200).json({ status: 'ok', service: 'pharmacy-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res
       .status(503)
       .json({ status: 'error', service: 'pharmacy-service', message: 'Dependency check failed' });

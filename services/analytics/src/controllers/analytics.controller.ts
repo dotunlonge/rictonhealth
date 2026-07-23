@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma } from '@ricton/db';
-import { AppError, errorResponse, logger } from '@ricton/shared';
+import { prisma, Prisma } from '@ricton/db';
+import { logger, getCached, setCached } from '@ricton/shared';
 import { z } from 'zod';
 
 const RangeQuerySchema = z.object({
@@ -11,11 +11,17 @@ const RangeQuerySchema = z.object({
 
 export const getOverview = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const cacheKey = 'analytics:overview';
+    const cached = await getCached<Record<string, unknown>>(cacheKey, { ttlSeconds: 600 });
+    if (cached) {
+      return res.json(cached);
+    }
+
     const [totalUsers, totalPatients, totalProviders, totalPharmacists, totalHospitals] =
       await Promise.all([
         prisma.user.count(),
         prisma.user.count({ where: { role: 'PATIENT' } }),
-        prisma.user.count({ where: { role: 'PROVIDER' } }),
+        prisma.user.count({ where: { role: 'CONSULTANT' } }),
         prisma.user.count({ where: { role: 'PHARMACIST' } }),
         prisma.user.count({ where: { role: 'HOSPITAL_ADMIN' } }),
       ]);
@@ -34,7 +40,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
       where: { status: 'ACTIVE' },
     });
 
-    res.json({
+    const data = {
       success: true,
       data: {
         totalUsers,
@@ -44,12 +50,15 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
         totalHospitals,
         totalAppointments,
         completedAppointments,
-        totalRevenue: payments._sum.amount || 0,
+        totalRevenue: Number(payments._sum.amount || 0),
         activeSubscriptions,
       },
-    });
-  } catch (error) {
-    logger.error({ err: error }, 'Error fetching overview analytics');
+    };
+
+    await setCached(cacheKey, data, { ttlSeconds: 600 });
+
+    res.json(data);
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -57,8 +66,16 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
 export const getAppointmentsTrend = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = RangeQuerySchema.parse(req.query);
-    
+
+    const whereClause: Prisma.AppointmentWhereInput = {};
+    if (query.from || query.to) {
+      whereClause.createdAt = {};
+      if (query.from) whereClause.createdAt.gte = new Date(query.from);
+      if (query.to) whereClause.createdAt.lte = new Date(query.to);
+    }
+
     const appointments = await prisma.appointment.findMany({
+      where: whereClause,
       select: {
         status: true,
         type: true,
@@ -66,31 +83,38 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
       },
     });
 
-    const byStatus = appointments.reduce((acc, apt) => {
-      acc[apt.status] = (acc[apt.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byStatus = appointments.reduce(
+      (acc, apt) => {
+        acc[apt.status] = (acc[apt.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
-    const byType = appointments.reduce((acc, apt) => {
-      acc[apt.type || 'UNKNOWN'] = (acc[apt.type || 'UNKNOWN'] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byType = appointments.reduce(
+      (acc, apt) => {
+        acc[apt.type || 'UNKNOWN'] = (acc[apt.type || 'UNKNOWN'] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
-    // Simple trend calculation - group by period
     const trend = appointments.map((apt) => ({
       period: apt.createdAt.toISOString().split('T')[0],
       count: 1,
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, count: 0 };
-        }
-        acc[item.period].count += item.count;
-        return acc;
-      }, {} as Record<string, { period: string; count: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, count: 0 };
+          }
+          acc[item.period].count += item.count;
+          return acc;
+        },
+        {} as Record<string, { period: string; count: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -102,7 +126,7 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
         trend: aggregatedTrend,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Error fetching appointments trend');
     next(error);
   }
@@ -112,37 +136,49 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
   try {
     const query = RangeQuerySchema.parse(req.query);
 
+    const whereClause: Prisma.PaymentWhereInput = { status: 'SUCCESS' };
+    if (query.from || query.to) {
+      whereClause.createdAt = {};
+      if (query.from) whereClause.createdAt.gte = new Date(query.from);
+      if (query.to) whereClause.createdAt.lte = new Date(query.to);
+    }
+
     const payments = await prisma.payment.findMany({
       select: {
         amount: true,
         type: true,
         createdAt: true,
       },
-      where: { status: 'SUCCESS' },
+      where: whereClause,
     });
 
-    const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
 
-    const byType = payments.reduce((acc, p) => {
-      const type = p.type || 'UNKNOWN';
-      acc[type] = (acc[type] || 0) + p.amount;
-      return acc;
-    }, {} as Record<string, number>);
+    const byType = payments.reduce(
+      (acc, p) => {
+        const type = p.type || 'UNKNOWN';
+        acc[type] = (acc[type] || 0) + Number(p.amount);
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     const trend = payments.map((p) => ({
       period: p.createdAt.toISOString().split('T')[0],
-      amount: p.amount,
+      amount: Number(p.amount),
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, amount: 0 };
-        }
-        acc[item.period].amount += item.amount;
-        return acc;
-      }, {} as Record<string, { period: string; amount: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, amount: 0 };
+          }
+          acc[item.period].amount += Number(item.amount);
+          return acc;
+        },
+        {} as Record<string, { period: string; amount: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -153,7 +189,7 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
         trend: aggregatedTrend,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Error fetching revenue analytics');
     next(error);
   }
@@ -163,34 +199,47 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
   try {
     const query = RangeQuerySchema.parse(req.query);
 
+    const whereClause: Prisma.UserWhereInput = {};
+    if (query.from || query.to) {
+      whereClause.createdAt = {};
+      if (query.from) whereClause.createdAt.gte = new Date(query.from);
+      if (query.to) whereClause.createdAt.lte = new Date(query.to);
+    }
+
     const users = await prisma.user.findMany({
       select: {
         role: true,
         createdAt: true,
       },
+      where: whereClause,
     });
 
     const totalUsers = users.length;
 
-    const byRole = users.reduce((acc, u) => {
-      acc[u.role] = (acc[u.role] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byRole = users.reduce(
+      (acc, u) => {
+        acc[u.role] = (acc[u.role] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     const trend = users.map((u) => ({
       period: u.createdAt.toISOString().split('T')[0],
       count: 1,
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, count: 0 };
-        }
-        acc[item.period].count += item.count;
-        return acc;
-      }, {} as Record<string, { period: string; count: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, count: 0 };
+          }
+          acc[item.period].count += item.count;
+          return acc;
+        },
+        {} as Record<string, { period: string; count: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -201,63 +250,65 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
         trend: aggregatedTrend,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Error fetching user growth analytics');
     next(error);
   }
 };
 
-export const getProviderPerformance = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const getProviderPerformance = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = RangeQuerySchema.parse(req.query);
 
-    const providers = await prisma.user.findMany({
-      where: { role: 'PROVIDER' },
+    const providers = await prisma.providerProfile.findMany({
       select: {
         id: true,
+        userId: true,
         firstName: true,
         lastName: true,
-        profile: {
-          select: {
-            specialty: true,
-          },
-        },
+        specialty: true,
+        rating: true,
       },
     });
 
-    const providerStats = await Promise.all(
-      providers.map(async (provider) => {
-        const [appointmentCount, completedCount] = await Promise.all([
-          prisma.appointment.count({ where: { providerId: provider.id } }),
-          prisma.appointment.count({
-            where: { providerId: provider.id, status: 'COMPLETED' },
-          }),
-        ]);
+    const providerUserIds = providers.map((p) => p.userId);
 
-        const reviews = await prisma.review.findMany({
-          where: { providerId: provider.id },
-          select: { rating: true },
-        });
+    const appointmentWhereClause: Prisma.AppointmentWhereInput = {
+      providerId: { in: providerUserIds },
+    };
+    if (query.from || query.to) {
+      appointmentWhereClause.createdAt = {};
+      if (query.from) appointmentWhereClause.createdAt.gte = new Date(query.from);
+      if (query.to) appointmentWhereClause.createdAt.lte = new Date(query.to);
+    }
 
-        const rating =
-          reviews.length > 0
-            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-            : null;
+    const [appointmentCounts, completedCounts] = await Promise.all([
+      prisma.appointment.groupBy({
+        by: ['providerId'],
+        where: appointmentWhereClause,
+        _count: { id: true },
+      }),
+      prisma.appointment.groupBy({
+        by: ['providerId'],
+        where: {
+          ...appointmentWhereClause,
+          status: 'COMPLETED',
+        },
+        _count: { id: true },
+      }),
+    ]);
 
-        return {
-          providerId: provider.id,
-          name: `${provider.firstName} ${provider.lastName}`.trim(),
-          specialty: provider.profile?.specialty || null,
-          appointmentCount,
-          completedCount,
-          rating,
-        };
-      })
-    );
+    const appointmentCountMap = new Map(appointmentCounts.map((r) => [r.providerId, r._count.id]));
+    const completedCountMap = new Map(completedCounts.map((r) => [r.providerId, r._count.id]));
+
+    const providerStats = providers.map((provider) => ({
+      providerId: provider.id,
+      name: `${provider.firstName} ${provider.lastName}`.trim(),
+      specialty: provider.specialty || null,
+      appointmentCount: appointmentCountMap.get(provider.userId) || 0,
+      completedCount: completedCountMap.get(provider.userId) || 0,
+      rating: provider.rating ? Number(provider.rating) : null,
+    }));
 
     res.json({
       success: true,
@@ -266,7 +317,7 @@ export const getProviderPerformance = async (
         total: providerStats.length,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Error fetching provider performance');
     next(error);
   }
@@ -277,25 +328,36 @@ export const getPharmacyMetrics = async (req: Request, res: Response, next: Next
     const query = RangeQuerySchema.parse(req.query);
 
     const [totalPharmacies, verifiedPharmacies] = await Promise.all([
-      prisma.user.count({ where: { role: 'PHARMACIST' } }),
-      prisma.user.count({ where: { role: 'PHARMACIST', isVerified: true } }),
+      prisma.pharmacyProfile.count(),
+      prisma.pharmacyProfile.count({ where: { isVerified: true } }),
     ]);
 
-    const orders = await prisma.order.findMany({
+    const orderWhereClause: Prisma.PharmacyOrderWhereInput = {};
+    if (query.from || query.to) {
+      orderWhereClause.createdAt = {};
+      if (query.from) orderWhereClause.createdAt.gte = new Date(query.from);
+      if (query.to) orderWhereClause.createdAt.lte = new Date(query.to);
+    }
+
+    const orders = await prisma.pharmacyOrder.findMany({
       select: {
         status: true,
         totalAmount: true,
       },
+      where: orderWhereClause,
     });
 
     const totalOrders = orders.length;
 
-    const ordersByStatus = orders.reduce((acc, o) => {
-      acc[o.status] = (acc[o.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const ordersByStatus = orders.reduce(
+      (acc, o) => {
+        acc[o.status] = (acc[o.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
-    const totalOrderValue = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+    const totalOrderValue = orders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
 
     res.json({
       success: true,
@@ -307,7 +369,7 @@ export const getPharmacyMetrics = async (req: Request, res: Response, next: Next
         totalOrderValue,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error({ err: error }, 'Error fetching pharmacy metrics');
     next(error);
   }

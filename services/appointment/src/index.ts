@@ -20,10 +20,13 @@ import {
   checkDatabase,
   checkRedis,
   redis,
+  validateEnv,
 } from '@ricton/shared';
 import appointmentRoutes from './routes/appointment.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('appointment-service');
 
@@ -41,7 +44,7 @@ app.get('/health', async (_req: Request, res: Response) => {
     await checkDatabase(prisma);
     await checkRedis(redis);
     res.status(200).json({ status: 'ok', service: 'appointment-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(503).json({
       status: 'error',
       service: 'appointment-service',

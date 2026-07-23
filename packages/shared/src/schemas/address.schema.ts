@@ -28,7 +28,10 @@ export const CreateAddressInputSchema = registry.register(
     city: z.string().min(2, 'City must be at least 2 characters'),
     state: z.string().min(2, 'State must be at least 2 characters'),
     country: z.string().optional().default('Nigeria'),
-    postalCode: z.string().regex(/^\d{6}$/, 'Postal code must be 6 digits (Nigerian format)').optional(),
+    postalCode: z
+      .string()
+      .regex(/^\d{6}$/, 'Postal code must be 6 digits (Nigerian format)')
+      .optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     isDefault: z.boolean().optional().default(false),
@@ -43,7 +46,10 @@ export const UpdateAddressInputSchema = registry.register(
     city: z.string().min(2).optional(),
     state: z.string().min(2).optional(),
     country: z.string().optional(),
-    postalCode: z.string().regex(/^\d{6}$/).optional(),
+    postalCode: z
+      .string()
+      .regex(/^\d{6}$/)
+      .optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     isDefault: z.boolean().optional(),
@@ -67,6 +73,13 @@ export const AddressListResponseSchema = registry.register(
     addresses: z.array(AddressSchema),
   })
 );
+
+// Type exports
+export type AddressSchema = z.infer<typeof AddressSchema>;
+export type CreateAddressInputSchema = z.infer<typeof CreateAddressInputSchema>;
+export type UpdateAddressInputSchema = z.infer<typeof UpdateAddressInputSchema>;
+export type ValidateAddressInputSchema = z.infer<typeof ValidateAddressInputSchema>;
+export type AddressListResponseSchema = z.infer<typeof AddressListResponseSchema>;
 
 // Register OpenAPI paths
 registry.registerPath({

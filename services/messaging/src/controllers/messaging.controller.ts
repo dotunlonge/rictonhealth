@@ -1,34 +1,76 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ForbiddenError, ValidationError } from '@ricton/shared';
-import { CreateConversationSchema, SendMessageSchema, MarkAsReadSchema } from '../schemas/messaging.schema';
+import {
+  successResponse,
+  NotFoundError,
+  ForbiddenError,
+  ValidationError,
+  decodeCursor,
+  encodeCursor,
+} from '@ricton/shared';
+import {
+  CreateConversationSchema,
+  SendMessageSchema,
+  MarkAsReadSchema,
+} from '../schemas/messaging.schema';
+
+function formatUser(user: any) {
+  if (!user) return null;
+  const profile = user.role === UserRole.PATIENT ? user.patientProfile : user.providerProfile;
+  return {
+    id: user.id,
+    role: user.role,
+    firstName: profile?.firstName || '',
+    lastName: profile?.lastName || '',
+    avatarUrl: profile?.avatarUrl || null,
+  };
+}
 
 export const listConversations = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
-    const skip = (page - 1) * limit;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    const cursor = req.query.cursor as string | undefined;
 
-    const conversations = await prisma.chatThread.findMany({
-      where: {
-        participants: {
-          some: {
-            userId: userPayload.userId,
-          },
+    const whereClause: any = {
+      participants: {
+        some: {
+          userId: userPayload.userId,
         },
       },
+    };
+
+    if (cursor) {
+      const decoded = decodeCursor(cursor);
+      if (decoded) {
+        whereClause.updatedAt = { lt: new Date(decoded.timestamp) };
+      }
+    }
+
+    const conversations = await prisma.chatThread.findMany({
+      where: whereClause,
       include: {
         participants: {
           include: {
             user: {
               select: {
                 id: true,
-                firstName: true,
-                lastName: true,
-                avatarUrl: true,
                 role: true,
+                patientProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
+                providerProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
               },
             },
           },
@@ -40,8 +82,21 @@ export const listConversations = async (req: Request, res: Response, next: NextF
             sender: {
               select: {
                 id: true,
-                firstName: true,
-                lastName: true,
+                role: true,
+                patientProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
+                providerProfile: {
+                  select: {
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                  },
+                },
               },
             },
           },
@@ -61,28 +116,25 @@ export const listConversations = async (req: Request, res: Response, next: NextF
         },
       },
       orderBy: { updatedAt: 'desc' },
-      skip,
-      take: limit,
+      take: limit + 1,
     });
 
-    const total = await prisma.chatThread.count({
-      where: {
-        participants: {
-          some: {
-            userId: userPayload.userId,
-          },
-        },
-      },
-    });
+    const hasMore = conversations.length > limit;
+    const data = hasMore ? conversations.slice(0, limit) : conversations;
 
-    const formattedConversations = conversations.map((conv) => ({
+    const nextCursor =
+      hasMore && data.length > 0
+        ? encodeCursor(data[data.length - 1].id, data[data.length - 1].updatedAt.toISOString())
+        : null;
+
+    const formattedConversations = data.map((conv: any) => ({
       id: conv.id,
       threadType: 'DIRECT' as const,
       title: null,
-      participants: conv.participants.map((p) => ({
+      participants: conv.participants.map((p: any) => ({
         id: p.id,
         userId: p.userId,
-        user: p.user,
+        user: formatUser(p.user),
         joinedAt: p.joinedAt.toISOString(),
       })),
       lastMessage: conv.messages[0]
@@ -101,15 +153,13 @@ export const listConversations = async (req: Request, res: Response, next: NextF
     res.status(200).json(
       successResponse({
         conversations: formattedConversations,
-        meta: {
-          total,
-          page,
-          limit,
-          totalPages: Math.ceil(total / limit),
+        pagination: {
+          nextCursor,
+          hasMore,
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -118,9 +168,8 @@ export const getConversationMessages = async (req: Request, res: Response, next:
   try {
     const userPayload = req.user as JwtPayload;
     const { id } = req.params;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const skip = (page - 1) * limit;
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+    const cursor = req.query.cursor as string | undefined;
 
     const conversation = await prisma.chatThread.findUnique({
       where: { id },
@@ -139,15 +188,36 @@ export const getConversationMessages = async (req: Request, res: Response, next:
       throw new ForbiddenError('You are not a participant in this conversation');
     }
 
+    const whereClause: any = { threadId: id };
+
+    if (cursor) {
+      const decoded = decodeCursor(cursor);
+      if (decoded) {
+        whereClause.createdAt = { lt: new Date(decoded.timestamp) };
+      }
+    }
+
     const messages = await prisma.chatMessage.findMany({
-      where: { threadId: id },
+      where: whereClause,
       include: {
         sender: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
-            avatarUrl: true,
+            role: true,
+            patientProfile: {
+              select: {
+                firstName: true,
+                lastName: true,
+                avatarUrl: true,
+              },
+            },
+            providerProfile: {
+              select: {
+                firstName: true,
+                lastName: true,
+                avatarUrl: true,
+              },
+            },
           },
         },
         receipts: {
@@ -155,19 +225,22 @@ export const getConversationMessages = async (req: Request, res: Response, next:
         },
       },
       orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
+      take: limit + 1,
     });
 
-    const total = await prisma.chatMessage.count({
-      where: { threadId: id },
-    });
+    const hasMore = messages.length > limit;
+    const data = hasMore ? messages.slice(0, limit) : messages;
 
-    const formattedMessages = messages.map((msg) => ({
+    const nextCursor =
+      hasMore && data.length > 0
+        ? encodeCursor(data[data.length - 1].id, data[data.length - 1].createdAt.toISOString())
+        : null;
+
+    const formattedMessages = data.map((msg: any) => ({
       id: msg.id,
       threadId: msg.threadId,
       senderId: msg.senderId,
-      sender: msg.sender,
+      sender: formatUser(msg.sender),
       body: msg.body,
       fileUrl: msg.fileUrl,
       fileName: msg.fileName,
@@ -180,16 +253,13 @@ export const getConversationMessages = async (req: Request, res: Response, next:
     res.status(200).json(
       successResponse({
         messages: formattedMessages.reverse(),
-        meta: {
-          total,
-          page,
-          limit,
-          totalPages: Math.ceil(total / limit),
-          hasMore: skip + formattedMessages.length < total,
+        pagination: {
+          nextCursor,
+          hasMore,
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -235,9 +305,21 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
           sender: {
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
-              avatarUrl: true,
+              role: true,
+              patientProfile: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  avatarUrl: true,
+                },
+              },
+              providerProfile: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  avatarUrl: true,
+                },
+              },
             },
           },
         },
@@ -258,22 +340,27 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
       return newMessage;
     });
 
-    res.status(201).json(
-      successResponse({
-        id: message.id,
-        threadId: message.threadId,
-        senderId: message.senderId,
-        sender: message.sender,
-        body: message.body,
-        fileUrl: message.fileUrl,
-        fileName: message.fileName,
-        fileSize: message.fileSize,
-        isRead: true,
-        readAt: new Date().toISOString(),
-        createdAt: message.createdAt.toISOString(),
-      })
-    );
-  } catch (error) {
+    const payload = {
+      id: message.id,
+      threadId: message.threadId,
+      senderId: message.senderId,
+      sender: formatUser(message.sender),
+      body: message.body,
+      fileUrl: message.fileUrl,
+      fileName: message.fileName,
+      fileSize: message.fileSize,
+      isRead: true,
+      readAt: new Date().toISOString(),
+      createdAt: message.createdAt.toISOString(),
+    };
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(id).emit('message', payload);
+    }
+
+    res.status(201).json(successResponse(payload));
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -302,34 +389,33 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
     }
 
     if (validatedData.markAll) {
-      await prisma.$transaction(async (tx) => {
-        const unreadMessages = await tx.chatMessage.findMany({
-          where: {
-            threadId: id,
-            receipts: {
-              none: {
-                userId: userPayload.userId,
-              },
-            },
-          },
-          select: { id: true },
-        });
-
-        for (const msg of unreadMessages) {
-          await tx.chatMessageReceipt.create({
-            data: {
-              messageId: msg.id,
+      const unreadMessages = await prisma.chatMessage.findMany({
+        where: {
+          threadId: id,
+          receipts: {
+            none: {
               userId: userPayload.userId,
             },
-          });
-        }
+          },
+        },
+        select: { id: true },
       });
+
+      if (unreadMessages.length > 0) {
+        await prisma.chatMessageReceipt.createMany({
+          data: unreadMessages.map((msg) => ({
+            messageId: msg.id,
+            userId: userPayload.userId,
+          })),
+          skipDuplicates: true,
+        });
+      }
 
       res.status(200).json(successResponse({ success: true, markedCount: 'all' }));
     } else if (validatedData.messageIds && validatedData.messageIds.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        for (const messageId of validatedData.messageIds) {
-          await tx.chatMessageReceipt.upsert({
+      await prisma.$transaction(
+        validatedData.messageIds.map((messageId) =>
+          prisma.chatMessageReceipt.upsert({
             where: {
               messageId_userId: {
                 messageId,
@@ -341,17 +427,17 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
               userId: userPayload.userId,
             },
             update: {},
-          });
-        }
-      });
-
-      res.status(200).json(
-        successResponse({ success: true, markedCount: validatedData.messageIds.length })
+          })
+        )
       );
+
+      res
+        .status(200)
+        .json(successResponse({ success: true, markedCount: validatedData.messageIds.length }));
     } else {
       throw new ValidationError('Either markAll must be true or messageIds must be provided');
     }
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -378,10 +464,21 @@ export const createConversation = async (req: Request, res: Response, next: Next
               user: {
                 select: {
                   id: true,
-                  firstName: true,
-                  lastName: true,
-                  avatarUrl: true,
                   role: true,
+                  patientProfile: {
+                    select: {
+                      firstName: true,
+                      lastName: true,
+                      avatarUrl: true,
+                    },
+                  },
+                  providerProfile: {
+                    select: {
+                      firstName: true,
+                      lastName: true,
+                      avatarUrl: true,
+                    },
+                  },
                 },
               },
             },
@@ -397,10 +494,10 @@ export const createConversation = async (req: Request, res: Response, next: Next
         id: conversation.id,
         threadType: validatedData.threadType,
         title: validatedData.title || null,
-        participants: conversation.participants.map((p) => ({
+        participants: conversation.participants.map((p: any) => ({
           id: p.id,
           userId: p.userId,
-          user: p.user,
+          user: formatUser(p.user),
           joinedAt: p.joinedAt.toISOString(),
         })),
         lastMessage: null,
@@ -409,7 +506,7 @@ export const createConversation = async (req: Request, res: Response, next: Next
         createdAt: conversation.createdAt.toISOString(),
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

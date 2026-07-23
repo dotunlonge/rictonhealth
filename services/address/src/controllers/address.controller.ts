@@ -17,7 +17,7 @@ export const getAddresses = async (req: Request, res: Response, next: NextFuncti
     });
 
     res.status(200).json(successResponse({ addresses }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -40,7 +40,7 @@ export const getAddressById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -52,7 +52,17 @@ export const createAddress = async (req: Request, res: Response, next: NextFunct
   try {
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
-    const { addressLine1, addressLine2, city, state, country, postalCode, latitude, longitude, isDefault } = req.body;
+    const {
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      country,
+      postalCode,
+      latitude,
+      longitude,
+      isDefault,
+    } = req.body;
 
     // Validate required fields
     if (!addressLine1 || !city || !state) {
@@ -83,7 +93,7 @@ export const createAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(201).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -96,7 +106,17 @@ export const updateAddress = async (req: Request, res: Response, next: NextFunct
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
     const { id } = req.params;
-    const { addressLine1, addressLine2, city, state, country, postalCode, latitude, longitude, isDefault } = req.body;
+    const {
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      country,
+      postalCode,
+      latitude,
+      longitude,
+      isDefault,
+    } = req.body;
 
     // Verify ownership
     const existingAddress = await prisma.address.findFirst({
@@ -131,7 +151,7 @@ export const updateAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse(address));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -159,7 +179,7 @@ export const deleteAddress = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse({ message: 'Address deleted successfully' }));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -195,7 +215,7 @@ export const setDefaultAddress = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json(successResponse(updatedAddress));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -243,7 +263,7 @@ export const validateAddress = async (req: Request, res: Response, next: NextFun
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

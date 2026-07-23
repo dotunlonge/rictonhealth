@@ -42,7 +42,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     // Also check previous day for appointments that extend past midnight
     const prevDay = new Date(startOfDay);
     prevDay.setDate(prevDay.getDate() - 1);
@@ -113,7 +113,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     }
 
     res.status(200).json(successResponse(slots));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -134,16 +134,18 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     }
 
     const scheduledDate = new Date(scheduledAt);
-    
+
     // Validate that scheduledAt is not in the past
     const now = new Date();
     if (scheduledDate < now) {
       throw new ValidationError('Cannot book appointments in the past');
     }
-    
+
     // Validate seconds and milliseconds are zero for proper slot alignment
     if (scheduledDate.getSeconds() !== 0 || scheduledDate.getMilliseconds() !== 0) {
-      throw new ValidationError('Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)');
+      throw new ValidationError(
+        'Appointment time must be aligned to minute boundaries (seconds and milliseconds must be 0)'
+      );
     }
 
     // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
@@ -193,34 +195,6 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     const slotEnd = new Date(slotStart);
     slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
 
-    // Find conflicting appointments
-    const conflictingAppointments = await prisma.appointment.findMany({
-      where: {
-        providerId,
-        scheduledAt: {
-          gte: new Date(scheduledDate.setHours(0, 0, 0, 0)),
-          lte: new Date(scheduledDate.setHours(23, 59, 59, 999)),
-        },
-        status: {
-          in: [
-            AppointmentStatus.PENDING,
-            AppointmentStatus.CONFIRMED,
-            AppointmentStatus.IN_PROGRESS,
-          ],
-        },
-      },
-    });
-
-    const hasConflict = conflictingAppointments.some((apt) => {
-      const aptStart = new Date(apt.scheduledAt);
-      const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
-      return slotStart < aptEnd && slotEnd > aptStart;
-    });
-
-    if (hasConflict) {
-      throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
-    }
-
     // Derive hospitalId from provider if not provided, or validate it matches provider's hospital
     let finalHospitalId = hospitalId;
     if (!finalHospitalId) {
@@ -242,57 +216,90 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       }
     }
 
-    // Create appointment with telemedicine room in a single transaction
-    const appointment = await prisma.$transaction(async (tx) => {
-      const appt = await tx.appointment.create({
-        data: {
-          patientId: userPayload.userId,
-          providerId,
-          hospitalId: finalHospitalId,
-          scheduledAt: slotStart,
-          durationMinutes: slotDuration,
-          type,
-          reason,
-          status: AppointmentStatus.PENDING,
-        },
-        include: {
-          patient: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              patientProfile: true,
-            },
-          },
-          provider: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              providerProfile: true,
-            },
-          },
-        },
-      });
-
-      // Auto-create telemedicine room for VIDEO appointments
-      if (type === AppointmentType.VIDEO) {
-        await tx.telemedicineRoom.create({
-          data: {
+    // Create appointment with telemedicine room in a single transaction with Serializable isolation to prevent double bookings
+    const appointment = await prisma.$transaction(
+      async (tx) => {
+        // Find conflicting appointments inside the transaction
+        const conflictingAppointments = await tx.appointment.findMany({
+          where: {
             providerId,
-            appointmentId: appt.id,
-            roomType: 'ONE_ON_ONE',
-            externalRoomId: `room-${appt.id}`,
-            status: 'CREATED',
+            scheduledAt: {
+              gte: new Date(new Date(scheduledDate).setHours(0, 0, 0, 0)),
+              lte: new Date(new Date(scheduledDate).setHours(23, 59, 59, 999)),
+            },
+            status: {
+              in: [
+                AppointmentStatus.PENDING,
+                AppointmentStatus.CONFIRMED,
+                AppointmentStatus.IN_PROGRESS,
+              ],
+            },
           },
         });
-      }
 
-      return appt;
-    });
+        const hasConflict = conflictingAppointments.some((apt) => {
+          const aptStart = new Date(apt.scheduledAt);
+          const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
+          return slotStart < aptEnd && slotEnd > aptStart;
+        });
+
+        if (hasConflict) {
+          throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
+        }
+
+        const appt = await tx.appointment.create({
+          data: {
+            patientId: userPayload.userId,
+            providerId,
+            hospitalId: finalHospitalId,
+            scheduledAt: slotStart,
+            durationMinutes: slotDuration,
+            type,
+            reason,
+            status: AppointmentStatus.PENDING,
+          },
+          include: {
+            patient: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                patientProfile: true,
+              },
+            },
+            provider: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                providerProfile: true,
+              },
+            },
+          },
+        });
+
+        // Auto-create telemedicine room for VIDEO appointments
+        if (type === AppointmentType.VIDEO) {
+          await tx.telemedicineRoom.create({
+            data: {
+              providerId,
+              appointmentId: appt.id,
+              roomType: 'ONE_ON_ONE',
+              externalRoomId: `room-${appt.id}`,
+              status: 'CREATED',
+            },
+          });
+        }
+
+        return appt;
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }
+    );
 
     res.status(201).json(successResponse(appointment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -373,7 +380,7 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
         },
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -430,7 +437,7 @@ export const getAppointmentById = async (req: Request, res: Response, next: Next
     }
 
     res.status(200).json(successResponse(appointment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -441,11 +448,13 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
     const { id } = req.params;
     const { status, cancellationReason } = req.body;
 
-    if (!status || !Object.values(AppointmentStatus).includes(status)) {
+    if (!status || !Object.values(AppointmentStatus).includes(status as AppointmentStatus)) {
       throw new ValidationError(
         `Invalid status. Must be one of: ${Object.values(AppointmentStatus).join(', ')}`
       );
     }
+
+    const validStatus = status as AppointmentStatus;
 
     const appointment = await prisma.appointment.findUnique({
       where: { id },
@@ -456,7 +465,6 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
       throw new NotFoundError('Appointment not found');
     }
 
-    // Check authorization
     if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to update this appointment');
     }
@@ -471,9 +479,10 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
     const updatedAppointment = await prisma.appointment.update({
       where: { id },
       data: {
-        status,
-        cancellationReason: status === AppointmentStatus.CANCELLED ? cancellationReason : undefined,
-        cancelledBy: status === AppointmentStatus.CANCELLED ? userPayload.role : undefined,
+        status: validStatus,
+        cancellationReason:
+          validStatus === AppointmentStatus.CANCELLED ? cancellationReason : undefined,
+        cancelledBy: validStatus === AppointmentStatus.CANCELLED ? userPayload.role : undefined,
       },
       include: {
         patient: { select: { id: true, email: true, phone: true, patientProfile: true } },
@@ -481,8 +490,7 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
       },
     });
 
-    // If cancelled, end any active telemedicine room
-    if (status === AppointmentStatus.CANCELLED && appointment.telemedicineRoom) {
+    if (validStatus === AppointmentStatus.CANCELLED && appointment.telemedicineRoom) {
       await prisma.telemedicineRoom.update({
         where: { id: appointment.telemedicineRoom.id },
         data: { status: 'ENDED', endedAt: new Date() },
@@ -490,7 +498,7 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
     }
 
     res.status(200).json(successResponse(updatedAppointment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -519,7 +527,12 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
 
     // Prevent cancellation of terminal status appointments
-    if ([AppointmentStatus.COMPLETED, AppointmentStatus.NO_SHOW, AppointmentStatus.CANCELLED].includes(appointment.status)) {
+    const terminalStatuses: string[] = [
+      AppointmentStatus.COMPLETED,
+      AppointmentStatus.NO_SHOW,
+      AppointmentStatus.CANCELLED,
+    ];
+    if (terminalStatuses.includes(appointment.status)) {
       throw new ValidationError(`Cannot cancel an appointment with status ${appointment.status}`);
     }
 
@@ -545,7 +558,7 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
 
     res.status(200).json(successResponse(updatedAppointment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

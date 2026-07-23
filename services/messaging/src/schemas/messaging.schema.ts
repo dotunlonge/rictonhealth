@@ -25,24 +25,28 @@ export const ConversationResponseSchema = z.object({
   id: z.string().uuid(),
   threadType: z.enum(['DIRECT', 'GROUP', 'APPOINTMENT', 'MDT']),
   title: z.string().nullable(),
-  participants: z.array(z.object({
-    id: z.string().uuid(),
-    userId: z.string().uuid(),
-    user: z.object({
+  participants: z.array(
+    z.object({
       id: z.string().uuid(),
-      firstName: z.string(),
-      lastName: z.string(),
-      avatarUrl: z.string().nullable(),
-      role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
-    }),
-    joinedAt: z.string(),
-  })),
-  lastMessage: z.object({
-    id: z.string().uuid(),
-    body: z.string().nullable(),
-    senderId: z.string().uuid(),
-    createdAt: z.string(),
-  }).nullable(),
+      userId: z.string().uuid(),
+      user: z.object({
+        id: z.string().uuid(),
+        firstName: z.string(),
+        lastName: z.string(),
+        avatarUrl: z.string().nullable(),
+        role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+      }),
+      joinedAt: z.string(),
+    })
+  ),
+  lastMessage: z
+    .object({
+      id: z.string().uuid(),
+      body: z.string().nullable(),
+      senderId: z.string().uuid(),
+      createdAt: z.string(),
+    })
+    .nullable(),
   unreadCount: z.number().int().nonnegative(),
   updatedAt: z.string(),
   createdAt: z.string(),
@@ -87,3 +91,12 @@ export const MessagesListResponseSchema = z.object({
     hasMore: z.boolean(),
   }),
 });
+
+// Type exports
+export type CreateConversationSchema = z.infer<typeof CreateConversationSchema>;
+export type SendMessageSchema = z.infer<typeof SendMessageSchema>;
+export type MarkAsReadSchema = z.infer<typeof MarkAsReadSchema>;
+export type ConversationResponseSchema = z.infer<typeof ConversationResponseSchema>;
+export type MessageResponseSchema = z.infer<typeof MessageResponseSchema>;
+export type ConversationsListResponseSchema = z.infer<typeof ConversationsListResponseSchema>;
+export type MessagesListResponseSchema = z.infer<typeof MessagesListResponseSchema>;

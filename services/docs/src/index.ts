@@ -21,9 +21,12 @@ import {
   createCors,
   checkDatabase,
   AppError,
+  validateEnv,
 } from '@ricton/shared';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('docs-service');
 
@@ -40,7 +43,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
     res.status(200).json({ status: 'ok', service: 'docs-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res
       .status(503)
       .json({ status: 'error', service: 'docs-service', message: 'Dependency check failed' });

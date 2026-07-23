@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, OrderStatus, DeliveryType, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError,
+} from '@ricton/shared';
 
 /**
  * List pharmacy products with optional filtering
@@ -48,7 +54,7 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
         offset: Number(offset),
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -77,7 +83,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(product));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -88,7 +94,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can create products');
     }
@@ -124,7 +130,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(201).json(successResponse(product));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -135,7 +141,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can update products');
     }
@@ -169,7 +175,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -180,7 +186,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
 export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can delete products');
     }
@@ -205,7 +211,7 @@ export const deleteProduct = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -229,7 +235,7 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
         }))
       )
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -240,7 +246,7 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PATIENT) {
       throw new ForbiddenError('Only patients can create orders');
     }
@@ -253,23 +259,27 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
 
     // Validate items and calculate total
     let totalAmount = 0;
-    const orderItemsData = [];
+    const orderItemsData: any[] = [];
     let pharmacyId: string | null = null;
+
+    const productIds = items.map((item) => item.productId).filter(Boolean);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
 
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         throw new ValidationError('Each item must have productId and a positive quantity');
       }
 
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+      const product = productMap.get(item.productId);
 
       if (!product || !product.isActive) {
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
       }
 
-      // Validate price and stock are non-negative
       if (Number(product.price) < 0 || product.stock < 0) {
         throw new ValidationError(`Invalid product data for ${product.name}`);
       }
@@ -278,7 +288,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         throw new ValidationError(`Insufficient stock for ${product.name}`);
       }
 
-      // Track pharmacy ID and ensure all products belong to the same pharmacy
       if (pharmacyId === null) {
         pharmacyId = product.pharmacyId;
       } else if (product.pharmacyId !== pharmacyId) {
@@ -299,7 +308,7 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         data: {
           patientId: userPayload.userId,
           pharmacyId: pharmacyId!,
-          status: OrderStatus.PENDING,
+          status: OrderStatus.PLACED,
           deliveryType: deliveryType || DeliveryType.DELIVERY,
           deliveryAddress: deliveryAddress || null,
           notes: notes || null,
@@ -333,21 +342,21 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         },
       });
 
-      // Reduce stock
-      for (const item of orderItemsData) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
-          },
-        });
-      }
+      // Reduce stock in parallel
+      await Promise.all(
+        orderItemsData.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { decrement: item.quantity } },
+          })
+        )
+      );
 
       return newOrder;
     });
 
     res.status(201).json(successResponse(order));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -417,7 +426,7 @@ export const getOrders = async (req: Request, res: Response, next: NextFunction)
         offset: Number(offset),
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -431,7 +440,7 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     const { id } = req.params;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: {
         items: {
           include: {
@@ -471,22 +480,16 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     }
 
     // Authorization check
-    if (
-      userPayload.role === UserRole.PATIENT &&
-      order.patientId !== userPayload.userId
-    ) {
+    if (userPayload.role === UserRole.PATIENT && order.patientId !== userPayload.userId) {
       throw new ForbiddenError('Not authorized to view this order');
     }
 
-    if (
-      userPayload.role === UserRole.PHARMACIST &&
-      order.pharmacyId !== userPayload.userId
-    ) {
+    if (userPayload.role === UserRole.PHARMACIST && order.pharmacyId !== userPayload.userId) {
       throw new ForbiddenError('Not authorized to view this order');
     }
 
     res.status(200).json(successResponse(order));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -497,7 +500,7 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can update order status');
     }
@@ -510,7 +513,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
     });
 
     if (!order) {
@@ -558,7 +561,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const updated = await prisma.pharmacyOrder.update({
-      where: { id, isActive: true },
+      where: { id },
       data: { status: status as OrderStatus },
       include: {
         items: {
@@ -570,7 +573,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -585,7 +588,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
     const { reason } = req.body;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: { items: true },
     });
 
@@ -597,7 +600,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
       throw new ForbiddenError('Not authorized to cancel this order');
     }
 
-    if (order.status !== OrderStatus.PENDING) {
+    if (order.status !== OrderStatus.PLACED) {
       throw new ValidationError('Only pending orders can be cancelled');
     }
 
@@ -613,18 +616,21 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
       }
 
       // Cancel order
+      const notesUpdated = order.notes
+        ? `${order.notes} | Cancellation Reason: ${reason}`
+        : `Cancellation Reason: ${reason}`;
       return tx.pharmacyOrder.update({
-        where: { id, isActive: true },
+        where: { id },
         data: {
           status: OrderStatus.CANCELLED,
-          cancellationReason: reason || null,
+          notes: notesUpdated,
         },
         include: { items: true },
       });
     });
 
     res.status(200).json(successResponse(updated));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -635,7 +641,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 export const fulfillPrescription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can fulfill prescriptions');
     }
@@ -660,7 +666,9 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
 
     // Validate prescription status - only SENT_TO_PHARMACY prescriptions can be fulfilled
     if (prescription.status !== 'SENT_TO_PHARMACY') {
-      throw new ValidationError(`Prescription cannot be fulfilled. Current status: ${prescription.status}`);
+      throw new ValidationError(
+        `Prescription cannot be fulfilled. Current status: ${prescription.status}`
+      );
     }
 
     // Check if order already exists for this prescription
@@ -677,7 +685,7 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
       data: {
         patientId: prescription.patientId,
         pharmacyId: userPayload.userId,
-        status: OrderStatus.PENDING,
+        status: OrderStatus.PLACED,
         deliveryType: DeliveryType.PICKUP,
         totalAmount: 0, // To be calculated based on products
         prescriptionId: prescription.id,
@@ -685,7 +693,7 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
     });
 
     res.status(201).json(successResponse(order));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

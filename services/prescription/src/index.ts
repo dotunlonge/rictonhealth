@@ -18,10 +18,13 @@ import {
   setupGracefulShutdown,
   createCors,
   checkDatabase,
+  validateEnv,
 } from '@ricton/shared';
 import prescriptionRoutes from './routes/prescription.routes';
 
 dotenv.config({ path: '../../.env' });
+
+validateEnv();
 
 initSentry('prescription-service');
 
@@ -49,7 +52,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
     res.status(200).json({ status: 'ok', service: 'prescription-service' });
-  } catch (error) {
+  } catch (error: unknown) {
     res.status(503).json({
       status: 'error',
       service: 'prescription-service',

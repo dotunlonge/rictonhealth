@@ -26,11 +26,13 @@ export const PharmacyOrderSchema = z.object({
   totalAmount: z.number().positive(),
   deliveryType: z.enum(['HOME_DELIVERY', 'PICKUP']),
   deliveryAddress: z.string().nullable(),
-  items: z.array(z.object({
-    productId: z.string().uuid(),
-    quantity: z.number().int().positive(),
-    unitPrice: z.number().positive(),
-  })),
+  items: z.array(
+    z.object({
+      productId: z.string().uuid(),
+      quantity: z.number().int().positive(),
+      unitPrice: z.number().positive(),
+    })
+  ),
   createdAt: z.string().datetime(),
 });
 
@@ -46,7 +48,11 @@ export const CreateOrderSchema = z.object({
   deliveryAddress: z.string().optional(),
 });
 
-import { registry } from '@ricton/shared';
+// Type exports
+export type ProductSchema = z.infer<typeof ProductSchema>;
+export type PharmacyOrderSchema = z.infer<typeof PharmacyOrderSchema>;
+export type CartItemSchema = z.infer<typeof CartItemSchema>;
+export type CreateOrderSchema = z.infer<typeof CreateOrderSchema>;
 
 export const ProductsListResponse = registry.register(
   'ProductsListResponse',

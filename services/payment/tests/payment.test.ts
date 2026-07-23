@@ -1,19 +1,18 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.PAYSTACK_SECRET_KEY = 'sk_test_mocked';
+
 import request from 'supertest';
 import express from 'express';
-import paymentRoutes from '../src/routes/payment.routes';
-import {
-  prisma,
-  UserRole,
-  UserStatus,
-  PaymentType,
-  PaymentStatus,
-  PaymentProvider,
-} from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+
+import paymentRoutes from '../src/routes/payment.routes';
+import { prisma, UserRole, PaymentType, PaymentStatus } from '@ricton/db';
+import { errorResponse } from '@ricton/shared';
+import {
+  createUser,
+  createAuthToken,
+  createPayment,
+} from '../../../packages/shared/src/__tests__/factories';
 
 const app = express();
 app.use(express.json());
@@ -29,68 +28,66 @@ app.use(
   }
 );
 
-let testUserId: string;
-let token: string;
-
-beforeAll(async () => {
-  await prisma.user.deleteMany();
-  await prisma.payment.deleteMany();
-
-  const user = await prisma.user.create({
-    data: {
-      email: 'usertest@example.com',
-      passwordHash: 'hashed_password_mock',
-      role: UserRole.PATIENT,
-      status: UserStatus.ACTIVE,
-      patientProfile: {
-        create: {
-          firstName: 'John',
-          lastName: 'Doe',
-        },
-      },
-    },
+describe('Payment Controller Integration', () => {
+  beforeEach(async () => {
+    await prisma.payment.deleteMany();
+    await prisma.user.deleteMany();
   });
 
-  testUserId = user.id;
+  const mockPaystackInitialize = (
+    overrides: {
+      authorization_url?: string;
+      reference?: string;
+      status?: boolean;
+      message?: string;
+    } = {}
+  ) => ({
+    ok: true,
+    json: async () => ({
+      status: overrides.status ?? true,
+      message: overrides.message || 'Authorization URL created',
+      data: {
+        authorization_url: overrides.authorization_url || 'https://checkout.paystack.com/mock',
+        access_code: 'mock_access_code',
+        reference: overrides.reference || 'mock_ref_123',
+      },
+    }),
+  });
 
-  token = jwt.sign(
-    { userId: testUserId, role: user.role, status: user.status },
-    process.env.JWT_SECRET as string
-  );
-});
+  const mockPaystackVerify = (
+    overrides: { status?: string; id?: number; message?: string } = {}
+  ) => ({
+    ok: true,
+    json: async () => ({
+      status: true,
+      message: overrides.message || 'Verification successful',
+      data: {
+        status: overrides.status || 'success',
+        id: overrides.id ?? 9876543,
+        reference: 'mock_ref_to_verify',
+      },
+    }),
+  });
 
-afterAll(async () => {
-  await prisma.$disconnect();
-});
-
-// Mock fetch globally
-global.fetch = jest.fn();
-
-describe('Payment Controller Integration', () => {
-  beforeEach(() => {
-    jest.resetAllMocks();
+  const mockPaystackError = (message = 'Paystack error') => ({
+    ok: false,
+    json: async () => ({
+      status: false,
+      message,
+    }),
   });
 
   describe('POST /api/payments/initialize', () => {
     it('should initialize a payment successfully', async () => {
-      const mockResponse = {
-        ok: true,
-        json: async () => ({
-          status: true,
-          message: 'Authorization URL created',
-          data: {
-            authorization_url: 'https://checkout.paystack.com/mock',
-            access_code: 'mock_access_code',
-            reference: 'mock_ref_123',
-          },
-        }),
-      };
-      (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce(mockPaystackInitialize());
 
       const res = await request(app)
         .post('/api/payments/initialize')
         .set('Authorization', `Bearer ${token}`)
-        .send({ amount: 15000, email: 'usertest@example.com', type: 'WALLET_TOPUP' });
+        .send({ amount: 15000, email: user.email!, type: PaymentType.WALLET_TOPUP });
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -103,36 +100,44 @@ describe('Payment Controller Integration', () => {
       expect(payment?.amount.toString()).toBe('15000');
       expect(payment?.status).toBe('PENDING');
     });
+
+    it('should return 400 when amount is invalid for WALLET_TOPUP', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      const res = await request(app)
+        .post('/api/payments/initialize')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ amount: -100, email: user.email!, type: PaymentType.WALLET_TOPUP });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 400 when email is missing', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      const res = await request(app)
+        .post('/api/payments/initialize')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ amount: 15000, type: PaymentType.WALLET_TOPUP });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('GET /api/payments/verify/:reference', () => {
-    it('should verify a payment and mark as success', async () => {
-      // Create pending payment first
-      await prisma.payment.create({
-        data: {
-          userId: testUserId,
-          amount: 15000,
-          currency: 'NGN',
-          type: PaymentType.WALLET_TOPUP,
-          status: PaymentStatus.PENDING,
-          provider: PaymentProvider.PAYSTACK,
-          providerReference: 'mock_ref_to_verify',
-        },
+    it('should verify a payment and update status to SUCCESS', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      await createPayment({
+        userId: user.id,
+        providerReference: 'mock_ref_to_verify',
+        status: PaymentStatus.PENDING,
       });
 
-      const mockResponse = {
-        ok: true,
-        json: async () => ({
-          status: true,
-          message: 'Verification successful',
-          data: {
-            status: 'success',
-            id: 9876543,
-            reference: 'mock_ref_to_verify',
-          },
-        }),
-      };
-      (global.fetch as jest.Mock).mockResolvedValue(mockResponse);
+      (global.fetch as jest.Mock).mockResolvedValueOnce(mockPaystackVerify());
 
       const res = await request(app)
         .get('/api/payments/verify/mock_ref_to_verify')
@@ -142,26 +147,79 @@ describe('Payment Controller Integration', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.status).toBe('SUCCESS');
 
-      const updatedPayment = await prisma.payment.findUnique({
+      const updated = await prisma.payment.findUnique({
         where: { providerReference: 'mock_ref_to_verify' },
       });
-      expect(updatedPayment?.status).toBe('SUCCESS');
-      expect(updatedPayment?.providerTxId).toBe('9876543');
+      expect(updated?.status).toBe('SUCCESS');
+      expect(updated?.providerTxId).toBe('9876543');
+    });
+
+    it('should return 400 when Paystack verification fails', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce(mockPaystackError('Not found'));
+
+      const res = await request(app)
+        .get('/api/payments/verify/nonexistent_ref')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('PAYSTACK_ERROR');
+    });
+  });
+
+  describe('GET /api/payments', () => {
+    it('should return a list of payments for the authenticated user', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      await createPayment({ userId: user.id, amount: 5000, status: PaymentStatus.SUCCESS });
+      await createPayment({ userId: user.id, amount: 10000, status: PaymentStatus.PENDING });
+
+      const res = await request(app).get('/api/payments').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveLength(2);
+    });
+  });
+
+  describe('GET /api/payments/:id', () => {
+    it('should return payment details by id', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      const payment = await createPayment({ userId: user.id, amount: 15000 });
+
+      const res = await request(app)
+        .get(`/api/payments/${payment.id}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(payment.id);
+    });
+
+    it('should return 404 for non-existent payment', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      const token = createAuthToken(user);
+
+      const res = await request(app)
+        .get('/api/payments/00000000-0000-0000-0000-000000000000')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(404);
     });
   });
 
   describe('POST /api/payments/webhook', () => {
-    it('should process charge.success webhook event', async () => {
-      await prisma.payment.create({
-        data: {
-          userId: testUserId,
-          amount: 5000,
-          currency: 'NGN',
-          type: PaymentType.WALLET_TOPUP,
-          status: PaymentStatus.PENDING,
-          provider: PaymentProvider.PAYSTACK,
-          providerReference: 'mock_webhook_ref',
-        },
+    it('should process a valid webhook and update payment status', async () => {
+      const user = await createUser({ role: UserRole.PATIENT });
+      await createPayment({
+        userId: user.id,
+        providerReference: 'mock_webhook_ref',
+        status: PaymentStatus.PENDING,
       });
 
       const eventPayload = {
@@ -185,10 +243,19 @@ describe('Payment Controller Integration', () => {
 
       expect(res.status).toBe(200);
 
-      const updatedPayment = await prisma.payment.findUnique({
+      const updated = await prisma.payment.findUnique({
         where: { providerReference: 'mock_webhook_ref' },
       });
-      expect(updatedPayment?.status).toBe('SUCCESS');
+      expect(updated?.status).toBe('SUCCESS');
+    });
+
+    it('should return 401 with invalid webhook signature', async () => {
+      const res = await request(app)
+        .post('/api/payments/webhook')
+        .set('x-paystack-signature', 'invalid-signature')
+        .send({ event: 'charge.success', data: {} });
+
+      expect(res.status).toBe(401);
     });
   });
 });
