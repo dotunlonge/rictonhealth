@@ -334,14 +334,16 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       });
 
       // Reduce stock
-      for (const item of orderItemsData) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        orderItemsData.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { decrement: item.quantity },
+            },
+          })
+        )
+      );
 
       return newOrder;
     });
@@ -530,12 +532,14 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           include: { product: true },
         });
 
-        for (const item of orderItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        await Promise.all(
+          orderItems.map((item) =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            })
+          )
+        );
 
         await tx.pharmacyOrder.update({
           where: { id },
@@ -603,14 +607,16 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 
     const updated = await prisma.$transaction(async (tx) => {
       // Restore stock
-      for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { increment: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        order.items.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { increment: item.quantity },
+            },
+          })
+        )
+      );
 
       // Cancel order
       return tx.pharmacyOrder.update({
