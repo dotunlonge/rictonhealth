@@ -599,14 +599,16 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 
     const updated = await prisma.$transaction(async (tx) => {
       // Restore stock
-      for (const item of order.items) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { increment: item.quantity },
-          },
-        });
-      }
+      await Promise.all(
+        order.items.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: {
+              stock: { increment: item.quantity },
+            },
+          })
+        )
+      );
 
       // Cancel order
       return tx.pharmacyOrder.update({
