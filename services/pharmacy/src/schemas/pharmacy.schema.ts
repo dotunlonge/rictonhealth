@@ -24,11 +24,13 @@ export const PharmacyOrderSchema = z.object({
   totalAmount: z.number().positive(),
   deliveryType: z.enum(['HOME_DELIVERY', 'PICKUP']),
   deliveryAddress: z.string().nullable(),
-  items: z.array(z.object({
-    productId: z.string().uuid(),
-    quantity: z.number().int().positive(),
-    unitPrice: z.number().positive(),
-  })),
+  items: z.array(
+    z.object({
+      productId: z.string().uuid(),
+      quantity: z.number().int().positive(),
+      unitPrice: z.number().positive(),
+    })
+  ),
   createdAt: z.string().datetime(),
 });
 
