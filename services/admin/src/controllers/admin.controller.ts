@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@ricton/db';
-import { successResponse, errorResponse } from '@ricton/shared';
+import { successResponse } from '@ricton/shared';
 import {
   AdminUserListQuerySchema,
   AdminUpdateUserStatusSchema,
@@ -24,7 +24,7 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
     const skip = (page - 1) * limit;
 
     const whereClause: any = {};
-    
+
     if (role) whereClause.role = role;
     if (status) whereClause.status = status;
     if (search) {
@@ -100,7 +100,7 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
   try {
     const { id } = req.params;
     const bodyResult = AdminUpdateUserStatusSchema.safeParse(req.body);
-    
+
     if (!bodyResult.success) {
       throw new ValidationError('Invalid request body', bodyResult.error.errors);
     }
@@ -180,7 +180,9 @@ export const verifyUser = async (req: Request, res: Response, next: NextFunction
       },
     });
 
-    res.status(200).json(successResponse({ message: 'User verified successfully', user: updatedUser }));
+    res
+      .status(200)
+      .json(successResponse({ message: 'User verified successfully', user: updatedUser }));
   } catch (error) {
     next(error);
   }
@@ -249,7 +251,7 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
   try {
     const { id } = req.params;
     const bodyResult = AdminVerifyProviderSchema.safeParse(req.body);
-    
+
     if (!bodyResult.success) {
       throw new ValidationError('Invalid request body', bodyResult.error.errors);
     }
@@ -322,7 +324,7 @@ export const listHospitals = async (req: Request, res: Response, next: NextFunct
 export const createHospital = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bodyResult = AdminHospitalCreateSchema.safeParse(req.body);
-    
+
     if (!bodyResult.success) {
       throw new ValidationError('Invalid request body', bodyResult.error.errors);
     }
@@ -387,7 +389,7 @@ export const getHospitalById = async (req: Request, res: Response, next: NextFun
 export const updateHospital = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    
+
     // Validate request body with update schema
     const bodyResult = AdminHospitalUpdateSchema.safeParse(req.body);
     if (!bodyResult.success) {
@@ -430,7 +432,7 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
     const skip = (page - 1) * limit;
 
     const whereClause: any = {};
-    
+
     if (userId) whereClause.userId = userId;
     if (action) whereClause.action = action;
     if (startDate || endDate) {
@@ -467,16 +469,17 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
       throw new ValidationError('Invalid query parameters', queryResult.error.errors);
     }
 
-    const { period } = queryResult.data;
+    // period is unused, but we parse it to validate
 
     // Get overview stats
-    const [totalUsers, totalProviders, totalHospitals, totalAppointments, activeSubscriptions] = await Promise.all([
-      prisma.user.count(),
-      prisma.providerProfile.count(),
-      prisma.hospital.count(),
-      prisma.appointment.count(),
-      prisma.subscription.count({ where: { status: 'ACTIVE' } }),
-    ]);
+    const [totalUsers, totalProviders, totalHospitals, totalAppointments, activeSubscriptions] =
+      await Promise.all([
+        prisma.user.count(),
+        prisma.providerProfile.count(),
+        prisma.hospital.count(),
+        prisma.appointment.count(),
+        prisma.subscription.count({ where: { status: 'ACTIVE' } }),
+      ]);
 
     // Calculate total revenue from successful payments
     const payments = await prisma.payment.aggregate({

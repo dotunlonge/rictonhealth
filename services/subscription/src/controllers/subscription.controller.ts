@@ -1,5 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, SubscriptionPlan, SubscriptionStatus, PaymentType, PaymentProvider } from '@ricton/db';
+import {
+  prisma,
+  SubscriptionPlan,
+  SubscriptionStatus,
+  PaymentType,
+  PaymentProvider,
+} from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import { successResponse, NotFoundError, ValidationError, AppError } from '@ricton/shared';
 
@@ -67,9 +73,9 @@ export const getMySubscription = async (req: Request, res: Response, next: NextF
     const userId = userPayload.userId;
 
     const subscription = await prisma.subscription.findFirst({
-      where: { 
+      where: {
         userId,
-        status: { in: [SubscriptionStatus.ACTIVE] }
+        status: { in: [SubscriptionStatus.ACTIVE] },
       },
       include: {
         payment: {
@@ -95,7 +101,7 @@ export const getMySubscription = async (req: Request, res: Response, next: NextF
     }
 
     const isExpired = new Date() > subscription.expiresAt;
-    
+
     res.status(200).json(
       successResponse({
         id: subscription.id,
@@ -128,7 +134,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     // Atomic check-and-create to prevent race conditions
     const subscriptionCheck = await prisma.$transaction(async (tx) => {
       const existingSub = await tx.subscription.findFirst({
-        where: { 
+        where: {
           userId,
           status: SubscriptionStatus.ACTIVE,
           expiresAt: { gte: new Date() },
@@ -156,7 +162,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     }
 
     const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/subscription/success`;
-    
+
     const paymentInitRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
@@ -182,7 +188,11 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     const paymentData = await paymentInitRes.json();
 
     if (!paymentData.status || !paymentData.data) {
-      throw new AppError(`Payment initialization failed: ${paymentData.message}`, 400, 'PAYMENT_ERROR');
+      throw new AppError(
+        `Payment initialization failed: ${paymentData.message}`,
+        400,
+        'PAYMENT_ERROR'
+      );
     }
 
     const { authorization_url, reference } = paymentData.data;
@@ -250,7 +260,7 @@ export const cancelSubscription = async (req: Request, res: Response, next: Next
     const userId = userPayload.userId;
 
     const subscription = await prisma.subscription.findFirst({
-      where: { 
+      where: {
         userId,
         status: SubscriptionStatus.ACTIVE,
       },
@@ -274,7 +284,8 @@ export const cancelSubscription = async (req: Request, res: Response, next: Next
 
     res.status(200).json(
       successResponse({
-        message: 'Subscription cancelled. You will retain access until the end of your billing period.',
+        message:
+          'Subscription cancelled. You will retain access until the end of your billing period.',
         subscription: {
           id: updated.id,
           plan: updated.plan,
@@ -337,7 +348,7 @@ export const getSubscriptionHistory = async (req: Request, res: Response, next: 
 export const handleWebhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const crypto = await import('crypto');
-    
+
     if (!PAYSTACK_SECRET_KEY) {
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
@@ -355,7 +366,7 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
 
     if (event.event === 'charge.success') {
       const metadata = event.data.metadata || {};
-      
+
       if (metadata.type === PaymentType.SUBSCRIPTION) {
         const { userId, plan, subscriptionId } = metadata;
 
@@ -403,7 +414,7 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
       }
     } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
       const metadata = event.data.metadata || {};
-      
+
       if (metadata.type === PaymentType.SUBSCRIPTION && metadata.subscriptionId) {
         // Mark payment as failed
         await prisma.payment.updateMany({

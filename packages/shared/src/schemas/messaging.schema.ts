@@ -16,7 +16,7 @@ export const SendMessageSchema = z.object({
   fileSize: z.number().int().positive().optional(),
 });
 
-export const MarkAsReadSchema = z.object({
+export const MarkMessageAsReadSchema = z.object({
   messageIds: z.array(z.string().uuid()).optional(),
   markAll: z.boolean().default(false),
 });
@@ -25,24 +25,28 @@ export const ConversationResponseSchema = z.object({
   id: z.string().uuid(),
   threadType: z.enum(['DIRECT', 'GROUP', 'APPOINTMENT', 'MDT']),
   title: z.string().nullable(),
-  participants: z.array(z.object({
-    id: z.string().uuid(),
-    userId: z.string().uuid(),
-    user: z.object({
+  participants: z.array(
+    z.object({
       id: z.string().uuid(),
-      firstName: z.string(),
-      lastName: z.string(),
-      avatarUrl: z.string().nullable(),
-      role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
-    }),
-    joinedAt: z.string(),
-  })),
-  lastMessage: z.object({
-    id: z.string().uuid(),
-    body: z.string().nullable(),
-    senderId: z.string().uuid(),
-    createdAt: z.string(),
-  }).nullable(),
+      userId: z.string().uuid(),
+      user: z.object({
+        id: z.string().uuid(),
+        firstName: z.string(),
+        lastName: z.string(),
+        avatarUrl: z.string().nullable(),
+        role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+      }),
+      joinedAt: z.string(),
+    })
+  ),
+  lastMessage: z
+    .object({
+      id: z.string().uuid(),
+      body: z.string().nullable(),
+      senderId: z.string().uuid(),
+      createdAt: z.string(),
+    })
+    .nullable(),
   unreadCount: z.number().int().nonnegative(),
   updatedAt: z.string(),
   createdAt: z.string(),

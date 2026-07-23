@@ -52,7 +52,17 @@ export const createAddress = async (req: Request, res: Response, next: NextFunct
   try {
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
-    const { addressLine1, addressLine2, city, state, country, postalCode, latitude, longitude, isDefault } = req.body;
+    const {
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      country,
+      postalCode,
+      latitude,
+      longitude,
+      isDefault,
+    } = req.body;
 
     // Validate required fields
     if (!addressLine1 || !city || !state) {
@@ -96,7 +106,17 @@ export const updateAddress = async (req: Request, res: Response, next: NextFunct
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
     const { id } = req.params;
-    const { addressLine1, addressLine2, city, state, country, postalCode, latitude, longitude, isDefault } = req.body;
+    const {
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      country,
+      postalCode,
+      latitude,
+      longitude,
+      isDefault,
+    } = req.body;
 
     // Verify ownership
     const existingAddress = await prisma.address.findFirst({

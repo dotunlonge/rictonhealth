@@ -550,11 +550,13 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
 
     // Prevent cancellation of terminal status appointments
     if (
-      [
-        AppointmentStatus.COMPLETED,
-        AppointmentStatus.NO_SHOW,
-        AppointmentStatus.CANCELLED,
-      ].includes(appointment.status)
+      (
+        [
+          AppointmentStatus.COMPLETED,
+          AppointmentStatus.NO_SHOW,
+          AppointmentStatus.CANCELLED,
+        ] as AppointmentStatus[]
+      ).includes(appointment.status)
     ) {
       throw new ValidationError(`Cannot cancel an appointment with status ${appointment.status}`);
     }

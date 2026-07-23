@@ -53,9 +53,11 @@ app.get('/health', async (_req: Request, res: Response) => {
     await redis.ping();
     res.status(HTTP_STATUS.OK).json({ status: 'ok', service: 'subscription-service' });
   } catch (error) {
-    res
-      .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
-      .json({ status: 'error', service: 'subscription-service', message: 'Dependency check failed' });
+    res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
+      status: 'error',
+      service: 'subscription-service',
+      message: 'Dependency check failed',
+    });
   }
 });
 
@@ -70,7 +72,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
   } else {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+    res
+      .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
+      .json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
   }
 });
 
