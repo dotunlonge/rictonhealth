@@ -10,6 +10,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import {
+  HTTP_STATUS,
   errorResponse,
   AppError,
   httpLogger,
@@ -50,7 +51,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
     await checkRedis(redis);
-    res.status(200).json({
+    res.status(HTTP_STATUS.OK).json({
       status: 'ok',
       service: 'messaging-service',
       timestamp: new Date().toISOString(),
@@ -61,7 +62,7 @@ app.get('/health', async (_req: Request, res: Response) => {
     });
   } catch (error) {
     logger.error('Health check failed', error);
-    res.status(503).json({
+    res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
       status: 'unhealthy',
       service: 'messaging-service',
       timestamp: new Date().toISOString(),

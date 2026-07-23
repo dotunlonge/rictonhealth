@@ -21,6 +21,7 @@ import {
   createCors,
   checkDatabase,
   AppError,
+  HTTP_STATUS,
 } from '@ricton/shared';
 
 dotenv.config({ path: '../../.env' });
@@ -39,10 +40,10 @@ app.use(httpLogger);
 app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
-    res.status(200).json({ status: 'ok', service: 'docs-service' });
+    res.status(HTTP_STATUS.OK).json({ status: 'ok', service: 'docs-service' });
   } catch (error) {
     res
-      .status(503)
+      .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
       .json({ status: 'error', service: 'docs-service', message: 'Dependency check failed' });
   }
 });
@@ -74,7 +75,7 @@ app.use(
 
 app.use((_req: Request, res: Response) => {
   res
-    .status(404)
+    .status(HTTP_STATUS.NOT_FOUND)
     .json({ success: false, error: { code: 'NOT_FOUND', message: 'Endpoint not found' } });
 });
 
@@ -86,7 +87,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
       error: { code: err.code, message: err.message, details: err.details },
     });
   } else {
-    res.status(500).json({
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
     });
