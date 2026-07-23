@@ -57,7 +57,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
 export const getAppointmentsTrend = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = RangeQuerySchema.parse(req.query);
-    
+
     const appointments = await prisma.appointment.findMany({
       select: {
         status: true,
@@ -66,15 +66,21 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
       },
     });
 
-    const byStatus = appointments.reduce((acc, apt) => {
-      acc[apt.status] = (acc[apt.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byStatus = appointments.reduce(
+      (acc, apt) => {
+        acc[apt.status] = (acc[apt.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
-    const byType = appointments.reduce((acc, apt) => {
-      acc[apt.type || 'UNKNOWN'] = (acc[apt.type || 'UNKNOWN'] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byType = appointments.reduce(
+      (acc, apt) => {
+        acc[apt.type || 'UNKNOWN'] = (acc[apt.type || 'UNKNOWN'] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     // Simple trend calculation - group by period
     const trend = appointments.map((apt) => ({
@@ -84,13 +90,16 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
 
     // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, count: 0 };
-        }
-        acc[item.period].count += item.count;
-        return acc;
-      }, {} as Record<string, { period: string; count: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, count: 0 };
+          }
+          acc[item.period].count += item.count;
+          return acc;
+        },
+        {} as Record<string, { period: string; count: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -123,11 +132,14 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
 
     const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
 
-    const byType = payments.reduce((acc, p) => {
-      const type = p.type || 'UNKNOWN';
-      acc[type] = (acc[type] || 0) + p.amount;
-      return acc;
-    }, {} as Record<string, number>);
+    const byType = payments.reduce(
+      (acc, p) => {
+        const type = p.type || 'UNKNOWN';
+        acc[type] = (acc[type] || 0) + p.amount;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     const trend = payments.map((p) => ({
       period: p.createdAt.toISOString().split('T')[0],
@@ -136,13 +148,16 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
 
     // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, amount: 0 };
-        }
-        acc[item.period].amount += item.amount;
-        return acc;
-      }, {} as Record<string, { period: string; amount: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, amount: 0 };
+          }
+          acc[item.period].amount += item.amount;
+          return acc;
+        },
+        {} as Record<string, { period: string; amount: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -172,10 +187,13 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
 
     const totalUsers = users.length;
 
-    const byRole = users.reduce((acc, u) => {
-      acc[u.role] = (acc[u.role] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const byRole = users.reduce(
+      (acc, u) => {
+        acc[u.role] = (acc[u.role] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     const trend = users.map((u) => ({
       period: u.createdAt.toISOString().split('T')[0],
@@ -184,13 +202,16 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
 
     // Aggregate by date
     const aggregatedTrend = Object.values(
-      trend.reduce((acc, item) => {
-        if (!acc[item.period]) {
-          acc[item.period] = { period: item.period, count: 0 };
-        }
-        acc[item.period].count += item.count;
-        return acc;
-      }, {} as Record<string, { period: string; count: number }>)
+      trend.reduce(
+        (acc, item) => {
+          if (!acc[item.period]) {
+            acc[item.period] = { period: item.period, count: 0 };
+          }
+          acc[item.period].count += item.count;
+          return acc;
+        },
+        {} as Record<string, { period: string; count: number }>
+      )
     ).sort((a, b) => a.period.localeCompare(b.period));
 
     res.json({
@@ -207,11 +228,7 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
   }
 };
 
-export const getProviderPerformance = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const getProviderPerformance = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const query = RangeQuerySchema.parse(req.query);
 
@@ -290,10 +307,13 @@ export const getPharmacyMetrics = async (req: Request, res: Response, next: Next
 
     const totalOrders = orders.length;
 
-    const ordersByStatus = orders.reduce((acc, o) => {
-      acc[o.status] = (acc[o.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const ordersByStatus = orders.reduce(
+      (acc, o) => {
+        acc[o.status] = (acc[o.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
 
     const totalOrderValue = orders.reduce((sum, o) => sum + o.totalAmount, 0);
 

@@ -237,7 +237,7 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
 
     const room = await prisma.telemedicineRoom.findUnique({
       where: { id },
-      include: { 
+      include: {
         participants: {
           include: {
             user: {
@@ -248,10 +248,10 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
                 email: true,
                 role: true,
                 avatarUrl: true,
-              }
-            }
-          }
-        }
+              },
+            },
+          },
+        },
       },
     });
 
@@ -274,10 +274,12 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
     }
 
     if (!isAuthorized && userPayload.role !== UserRole.SUPER_ADMIN) {
-      throw new ForbiddenError('You are not authorized to view participants in this telemedicine session');
+      throw new ForbiddenError(
+        'You are not authorized to view participants in this telemedicine session'
+      );
     }
 
-    const participantsWithDetails = room.participants.map(p => ({
+    const participantsWithDetails = room.participants.map((p) => ({
       id: p.id,
       userId: p.userId,
       roomId: p.roomId,

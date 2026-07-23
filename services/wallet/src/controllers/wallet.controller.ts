@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, WalletTransactionType, WalletReferenceType, PaymentType } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, AppError, UnauthorizedError, NotFoundError, ValidationError } from '@ricton/shared';
+import {
+  successResponse,
+  AppError,
+  UnauthorizedError,
+  NotFoundError,
+  ValidationError,
+} from '@ricton/shared';
 import crypto from 'crypto';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
