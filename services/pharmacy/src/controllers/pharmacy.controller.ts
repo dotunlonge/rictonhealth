@@ -532,12 +532,14 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
           include: { product: true },
         });
 
-        for (const item of orderItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { stock: { increment: item.quantity } },
-          });
-        }
+        await Promise.all(
+          orderItems.map((item) =>
+            tx.product.update({
+              where: { id: item.productId },
+              data: { stock: { increment: item.quantity } },
+            })
+          )
+        );
 
         await tx.pharmacyOrder.update({
           where: { id },
