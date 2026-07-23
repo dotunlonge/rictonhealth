@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@ricton/db';
-import { successResponse, errorResponse } from '@ricton/shared';
+import { successResponse } from '@ricton/shared';
 import {
   AdminUserListQuerySchema,
   AdminUpdateUserStatusSchema,
@@ -469,7 +469,7 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
       throw new ValidationError('Invalid query parameters', queryResult.error.errors);
     }
 
-    const { period } = queryResult.data;
+    // period is unused, but we parse it to validate
 
     // Get overview stats
     const [totalUsers, totalProviders, totalHospitals, totalAppointments, activeSubscriptions] =

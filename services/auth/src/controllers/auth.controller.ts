@@ -339,7 +339,8 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     }
 
     // Store in Redis only after successful dispatch
-    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 minutes expiry
+    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600); // 10 minutes expiry
+    await redis.set(`otp_attempts:${key}`, 0, 'EX', 600);
 
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
   } catch (error) {
@@ -361,20 +362,17 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     }
 
     const parsedData = JSON.parse(storedData);
+    const attemptsKey = `otp_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts > 3) {
+      await redis.del(`otp:${key}`, attemptsKey);
+      throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
+    }
 
     if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`otp:${key}`);
-        throw new UnauthorizedError('Too many failed attempts. Please request a new OTP.');
-      } else {
-        // preserve the remaining TTL (approximate)
-        const ttl = await redis.ttl(`otp:${key}`);
-        if (ttl > 0) {
-          await redis.set(`otp:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+      if (attempts === 3) await redis.del(`otp:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const user = await prisma.user.findFirst({
@@ -384,7 +382,7 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
     if (!user) throw new NotFoundError('User not found');
 
     // Delete OTP only after DB lookup succeeds
-    await redis.del(`otp:${key}`);
+    await redis.del(`otp:${key}`, attemptsKey);
 
     const { token, refreshToken } = await generateTokens(user, req);
 
@@ -897,7 +895,8 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
       }
 
       // Store in Redis only after dispatch
-      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 mins
+      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
+      await redis.set(`reset_attempts:${key}`, 0, 'EX', 600); // 10 mins
     }
 
     res
@@ -924,30 +923,29 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
 
     const parsedData = JSON.parse(storedData);
 
+    const attemptsKey = `reset_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts > 3) {
+      await redis.del(`reset:${key}`, attemptsKey);
+      await auditLog(
+        'PASSWORD_RESET_FAILURE',
+        null,
+        req,
+        {
+          reason: 'TOO_MANY_ATTEMPTS',
+          email,
+          phone,
+          attempts,
+        },
+        40
+      );
+      throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
+    }
+
     if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`reset:${key}`);
-        await auditLog(
-          'PASSWORD_RESET_FAILURE',
-          null,
-          req,
-          {
-            reason: 'TOO_MANY_ATTEMPTS',
-            email,
-            phone,
-            attempts: parsedData.attempts,
-          },
-          40
-        );
-        throw new UnauthorizedError('Too many failed attempts. Please request a new reset code.');
-      } else {
-        const ttl = await redis.ttl(`reset:${key}`);
-        if (ttl > 0) {
-          await redis.set(`reset:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+      if (attempts === 3) await redis.del(`reset:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -958,7 +956,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     });
 
     if (!user) {
-      await redis.del(`reset:${key}`);
+      await redis.del(`reset:${key}`, attemptsKey);
       throw new NotFoundError('User not found');
     }
 
@@ -971,7 +969,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
       },
     });
 
-    await redis.del(`reset:${key}`);
+    await redis.del(`reset:${key}`, attemptsKey);
 
     await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
 
@@ -1032,7 +1030,8 @@ const sendVerificationOtp = async (
       });
     }
 
-    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash }), 'EX', 600);
+    await redis.set(`verify_attempts:${value}`, 0, 'EX', 600);
 
     res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
   } catch (error) {
@@ -1063,18 +1062,17 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
 
     const parsedData = JSON.parse(storedData);
 
+    const attemptsKey = `verify_attempts:${key}`;
+    const attempts = await redis.incr(attemptsKey);
+
+    if (attempts > 3) {
+      await redis.del(`verify:${key}`, attemptsKey);
+      throw new UnauthorizedError('Too many failed attempts. Please request a new code.');
+    }
+
     if (!verifyOtp(parsedData.hash, otp)) {
-      parsedData.attempts += 1;
-      if (parsedData.attempts >= 3) {
-        await redis.del(`verify:${key}`);
-        throw new UnauthorizedError('Too many failed attempts. Please request a new code.');
-      } else {
-        const ttl = await redis.ttl(`verify:${key}`);
-        if (ttl > 0) {
-          await redis.set(`verify:${key}`, JSON.stringify(parsedData), 'EX', ttl);
-        }
-        throw new UnauthorizedError('Invalid OTP');
-      }
+      if (attempts === 3) await redis.del(`verify:${key}`, attemptsKey);
+      throw new UnauthorizedError('Invalid OTP');
     }
 
     const updateData: Record<string, boolean> = {};
@@ -1090,7 +1088,7 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
       throw new NotFoundError('User not found');
     }
 
-    await redis.del(`verify:${key}`);
+    await redis.del(`verify:${key}`, attemptsKey);
 
     res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
   } catch (error) {

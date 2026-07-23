@@ -1,12 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@ricton/db';
-import {
-  successResponse,
-  errorResponse,
-  ValidationError,
-  NotFoundError,
-  ForbiddenError,
-} from '@ricton/shared';
+import { successResponse, ValidationError, NotFoundError, ForbiddenError } from '@ricton/shared';
 import { RedeemRewardRequestSchema } from '../schemas/rewards.schema';
 
 const TIER_THRESHOLDS = [
