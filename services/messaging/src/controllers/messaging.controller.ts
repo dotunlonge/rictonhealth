@@ -333,21 +333,14 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
       res.status(200).json(successResponse({ success: true, markedCount: 'all' }));
     } else if (validatedData.messageIds && validatedData.messageIds.length > 0) {
       await prisma.$transaction(async (tx) => {
-        for (const messageId of validatedData.messageIds) {
-          await tx.chatMessageReceipt.upsert({
-            where: {
-              messageId_userId: {
-                messageId,
-                userId: userPayload.userId,
-              },
-            },
-            create: {
-              messageId,
-              userId: userPayload.userId,
-            },
-            update: {},
-          });
-        }
+        const data = validatedData.messageIds.map((messageId) => ({
+          messageId,
+          userId: userPayload.userId,
+        }));
+        await tx.chatMessageReceipt.createMany({
+          data,
+          skipDuplicates: true,
+        });
       });
 
       res

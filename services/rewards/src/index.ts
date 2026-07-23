@@ -6,7 +6,6 @@ ddTrace.init({
 });
 
 import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
@@ -21,7 +20,6 @@ import {
   setupGracefulShutdown,
   createCors,
 } from '@ricton/shared';
-import * as Sentry from '@sentry/node';
 import rewardsRoutes from './routes/rewards.routes';
 
 dotenv.config({ path: '../../.env' });
@@ -72,7 +70,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
   } else {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+    res
+      .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
+      .json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
   }
 });
 
