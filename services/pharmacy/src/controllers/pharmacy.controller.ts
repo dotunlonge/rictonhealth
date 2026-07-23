@@ -88,7 +88,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can create products');
     }
@@ -135,7 +135,7 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can update products');
     }
@@ -180,7 +180,7 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
 export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can delete products');
     }
@@ -240,7 +240,7 @@ export const getCategories = async (req: Request, res: Response, next: NextFunct
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PATIENT) {
       throw new ForbiddenError('Only patients can create orders');
     }
@@ -256,14 +256,20 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
     const orderItemsData = [];
     let pharmacyId: string | null = null;
 
+    // Fetch all products in a single query to avoid N+1 problem
+    const productIds = items.map((item: { productId: string }) => item.productId).filter(Boolean);
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+    });
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
     for (const item of items) {
       if (!item.productId || !item.quantity || item.quantity <= 0) {
         throw new ValidationError('Each item must have productId and a positive quantity');
       }
 
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+      const product = productMap.get(item.productId);
 
       if (!product || !product.isActive) {
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
@@ -471,17 +477,11 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     }
 
     // Authorization check
-    if (
-      userPayload.role === UserRole.PATIENT &&
-      order.patientId !== userPayload.userId
-    ) {
+    if (userPayload.role === UserRole.PATIENT && order.patientId !== userPayload.userId) {
       throw new ForbiddenError('Not authorized to view this order');
     }
 
-    if (
-      userPayload.role === UserRole.PHARMACIST &&
-      order.pharmacyId !== userPayload.userId
-    ) {
+    if (userPayload.role === UserRole.PHARMACIST && order.pharmacyId !== userPayload.userId) {
       throw new ForbiddenError('Not authorized to view this order');
     }
 
@@ -497,7 +497,7 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
 export const updateOrderStatus = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can update order status');
     }
@@ -635,7 +635,7 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
 export const fulfillPrescription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    
+
     if (userPayload.role !== UserRole.PHARMACIST) {
       throw new ForbiddenError('Only pharmacists can fulfill prescriptions');
     }
@@ -660,7 +660,9 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
 
     // Validate prescription status - only SENT_TO_PHARMACY prescriptions can be fulfilled
     if (prescription.status !== 'SENT_TO_PHARMACY') {
-      throw new ValidationError(`Prescription cannot be fulfilled. Current status: ${prescription.status}`);
+      throw new ValidationError(
+        `Prescription cannot be fulfilled. Current status: ${prescription.status}`
+      );
     }
 
     // Check if order already exists for this prescription
