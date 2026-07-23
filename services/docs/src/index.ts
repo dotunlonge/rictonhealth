@@ -97,7 +97,7 @@ const server = app.listen(PORT, () => {
   logger.info(`Docs service listening on port ${PORT}`);
 });
 
-server.timeout = 30000;
+server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;
 
 setupGracefulShutdown({
   server,
