@@ -10,6 +10,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import {
+  HTTP_STATUS,
   errorResponse,
   AppError,
   httpLogger,
@@ -51,10 +52,10 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     await checkDatabase(prisma);
     await checkRedis(redis);
-    res.status(200).json({ status: 'ok', service: 'wallet-service' });
+    res.status(HTTP_STATUS.OK).json({ status: 'ok', service: 'wallet-service' });
   } catch (error) {
     res
-      .status(503)
+      .status(HTTP_STATUS.SERVICE_UNAVAILABLE)
       .json({ status: 'error', service: 'wallet-service', message: 'Dependency check failed' });
   }
 });
@@ -62,7 +63,7 @@ app.get('/health', async (_req: Request, res: Response) => {
 app.use('/api/wallets', walletRoutes);
 
 app.use((_req: Request, res: Response) => {
-  res.status(404).json(errorResponse('Endpoint not found', 'NOT_FOUND'));
+  res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse('Endpoint not found', 'NOT_FOUND'));
 });
 
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
@@ -70,7 +71,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
   } else {
-    res.status(500).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
   }
 });
 
