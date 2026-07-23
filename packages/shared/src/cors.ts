@@ -10,12 +10,30 @@ function getDefaultOrigins(): string[] {
 }
 
 export function createCors() {
-  const allowedOrigins = process.env.ALLOWED_ORIGINS
+  const rawOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
     : getDefaultOrigins();
 
-  if (isProduction && allowedOrigins.length === 0) {
-    throw new Error('ALLOWED_ORIGINS must be set in production');
+  const allowedOrigins = rawOrigins.filter(Boolean);
+
+  if (isProduction) {
+    if (allowedOrigins.length === 0) {
+      throw new Error('ALLOWED_ORIGINS must be set in production');
+    }
+
+    for (const origin of allowedOrigins) {
+      if (origin === '*' || origin === 'null') {
+        throw new Error(`Insecure origin "${origin}" is not allowed in production`);
+      }
+      try {
+        const url = new URL(origin);
+        if (url.protocol !== 'https:') {
+          throw new Error(`Insecure protocol in production origin: ${origin}`);
+        }
+      } catch (err) {
+        throw new Error(`Invalid origin format: ${origin}`);
+      }
+    }
   }
 
   return cors({
