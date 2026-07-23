@@ -34,6 +34,102 @@ interface PaystackVerifyResponse {
   };
 }
 
+const resolvePaymentAmount = async (
+  type: PaymentType,
+  userId: string,
+  amount?: number,
+  referenceId?: string
+): Promise<number> => {
+  if (type === PaymentType.APPOINTMENT) {
+    if (!referenceId) throw new ValidationError('referenceId is required for APPOINTMENT payments');
+    const appt = await prisma.appointment.findUnique({
+      where: { id: referenceId },
+      include: { provider: { include: { providerProfile: true } }, payment: true },
+    });
+    if (!appt) throw new NotFoundError('Appointment not found');
+    if (appt.patientId !== userId) {
+      throw new ForbiddenError('You are not authorized to pay for this appointment');
+    }
+    if (
+      appt.payment &&
+      (appt.payment.status === PaymentStatus.SUCCESS ||
+        appt.payment.status === PaymentStatus.PENDING)
+    ) {
+      throw new ValidationError(
+        `This appointment already has an active or pending payment (Status: ${appt.payment.status})`
+      );
+    }
+    if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
+      throw new ValidationError('Doctor consultation fee is not configured');
+    }
+    return Number(appt.provider.providerProfile.consultationFee);
+  } else if (type === PaymentType.PHARMACY_ORDER) {
+    if (!referenceId)
+      throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
+    const order = await prisma.pharmacyOrder.findUnique({
+      where: { id: referenceId },
+      include: { payment: true },
+    });
+    if (!order) throw new NotFoundError('Pharmacy order not found');
+    if (order.patientId !== userId) {
+      throw new ForbiddenError('You are not authorized to pay for this pharmacy order');
+    }
+    if (
+      order.payment &&
+      (order.payment.status === PaymentStatus.SUCCESS ||
+        order.payment.status === PaymentStatus.PENDING)
+    ) {
+      throw new ValidationError(
+        `This pharmacy order already has an active or pending payment (Status: ${order.payment.status})`
+      );
+    }
+    return Number(order.totalAmount);
+  } else if (type === PaymentType.SUBSCRIPTION) {
+    return 19.99;
+  } else if (type === PaymentType.WALLET_TOPUP) {
+    if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
+    return Number(amount);
+  } else {
+    return Number(amount);
+  }
+};
+
+const createPendingPayment = async (
+  userId: string,
+  resolvedAmount: number,
+  type: PaymentType,
+  providerReference: string,
+  referenceId?: string
+) => {
+  return prisma.$transaction(async (tx) => {
+    const p = await tx.payment.create({
+      data: {
+        userId,
+        amount: resolvedAmount, // Stored in NGN (recalculated server-side)
+        currency: 'NGN',
+        type,
+        status: PaymentStatus.PENDING,
+        provider: PaymentProvider.PAYSTACK,
+        providerReference,
+      },
+    });
+
+    if (type === PaymentType.APPOINTMENT && referenceId) {
+      await tx.appointment.update({
+        where: { id: referenceId },
+        data: { paymentId: p.id },
+      });
+    } else if (type === PaymentType.PHARMACY_ORDER && referenceId) {
+      await tx.pharmacyOrder.update({
+        where: { id: referenceId },
+        data: { paymentId: p.id },
+      });
+    }
+
+    return p;
+  });
+};
+
 export const initializePayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
@@ -53,61 +149,12 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       );
     }
 
-    let resolvedAmount: number;
-
-    if (type === PaymentType.APPOINTMENT) {
-      if (!referenceId)
-        throw new ValidationError('referenceId is required for APPOINTMENT payments');
-      const appt = await prisma.appointment.findUnique({
-        where: { id: referenceId },
-        include: { provider: { include: { providerProfile: true } }, payment: true },
-      });
-      if (!appt) throw new NotFoundError('Appointment not found');
-      if (appt.patientId !== userPayload.userId) {
-        throw new ForbiddenError('You are not authorized to pay for this appointment');
-      }
-      if (
-        appt.payment &&
-        (appt.payment.status === PaymentStatus.SUCCESS ||
-          appt.payment.status === PaymentStatus.PENDING)
-      ) {
-        throw new ValidationError(
-          `This appointment already has an active or pending payment (Status: ${appt.payment.status})`
-        );
-      }
-      if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
-        throw new ValidationError('Doctor consultation fee is not configured');
-      }
-      resolvedAmount = Number(appt.provider.providerProfile.consultationFee);
-    } else if (type === PaymentType.PHARMACY_ORDER) {
-      if (!referenceId)
-        throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
-      const order = await prisma.pharmacyOrder.findUnique({
-        where: { id: referenceId },
-        include: { payment: true },
-      });
-      if (!order) throw new NotFoundError('Pharmacy order not found');
-      if (order.patientId !== userPayload.userId) {
-        throw new ForbiddenError('You are not authorized to pay for this pharmacy order');
-      }
-      if (
-        order.payment &&
-        (order.payment.status === PaymentStatus.SUCCESS ||
-          order.payment.status === PaymentStatus.PENDING)
-      ) {
-        throw new ValidationError(
-          `This pharmacy order already has an active or pending payment (Status: ${order.payment.status})`
-        );
-      }
-      resolvedAmount = Number(order.totalAmount);
-    } else if (type === PaymentType.SUBSCRIPTION) {
-      resolvedAmount = 19.99;
-    } else if (type === PaymentType.WALLET_TOPUP) {
-      if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
-      resolvedAmount = Number(amount);
-    } else {
-      resolvedAmount = Number(amount);
-    }
+    const resolvedAmount = await resolvePaymentAmount(
+      type,
+      userPayload.userId,
+      amount,
+      referenceId
+    );
 
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
@@ -148,33 +195,13 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     }
 
     // Create a pending payment record and link it to the target resource atomically
-    const payment = await prisma.$transaction(async (tx) => {
-      const p = await tx.payment.create({
-        data: {
-          userId: userPayload.userId,
-          amount: resolvedAmount, // Stored in NGN (recalculated server-side)
-          currency: 'NGN',
-          type: type as PaymentType,
-          status: PaymentStatus.PENDING,
-          provider: PaymentProvider.PAYSTACK,
-          providerReference: data.data.reference,
-        },
-      });
-
-      if (type === PaymentType.APPOINTMENT && referenceId) {
-        await tx.appointment.update({
-          where: { id: referenceId },
-          data: { paymentId: p.id },
-        });
-      } else if (type === PaymentType.PHARMACY_ORDER && referenceId) {
-        await tx.pharmacyOrder.update({
-          where: { id: referenceId },
-          data: { paymentId: p.id },
-        });
-      }
-
-      return p;
-    });
+    const payment = await createPendingPayment(
+      userPayload.userId,
+      resolvedAmount,
+      type as PaymentType,
+      data.data.reference,
+      referenceId
+    );
 
     res.status(200).json(
       successResponse({

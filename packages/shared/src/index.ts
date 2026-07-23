@@ -22,3 +22,4 @@ export * from "./schemas/rewards.schema";
 export * from "./schemas/analytics.schema";
 export * from "./schemas/messaging.schema";
 export * from "./schemas/admin.schema";
+export * from './http';
