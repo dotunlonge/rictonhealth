@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@ricton/db';
-import { AppError, errorResponse, logger } from '@ricton/shared';
+import { logger } from '@ricton/shared';
 import { z } from 'zod';
 
 const RangeQuerySchema = z.object({
@@ -56,7 +56,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
 
 export const getAppointmentsTrend = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = RangeQuerySchema.parse(req.query);
+    RangeQuerySchema.parse(req.query);
 
     const appointments = await prisma.appointment.findMany({
       select: {
@@ -119,7 +119,7 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
 
 export const getRevenue = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = RangeQuerySchema.parse(req.query);
+    RangeQuerySchema.parse(req.query);
 
     const payments = await prisma.payment.findMany({
       select: {
@@ -176,7 +176,7 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
 
 export const getUserGrowth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = RangeQuerySchema.parse(req.query);
+    RangeQuerySchema.parse(req.query);
 
     const users = await prisma.user.findMany({
       select: {
@@ -230,7 +230,7 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
 
 export const getProviderPerformance = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = RangeQuerySchema.parse(req.query);
+    RangeQuerySchema.parse(req.query);
 
     const providers = await prisma.user.findMany({
       where: { role: 'PROVIDER' },
@@ -291,7 +291,7 @@ export const getProviderPerformance = async (req: Request, res: Response, next: 
 
 export const getPharmacyMetrics = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const query = RangeQuerySchema.parse(req.query);
+    RangeQuerySchema.parse(req.query);
 
     const [totalPharmacies, verifiedPharmacies] = await Promise.all([
       prisma.user.count({ where: { role: 'PHARMACIST' } }),

@@ -855,9 +855,7 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
       },
     });
 
-    // Remove from Redis
-    const tokens = await redis.smembers(`refresh:${userId}`);
-    // Note: We can't directly remove without the token value, but it will expire naturally
+    // Note: Tokens in Redis will expire naturally, or can be cleared on password reset
 
     await auditLog('SESSION_REVOKED', userId, req, { sessionId });
 
