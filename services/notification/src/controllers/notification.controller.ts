@@ -1,7 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, NotificationChannel, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  redis,
+  logger,
+} from '@ricton/shared';
 
 function decodeCursor(cursor: string): { id: string; timestamp: string } | null {
   try {
@@ -213,8 +220,8 @@ export const registerPushToken = async (req: Request, res: Response, next: NextF
     // This is a simplified implementation - in production, use a dedicated tokens table
     const key = `push_token:${userPayload.userId}:${platform || 'mobile'}`;
 
-    // Using a simple storage approach - integrate with Redis in production
-    console.log(`Registering push token for user ${userPayload.userId}: ${key}`);
+    await redis.set(key, JSON.stringify({ token, registeredAt: new Date().toISOString() }));
+    logger.info(`Registered push token for user ${userPayload.userId}: ${key}`);
 
     res.status(200).json(
       successResponse({

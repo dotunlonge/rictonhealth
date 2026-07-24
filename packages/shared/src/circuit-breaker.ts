@@ -1,4 +1,4 @@
-// @ts-expect-error - opossum default import has no types
+import './types/opossum';
 import CircuitBreaker from 'opossum';
 import { logger } from './logger';
 

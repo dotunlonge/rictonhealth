@@ -27,3 +27,5 @@ export * from './jobs';
 export * from './env';
 export * from './pagination';
 export * from './circuit-breaker';
+export * from './cache';
+export * from './timing-safe-equal';

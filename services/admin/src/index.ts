@@ -44,7 +44,7 @@ app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Admin Service running on port ${PORT}`);
+  logger.info(`🚀 Admin Service running on port ${PORT}`);
 });
 
 export default app;
