@@ -25,7 +25,7 @@
     "db:migrate": "npm run migrate --workspace=@ricton/db",
     "db:generate": "npm run generate --workspace=@ricton/db",
     "db:seed": "npm run seed --workspace=@ricton/db",
-    "docs:generate": "npx tsx scripts/generate-docs.ts",
+    "docs:generate": "JWT_SECRET=docs-generation-secret npx ts-node -O '{\"module\":\"commonjs\"}' scripts/generate-docs.ts",
     "prepare": "husky"
   },
   "lint-staged": {
