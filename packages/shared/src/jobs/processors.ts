@@ -1,6 +1,7 @@
 import { Worker } from 'bullmq';
 import { prisma } from '@ricton/db';
 import { logger } from '../logger';
+import { redis } from '../redis';
 import { EmailJob, SmsJob, NotificationJob, WebhookJob } from './types';
 
 const processEmail = async (job: { data: EmailJob }) => {
@@ -68,7 +69,7 @@ const processWebhook = async (job: { data: WebhookJob }) => {
 };
 
 export const startJobProcessors = () => {
-  const emailWorker = new Worker('email', processEmail);
+  const emailWorker = new Worker('email', processEmail, { connection: redis });
   emailWorker.on('completed', (job) => {
     logger.info(`[EmailWorker] Job ${job.id} completed`);
   });
@@ -76,7 +77,7 @@ export const startJobProcessors = () => {
     logger.error(`[EmailWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const smsWorker = new Worker('sms', processSms);
+  const smsWorker = new Worker('sms', processSms, { connection: redis });
   smsWorker.on('completed', (job) => {
     logger.info(`[SmsWorker] Job ${job.id} completed`);
   });
@@ -84,7 +85,7 @@ export const startJobProcessors = () => {
     logger.error(`[SmsWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const notificationWorker = new Worker('notification', processNotification);
+  const notificationWorker = new Worker('notification', processNotification, { connection: redis });
   notificationWorker.on('completed', (job) => {
     logger.info(`[NotificationWorker] Job ${job.id} completed`);
   });
@@ -92,7 +93,7 @@ export const startJobProcessors = () => {
     logger.error(`[NotificationWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const webhookWorker = new Worker('webhook', processWebhook);
+  const webhookWorker = new Worker('webhook', processWebhook, { connection: redis });
   webhookWorker.on('completed', (job) => {
     logger.info(`[WebhookWorker] Job ${job.id} completed`);
   });
