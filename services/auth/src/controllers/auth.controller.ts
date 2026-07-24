@@ -969,6 +969,9 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
       },
     });
 
+    // Delete active refresh tokens from Redis
+    await redis.del(`refresh:${user.id}`);
+
     await redis.del(`reset:${key}`, attemptsKey);
 
     await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
