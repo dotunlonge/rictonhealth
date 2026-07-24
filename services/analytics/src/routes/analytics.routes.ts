@@ -7,12 +7,13 @@ import {
   getProviderPerformance,
   getPharmacyMetrics,
 } from '../controllers/analytics.controller';
-import { authenticate } from '@ricton/shared';
+import { requireAuth, requireRole } from '@ricton/auth-middleware';
 
 const router = Router();
 
 // All analytics endpoints require authentication and admin/hospital admin role
-router.use(authenticate);
+router.use(requireAuth);
+router.use(requireRole('SUPER_ADMIN', 'HOSPITAL_ADMIN'));
 
 /**
  * @openapi

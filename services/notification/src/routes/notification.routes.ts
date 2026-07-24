@@ -1,11 +1,19 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as notificationController from '../controllers/notification.controller';
 
 const router = Router();
 
+const notificationRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  keyPrefix: 'notification',
+});
+
 // All notification routes require authentication
 router.use(requireAuth);
+router.use(notificationRateLimit);
 
 /**
  * @openapi

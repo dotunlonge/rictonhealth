@@ -92,6 +92,20 @@ export const UpdatePrescriptionStatusResponseSchema = registry.register(
   })
 );
 
+// Type exports
+export type PrescriptionItemSchema = z.infer<typeof PrescriptionItemSchema>;
+export type PrescriptionSchema = z.infer<typeof PrescriptionSchema>;
+export type CreatePrescriptionInputSchema = z.infer<typeof CreatePrescriptionInputSchema>;
+export type SignPrescriptionInputSchema = z.infer<typeof SignPrescriptionInputSchema>;
+export type UpdatePrescriptionStatusInputSchema = z.infer<
+  typeof UpdatePrescriptionStatusInputSchema
+>;
+export type GetPrescriptionResponseSchema = z.infer<typeof GetPrescriptionResponseSchema>;
+export type ListPrescriptionsResponseSchema = z.infer<typeof ListPrescriptionsResponseSchema>;
+export type UpdatePrescriptionStatusResponseSchema = z.infer<
+  typeof UpdatePrescriptionStatusResponseSchema
+>;
+
 registry.registerPath({
   method: 'post',
   path: '/api/prescriptions',

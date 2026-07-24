@@ -60,7 +60,12 @@ const otpRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3, keyPrefix: 'otp' }
  *       400:
  *         description: Validation error or User already exists
  */
-router.post('/register', validateRequest(RegisterInputSchema), authController.register);
+router.post(
+  '/register',
+  authRateLimit,
+  validateRequest(RegisterInputSchema),
+  authController.register
+);
 
 /**
  * @openapi

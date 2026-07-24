@@ -1,23 +1,37 @@
-FROM node:18-alpine
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache openssl curl
 
 WORKDIR /app
 
-# Install dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+COPY tsconfig*.json ./
 
-# Copy source code
-COPY . .
+COPY packages/ ./packages/
+COPY services/messaging/ ./services/messaging/
 
-# Build the service
-RUN npm run build
+RUN npm ci
 
-# Expose port
+RUN npm run generate --workspace=@ricton/db
+
+RUN npm run build --workspace=@ricton/shared --workspace=@ricton/db --workspace=@ricton/auth-middleware
+RUN npm run build --workspace=@ricton/messaging
+
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache curl
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/services/messaging ./services/messaging
+
 EXPOSE 3012
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3012/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=5   CMD curl -f http://localhost:3012/health || exit 1
 
-# Start the service
-CMD ["npm", "start"]
+CMD ["node", "services/messaging/dist/src/index.js"]

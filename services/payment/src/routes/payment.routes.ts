@@ -1,14 +1,30 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as paymentController from '../controllers/payment.controller';
 
 const router = Router();
 
-// Webhook does not require auth, it uses signature verification
+const paymentRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'payment' });
+
+/**
+ * @openapi
+ * /api/payments/webhook:
+ *   post:
+ *     summary: Handle Paystack payment webhooks
+ *     tags:
+ *       - Payments
+ *     responses:
+ *       200:
+ *         description: Webhook received and processed
+ *       401:
+ *         description: Invalid signature
+ */
 router.post('/webhook', paymentController.paystackWebhook);
 
 // All other payment routes require authentication
 router.use(requireAuth);
+router.use(paymentRateLimit);
 
 /**
  * @openapi

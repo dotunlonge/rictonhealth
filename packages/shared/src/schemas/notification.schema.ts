@@ -36,10 +36,16 @@ export const SendBulkNotificationSchema = z.object({
   data: z.record(z.any()).optional(),
 });
 
-export const MarkAsReadSchema = z.object({
+export const MarkNotificationAsReadSchema = z.object({
   notificationIds: z.array(z.string().uuid()).optional(),
   markAll: z.boolean().default(false),
 });
+
+// Type exports
+export type NotificationSchema = z.infer<typeof NotificationSchema>;
+export type SendNotificationSchema = z.infer<typeof SendNotificationSchema>;
+export type SendBulkNotificationSchema = z.infer<typeof SendBulkNotificationSchema>;
+export type MarkNotificationAsReadSchema = z.infer<typeof MarkNotificationAsReadSchema>;
 
 import { registry } from './openapi.registry';
 

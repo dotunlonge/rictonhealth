@@ -133,13 +133,13 @@ export const AdminAuditLogResponseSchema = registry.register(
     logs: z.array(
       z.object({
         id: z.string(),
-        userId: z.string(),
+        actorId: z.string().nullable(),
         action: z.string(),
-        resource: z.string(),
+        resourceType: z.string(),
         resourceId: z.string().nullable(),
-        details: z.record(z.unknown()),
-        ipAddress: z.string(),
-        userAgent: z.string(),
+        metadata: z.record(z.unknown()),
+        ipAddress: z.string().nullable(),
+        userAgent: z.string().nullable(),
         createdAt: z.string().datetime(),
       })
     ),
@@ -178,3 +178,20 @@ export const AdminAnalyticsResponseSchema = registry.register(
     ),
   })
 );
+
+// Type exports
+export type AdminUserListQuerySchema = z.infer<typeof AdminUserListQuerySchema>;
+export type AdminUserResponseSchema = z.infer<typeof AdminUserResponseSchema>;
+export type AdminUpdateUserStatusSchema = z.infer<typeof AdminUpdateUserStatusSchema>;
+export type AdminVerifyProviderSchema = z.infer<typeof AdminVerifyProviderSchema>;
+export type AdminHospitalCreateSchema = z.infer<typeof AdminHospitalCreateSchema>;
+export type AdminHospitalUpdateSchema = z.infer<typeof AdminHospitalUpdateSchema>;
+export type AdminAuditLogQuerySchema = z.infer<typeof AdminAuditLogQuerySchema>;
+export type AdminAnalyticsQuerySchema = z.infer<typeof AdminAnalyticsQuerySchema>;
+export type AdminUserListResponseSchema = z.infer<typeof AdminUserListResponseSchema>;
+export type AdminProviderPendingListResponseSchema = z.infer<
+  typeof AdminProviderPendingListResponseSchema
+>;
+export type AdminHospitalResponseSchema = z.infer<typeof AdminHospitalResponseSchema>;
+export type AdminAuditLogResponseSchema = z.infer<typeof AdminAuditLogResponseSchema>;
+export type AdminAnalyticsResponseSchema = z.infer<typeof AdminAnalyticsResponseSchema>;

@@ -12,7 +12,10 @@
     "@sentry/node": "^10.60.0",
     "axios": "^1.18.1",
     "axios-retry": "^4.5.0",
+    "bullmq": "^5.80.9",
+    "cors": "^2.8.6",
     "dd-trace": "^5.109.0",
+    "express": "^4.22.2",
     "ioredis": "^5.4.1",
     "opossum": "^9.0.0",
     "pino": "^10.3.1",
@@ -21,6 +24,8 @@
     "zod": "^3.23.6"
   },
   "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.19",
     "typescript": "^5.4.5"
   }
 }

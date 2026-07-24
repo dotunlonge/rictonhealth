@@ -307,6 +307,19 @@ export const VerifyConfirmInputSchema = registry.register(
   })
 );
 
+// Type exports
+export type RegisterInputSchema = z.infer<typeof RegisterInputSchema>;
+export type LoginInputSchema = z.infer<typeof LoginInputSchema>;
+export type SendOtpInputSchema = z.infer<typeof SendOtpInputSchema>;
+export type VerifyOtpInputSchema = z.infer<typeof VerifyOtpInputSchema>;
+export type OAuthInputSchema = z.infer<typeof OAuthInputSchema>;
+export type RefreshTokenInputSchema = z.infer<typeof RefreshTokenInputSchema>;
+export type PasswordResetInputSchema = z.infer<typeof PasswordResetInputSchema>;
+export type AuthResponseSchema = z.infer<typeof AuthResponseSchema>;
+export type VerifyEmailInputSchema = z.infer<typeof VerifyEmailInputSchema>;
+export type VerifyPhoneInputSchema = z.infer<typeof VerifyPhoneInputSchema>;
+export type VerifyConfirmInputSchema = z.infer<typeof VerifyConfirmInputSchema>;
+
 registry.registerPath({
   method: 'post',
   path: '/api/auth/verify-email',

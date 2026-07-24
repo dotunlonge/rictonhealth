@@ -1,5 +1,5 @@
-import { z } from '@ricton/shared';
-import { registry } from './registry';
+import { z } from 'zod';
+import { registry } from '@ricton/shared';
 
 export const RangeQuerySchema = registry.register(
   'AnalyticsRangeQuery',
@@ -113,6 +113,15 @@ export const PharmacyMetricsResponseSchema = registry.register(
     }),
   })
 );
+
+// Type exports
+export type RangeQuerySchema = z.infer<typeof RangeQuerySchema>;
+export type OverviewResponseSchema = z.infer<typeof OverviewResponseSchema>;
+export type AppointmentsTrendResponseSchema = z.infer<typeof AppointmentsTrendResponseSchema>;
+export type RevenueResponseSchema = z.infer<typeof RevenueResponseSchema>;
+export type UserGrowthResponseSchema = z.infer<typeof UserGrowthResponseSchema>;
+export type ProviderPerformanceResponseSchema = z.infer<typeof ProviderPerformanceResponseSchema>;
+export type PharmacyMetricsResponseSchema = z.infer<typeof PharmacyMetricsResponseSchema>;
 
 registry.registerPath({
   method: 'get',

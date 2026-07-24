@@ -8,6 +8,9 @@ import {
   UnauthorizedError,
   ForbiddenError,
   AppError,
+  timingSafeEqual,
+  webhookQueue,
+  paystackBreaker,
 } from '@ricton/shared';
 import crypto from 'crypto';
 
@@ -34,6 +37,102 @@ interface PaystackVerifyResponse {
   };
 }
 
+const resolvePaymentAmount = async (
+  type: PaymentType,
+  userId: string,
+  amount?: number,
+  referenceId?: string
+): Promise<number> => {
+  if (type === PaymentType.APPOINTMENT) {
+    if (!referenceId) throw new ValidationError('referenceId is required for APPOINTMENT payments');
+    const appt = await prisma.appointment.findUnique({
+      where: { id: referenceId },
+      include: { provider: { include: { providerProfile: true } }, payment: true },
+    });
+    if (!appt) throw new NotFoundError('Appointment not found');
+    if (appt.patientId !== userId) {
+      throw new ForbiddenError('You are not authorized to pay for this appointment');
+    }
+    if (
+      appt.payment &&
+      (appt.payment.status === PaymentStatus.SUCCESS ||
+        appt.payment.status === PaymentStatus.PENDING)
+    ) {
+      throw new ValidationError(
+        `This appointment already has an active or pending payment (Status: ${appt.payment.status})`
+      );
+    }
+    if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
+      throw new ValidationError('Doctor consultation fee is not configured');
+    }
+    return Number(appt.provider.providerProfile.consultationFee);
+  } else if (type === PaymentType.PHARMACY_ORDER) {
+    if (!referenceId)
+      throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
+    const order = await prisma.pharmacyOrder.findUnique({
+      where: { id: referenceId },
+      include: { payment: true },
+    });
+    if (!order) throw new NotFoundError('Pharmacy order not found');
+    if (order.patientId !== userId) {
+      throw new ForbiddenError('You are not authorized to pay for this pharmacy order');
+    }
+    if (
+      order.payment &&
+      (order.payment.status === PaymentStatus.SUCCESS ||
+        order.payment.status === PaymentStatus.PENDING)
+    ) {
+      throw new ValidationError(
+        `This pharmacy order already has an active or pending payment (Status: ${order.payment.status})`
+      );
+    }
+    return Number(order.totalAmount);
+  } else if (type === PaymentType.SUBSCRIPTION) {
+    return 19.99;
+  } else if (type === PaymentType.WALLET_TOPUP) {
+    if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
+    return Number(amount);
+  } else {
+    return Number(amount);
+  }
+};
+
+const createPendingPayment = async (
+  userId: string,
+  resolvedAmount: number,
+  type: PaymentType,
+  providerReference: string,
+  referenceId?: string
+) => {
+  return prisma.$transaction(async (tx) => {
+    const p = await tx.payment.create({
+      data: {
+        userId,
+        amount: resolvedAmount, // Stored in NGN (recalculated server-side)
+        currency: 'NGN',
+        type,
+        status: PaymentStatus.PENDING,
+        provider: PaymentProvider.PAYSTACK,
+        providerReference,
+      },
+    });
+
+    if (type === PaymentType.APPOINTMENT && referenceId) {
+      await tx.appointment.update({
+        where: { id: referenceId },
+        data: { paymentId: p.id },
+      });
+    } else if (type === PaymentType.PHARMACY_ORDER && referenceId) {
+      await tx.pharmacyOrder.update({
+        where: { id: referenceId },
+        data: { paymentId: p.id },
+      });
+    }
+
+    return p;
+  });
+};
+
 export const initializePayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (!PAYSTACK_SECRET_KEY) {
@@ -53,66 +152,17 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       );
     }
 
-    let resolvedAmount: number;
-
-    if (type === PaymentType.APPOINTMENT) {
-      if (!referenceId)
-        throw new ValidationError('referenceId is required for APPOINTMENT payments');
-      const appt = await prisma.appointment.findUnique({
-        where: { id: referenceId },
-        include: { provider: { include: { providerProfile: true } }, payment: true },
-      });
-      if (!appt) throw new NotFoundError('Appointment not found');
-      if (appt.patientId !== userPayload.userId) {
-        throw new ForbiddenError('You are not authorized to pay for this appointment');
-      }
-      if (
-        appt.payment &&
-        (appt.payment.status === PaymentStatus.SUCCESS ||
-          appt.payment.status === PaymentStatus.PENDING)
-      ) {
-        throw new ValidationError(
-          `This appointment already has an active or pending payment (Status: ${appt.payment.status})`
-        );
-      }
-      if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
-        throw new ValidationError('Doctor consultation fee is not configured');
-      }
-      resolvedAmount = Number(appt.provider.providerProfile.consultationFee);
-    } else if (type === PaymentType.PHARMACY_ORDER) {
-      if (!referenceId)
-        throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
-      const order = await prisma.pharmacyOrder.findUnique({
-        where: { id: referenceId },
-        include: { payment: true },
-      });
-      if (!order) throw new NotFoundError('Pharmacy order not found');
-      if (order.patientId !== userPayload.userId) {
-        throw new ForbiddenError('You are not authorized to pay for this pharmacy order');
-      }
-      if (
-        order.payment &&
-        (order.payment.status === PaymentStatus.SUCCESS ||
-          order.payment.status === PaymentStatus.PENDING)
-      ) {
-        throw new ValidationError(
-          `This pharmacy order already has an active or pending payment (Status: ${order.payment.status})`
-        );
-      }
-      resolvedAmount = Number(order.totalAmount);
-    } else if (type === PaymentType.SUBSCRIPTION) {
-      resolvedAmount = 19.99;
-    } else if (type === PaymentType.WALLET_TOPUP) {
-      if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
-      resolvedAmount = Number(amount);
-    } else {
-      resolvedAmount = Number(amount);
-    }
+    const resolvedAmount = await resolvePaymentAmount(
+      type,
+      userPayload.userId,
+      amount,
+      referenceId
+    );
 
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
 
-    const paystackRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
+    const paystackRes = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -136,7 +186,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
           ],
         },
       }),
-    });
+    })) as any;
 
     const data = (await paystackRes.json()) as PaystackInitializeResponse;
     if (!paystackRes.ok || !data.status) {
@@ -148,33 +198,13 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     }
 
     // Create a pending payment record and link it to the target resource atomically
-    const payment = await prisma.$transaction(async (tx) => {
-      const p = await tx.payment.create({
-        data: {
-          userId: userPayload.userId,
-          amount: resolvedAmount, // Stored in NGN (recalculated server-side)
-          currency: 'NGN',
-          type: type as PaymentType,
-          status: PaymentStatus.PENDING,
-          provider: PaymentProvider.PAYSTACK,
-          providerReference: data.data.reference,
-        },
-      });
-
-      if (type === PaymentType.APPOINTMENT && referenceId) {
-        await tx.appointment.update({
-          where: { id: referenceId },
-          data: { paymentId: p.id },
-        });
-      } else if (type === PaymentType.PHARMACY_ORDER && referenceId) {
-        await tx.pharmacyOrder.update({
-          where: { id: referenceId },
-          data: { paymentId: p.id },
-        });
-      }
-
-      return p;
-    });
+    const payment = await createPendingPayment(
+      userPayload.userId,
+      resolvedAmount,
+      type as PaymentType,
+      data.data.reference,
+      referenceId
+    );
 
     res.status(200).json(
       successResponse({
@@ -184,7 +214,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         paymentId: payment.id,
       })
     );
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -195,17 +225,33 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
+    const userPayload = req.user as JwtPayload;
     const { reference } = req.params;
     if (!reference) {
       throw new ValidationError('Reference is required');
     }
 
-    const paystackRes = await fetch(`${PAYSTACK_API_URL}/transaction/verify/${reference}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-      },
+    const payment = await prisma.payment.findUnique({
+      where: { providerReference: reference },
     });
+
+    if (!payment) {
+      throw new NotFoundError('Payment not found');
+    }
+
+    if (payment.userId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to verify this payment');
+    }
+
+    const paystackRes = (await paystackBreaker.fire(
+      `${PAYSTACK_API_URL}/transaction/verify/${reference}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    )) as any;
 
     const data = (await paystackRes.json()) as PaystackVerifyResponse;
     if (!paystackRes.ok || !data.status) {
@@ -230,12 +276,12 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       data: {
         status: paymentStatus,
         providerTxId: data.data.id?.toString(),
-        metadata: data.data as Prisma.InputJsonValue, // store response JSON
+        metadata: data.data as Prisma.InputJsonValue,
       },
     });
 
     res.status(200).json(successResponse(updatedPayment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -250,7 +296,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       .createHmac('sha512', PAYSTACK_SECRET_KEY)
       .update(JSON.stringify(req.body))
       .digest('hex');
-    if (hash !== req.headers['x-paystack-signature']) {
+    if (!timingSafeEqual(hash, req.headers['x-paystack-signature'] as string)) {
       throw new UnauthorizedError('Invalid signature');
     }
 
@@ -259,7 +305,19 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
     if (event.event === 'charge.success') {
       const reference = event.data.reference;
 
-      await prisma.payment.update({
+      const payment = await prisma.payment.findUnique({
+        where: { providerReference: reference },
+      });
+
+      if (!payment) {
+        throw new NotFoundError('Payment not found');
+      }
+
+      if (payment.status === PaymentStatus.SUCCESS) {
+        return res.sendStatus(200);
+      }
+
+      const updatedPayment = await prisma.payment.update({
         where: { providerReference: reference },
         data: {
           status: PaymentStatus.SUCCESS,
@@ -268,13 +326,36 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         },
       });
 
-      // Notify other services via internal event
-      // In a real system, this would publish to Redis pub/sub or a message queue
-      // For now, we rely on the client polling or the service-specific webhooks
+      await webhookQueue.add('deliver', {
+        url: `${process.env.INTERNAL_NOTIFICATION_URL || 'http://notification-service:3016'}/api/internal/payment/success`,
+        payload: {
+          paymentId: updatedPayment.id,
+          userId: updatedPayment.userId,
+          reference,
+          amount: updatedPayment.amount,
+          type: updatedPayment.type,
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+        },
+      });
     } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
       const reference = event.data.reference;
 
-      await prisma.payment.update({
+      const payment = await prisma.payment.findUnique({
+        where: { providerReference: reference },
+      });
+
+      if (!payment) {
+        throw new NotFoundError('Payment not found');
+      }
+
+      if (payment.status === PaymentStatus.FAILED) {
+        return res.sendStatus(200);
+      }
+
+      const updatedPayment = await prisma.payment.update({
         where: { providerReference: reference },
         data: {
           status: PaymentStatus.FAILED,
@@ -282,11 +363,26 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           metadata: event.data as Prisma.InputJsonValue,
         },
       });
+
+      await webhookQueue.add('deliver', {
+        url: `${process.env.INTERNAL_NOTIFICATION_URL || 'http://notification-service:3016'}/api/internal/payment/failed`,
+        payload: {
+          paymentId: updatedPayment.id,
+          userId: updatedPayment.userId,
+          reference,
+          amount: updatedPayment.amount,
+          type: updatedPayment.type,
+        },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+        },
+      });
     }
 
     // Acknowledge receipt of webhook
     res.sendStatus(200);
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -301,7 +397,7 @@ export const getPayments = async (req: Request, res: Response, next: NextFunctio
     });
 
     res.status(200).json(successResponse(payments));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };
@@ -324,7 +420,7 @@ export const getPaymentById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(payment));
-  } catch (error) {
+  } catch (error: unknown) {
     next(error);
   }
 };

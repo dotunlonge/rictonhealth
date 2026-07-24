@@ -107,6 +107,17 @@ export const GetAppointmentsQuerySchema = registry.register(
   })
 );
 
+// Type exports
+export type AppointmentSchema = z.infer<typeof AppointmentSchema>;
+export type GetSlotsResponseSchema = z.infer<typeof GetSlotsResponseSchema>;
+export type BookAppointmentInputSchema = z.infer<typeof BookAppointmentInputSchema>;
+export type GetAppointmentResponseSchema = z.infer<typeof GetAppointmentResponseSchema>;
+export type ListAppointmentsResponseSchema = z.infer<typeof ListAppointmentsResponseSchema>;
+export type CreateAppointmentSchema = z.infer<typeof CreateAppointmentSchema>;
+export type UpdateAppointmentStatusSchema = z.infer<typeof UpdateAppointmentStatusSchema>;
+export type GetAvailabilityQuerySchema = z.infer<typeof GetAvailabilityQuerySchema>;
+export type GetAppointmentsQuerySchema = z.infer<typeof GetAppointmentsQuerySchema>;
+
 registry.registerPath({
   method: 'post',
   path: '/api/appointments/availability',

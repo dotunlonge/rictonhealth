@@ -1,14 +1,16 @@
 import { z } from './zod';
-export declare const RegisterInputSchema: z.ZodObject<{
+export declare const RegisterInputSchema: z.ZodEffects<z.ZodObject<{
     email: z.ZodOptional<z.ZodString>;
     phone: z.ZodOptional<z.ZodString>;
     password: z.ZodString;
     role: z.ZodEnum<["PATIENT", "CONSULTANT", "PHARMACIST", "HOSPITAL_ADMIN", "SUPER_ADMIN"]>;
     firstName: z.ZodOptional<z.ZodString>;
     lastName: z.ZodOptional<z.ZodString>;
+    consentVersion: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     password: string;
     role: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN";
+    consentVersion: string;
     email?: string | undefined;
     phone?: string | undefined;
     firstName?: string | undefined;
@@ -16,6 +18,23 @@ export declare const RegisterInputSchema: z.ZodObject<{
 }, {
     password: string;
     role: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN";
+    consentVersion: string;
+    email?: string | undefined;
+    phone?: string | undefined;
+    firstName?: string | undefined;
+    lastName?: string | undefined;
+}>, {
+    password: string;
+    role: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN";
+    consentVersion: string;
+    email?: string | undefined;
+    phone?: string | undefined;
+    firstName?: string | undefined;
+    lastName?: string | undefined;
+}, {
+    password: string;
+    role: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN";
+    consentVersion: string;
     email?: string | undefined;
     phone?: string | undefined;
     firstName?: string | undefined;
@@ -102,34 +121,34 @@ export declare const AuthResponseSchema: z.ZodObject<{
             role: z.ZodString;
             status: z.ZodString;
         }, "strip", z.ZodTypeAny, {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         }, {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         }>;
     }, "strip", z.ZodTypeAny, {
         user: {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         };
         token: string;
         refreshToken?: string | undefined;
     }, {
         user: {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         };
         token: string;
@@ -139,10 +158,10 @@ export declare const AuthResponseSchema: z.ZodObject<{
     success: boolean;
     data: {
         user: {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         };
         token: string;
@@ -152,10 +171,10 @@ export declare const AuthResponseSchema: z.ZodObject<{
     success: boolean;
     data: {
         user: {
-            status: string;
             email: string | null;
             phone: string | null;
             role: string;
+            status: string;
             id: string;
         };
         token: string;
@@ -189,3 +208,14 @@ export declare const VerifyConfirmInputSchema: z.ZodObject<{
     email?: string | undefined;
     phone?: string | undefined;
 }>;
+export type RegisterInputSchema = z.infer<typeof RegisterInputSchema>;
+export type LoginInputSchema = z.infer<typeof LoginInputSchema>;
+export type SendOtpInputSchema = z.infer<typeof SendOtpInputSchema>;
+export type VerifyOtpInputSchema = z.infer<typeof VerifyOtpInputSchema>;
+export type OAuthInputSchema = z.infer<typeof OAuthInputSchema>;
+export type RefreshTokenInputSchema = z.infer<typeof RefreshTokenInputSchema>;
+export type PasswordResetInputSchema = z.infer<typeof PasswordResetInputSchema>;
+export type AuthResponseSchema = z.infer<typeof AuthResponseSchema>;
+export type VerifyEmailInputSchema = z.infer<typeof VerifyEmailInputSchema>;
+export type VerifyPhoneInputSchema = z.infer<typeof VerifyPhoneInputSchema>;
+export type VerifyConfirmInputSchema = z.infer<typeof VerifyConfirmInputSchema>;

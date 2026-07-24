@@ -3,7 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.VerifyConfirmInputSchema = exports.VerifyPhoneInputSchema = exports.VerifyEmailInputSchema = exports.AuthResponseSchema = exports.PasswordResetInputSchema = exports.RefreshTokenInputSchema = exports.OAuthInputSchema = exports.VerifyOtpInputSchema = exports.SendOtpInputSchema = exports.LoginInputSchema = exports.RegisterInputSchema = void 0;
 const zod_1 = require("./zod");
 const openapi_registry_1 = require("./openapi.registry");
-exports.RegisterInputSchema = openapi_registry_1.registry.register('RegisterInput', zod_1.z.object({
+exports.RegisterInputSchema = openapi_registry_1.registry.register('RegisterInput', zod_1.z
+    .object({
     email: zod_1.z.string().email().optional(),
     phone: zod_1.z.string().optional(),
     password: zod_1.z
@@ -13,6 +14,11 @@ exports.RegisterInputSchema = openapi_registry_1.registry.register('RegisterInpu
     role: zod_1.z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
     firstName: zod_1.z.string().optional(),
     lastName: zod_1.z.string().optional(),
+    consentVersion: zod_1.z.string().min(1, 'consentVersion is required'),
+})
+    .refine((data) => data.email || data.phone, {
+    message: 'Either email or phone is required',
+    path: ['email'],
 }));
 exports.LoginInputSchema = openapi_registry_1.registry.register('LoginInput', zod_1.z.object({
     email: zod_1.z.string().email().optional(),

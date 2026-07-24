@@ -178,3 +178,20 @@ export const AdminAnalyticsResponseSchema = registry.register(
     ),
   })
 );
+
+// Type exports
+export type AdminUserListQuerySchema = z.infer<typeof AdminUserListQuerySchema>;
+export type AdminUserResponseSchema = z.infer<typeof AdminUserResponseSchema>;
+export type AdminUpdateUserStatusSchema = z.infer<typeof AdminUpdateUserStatusSchema>;
+export type AdminVerifyProviderSchema = z.infer<typeof AdminVerifyProviderSchema>;
+export type AdminHospitalCreateSchema = z.infer<typeof AdminHospitalCreateSchema>;
+export type AdminHospitalUpdateSchema = z.infer<typeof AdminHospitalUpdateSchema>;
+export type AdminAuditLogQuerySchema = z.infer<typeof AdminAuditLogQuerySchema>;
+export type AdminAnalyticsQuerySchema = z.infer<typeof AdminAnalyticsQuerySchema>;
+export type AdminUserListResponseSchema = z.infer<typeof AdminUserListResponseSchema>;
+export type AdminProviderPendingListResponseSchema = z.infer<
+  typeof AdminProviderPendingListResponseSchema
+>;
+export type AdminHospitalResponseSchema = z.infer<typeof AdminHospitalResponseSchema>;
+export type AdminAuditLogResponseSchema = z.infer<typeof AdminAuditLogResponseSchema>;
+export type AdminAnalyticsResponseSchema = z.infer<typeof AdminAnalyticsResponseSchema>;

@@ -7,7 +7,7 @@ export const validateRequest = (schema: ZodTypeAny) => {
     try {
       await schema.parseAsync(req.body);
       next();
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof ZodError) {
         const details = error.errors.reduce(
           (acc, curr) => {
@@ -33,7 +33,7 @@ export const validateQuery = (schema: ZodTypeAny) => {
     try {
       schema.parse(req.query);
       next();
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof ZodError) {
         const details = error.errors.reduce(
           (acc, curr) => {
@@ -59,7 +59,7 @@ export const validateParams = (schema: ZodTypeAny) => {
     try {
       schema.parse(req.params);
       next();
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof ZodError) {
         const details = error.errors.reduce(
           (acc, curr) => {

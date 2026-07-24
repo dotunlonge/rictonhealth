@@ -1,8 +1,7 @@
-import express from 'express';
-import cors from 'cors';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { errorHandler, initOpenAPI } from '@ricton/shared';
+import { createCors, logger } from '@ricton/shared';
 import * as Sentry from '@sentry/node';
 import adminRoutes from './routes/admin.routes';
 
@@ -19,18 +18,15 @@ Sentry.init({
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(createCors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  logger.info({ method: req.method, path: req.path, ip: req.ip });
   next();
 });
-
-// OpenAPI documentation
-initOpenAPI(app, 'admin-service', 'Ricton Admin Portal API');
 
 // Routes
 app.use('/api/admin', adminRoutes);
@@ -41,13 +37,14 @@ app.get('/health', (req, res) => {
 });
 
 // Error handling
-app.use(Sentry.Handlers.errorHandler());
-app.use(errorHandler);
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, 'Unhandled error');
+  res.status(500).json({ error: 'Internal Server Error' });
+});
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Admin Service running on port ${PORT}`);
-  console.log(`📚 Swagger docs: http://localhost:${PORT}/api-docs`);
+  logger.info(`🚀 Admin Service running on port ${PORT}`);
 });
 
 export default app;

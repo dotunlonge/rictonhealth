@@ -89,11 +89,24 @@ export declare const UserProfileSchema: z.ZodObject<{
         specialty: string | null;
         consultationFee: number | null;
     }>>>;
+    pharmacyProfile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        pharmacyName: z.ZodString;
+        licenseNumber: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        isVerified: z.ZodOptional<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        pharmacyName: string;
+        licenseNumber?: string | null | undefined;
+        isVerified?: boolean | undefined;
+    }, {
+        pharmacyName: string;
+        licenseNumber?: string | null | undefined;
+        isVerified?: boolean | undefined;
+    }>>>;
 }, "strip", z.ZodTypeAny, {
-    status: string;
     email: string | null;
     phone: string | null;
     role: string;
+    status: string;
     id: string;
     patientProfile?: {
         firstName: string | null;
@@ -118,12 +131,17 @@ export declare const UserProfileSchema: z.ZodObject<{
         lastName: string | null;
         specialty: string | null;
         consultationFee: number | null;
+    } | null | undefined;
+    pharmacyProfile?: {
+        pharmacyName: string;
+        licenseNumber?: string | null | undefined;
+        isVerified?: boolean | undefined;
     } | null | undefined;
 }, {
-    status: string;
     email: string | null;
     phone: string | null;
     role: string;
+    status: string;
     id: string;
     patientProfile?: {
         firstName: string | null;
@@ -148,6 +166,11 @@ export declare const UserProfileSchema: z.ZodObject<{
         lastName: string | null;
         specialty: string | null;
         consultationFee: number | null;
+    } | null | undefined;
+    pharmacyProfile?: {
+        pharmacyName: string;
+        licenseNumber?: string | null | undefined;
+        isVerified?: boolean | undefined;
     } | null | undefined;
 }>;
 export declare const GetUserResponseSchema: z.ZodObject<{
@@ -242,11 +265,24 @@ export declare const GetUserResponseSchema: z.ZodObject<{
             specialty: string | null;
             consultationFee: number | null;
         }>>>;
+        pharmacyProfile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            pharmacyName: z.ZodString;
+            licenseNumber: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            isVerified: z.ZodOptional<z.ZodBoolean>;
+        }, "strip", z.ZodTypeAny, {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
+        }, {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
+        }>>>;
     }, "strip", z.ZodTypeAny, {
-        status: string;
         email: string | null;
         phone: string | null;
         role: string;
+        status: string;
         id: string;
         patientProfile?: {
             firstName: string | null;
@@ -271,12 +307,17 @@ export declare const GetUserResponseSchema: z.ZodObject<{
             lastName: string | null;
             specialty: string | null;
             consultationFee: number | null;
+        } | null | undefined;
+        pharmacyProfile?: {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
         } | null | undefined;
     }, {
-        status: string;
         email: string | null;
         phone: string | null;
         role: string;
+        status: string;
         id: string;
         patientProfile?: {
             firstName: string | null;
@@ -301,15 +342,20 @@ export declare const GetUserResponseSchema: z.ZodObject<{
             lastName: string | null;
             specialty: string | null;
             consultationFee: number | null;
+        } | null | undefined;
+        pharmacyProfile?: {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
         } | null | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     success: boolean;
     data: {
-        status: string;
         email: string | null;
         phone: string | null;
         role: string;
+        status: string;
         id: string;
         patientProfile?: {
             firstName: string | null;
@@ -334,15 +380,20 @@ export declare const GetUserResponseSchema: z.ZodObject<{
             lastName: string | null;
             specialty: string | null;
             consultationFee: number | null;
+        } | null | undefined;
+        pharmacyProfile?: {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
         } | null | undefined;
     };
 }, {
     success: boolean;
     data: {
-        status: string;
         email: string | null;
         phone: string | null;
         role: string;
+        status: string;
         id: string;
         patientProfile?: {
             firstName: string | null;
@@ -367,6 +418,11 @@ export declare const GetUserResponseSchema: z.ZodObject<{
             lastName: string | null;
             specialty: string | null;
             consultationFee: number | null;
+        } | null | undefined;
+        pharmacyProfile?: {
+            pharmacyName: string;
+            licenseNumber?: string | null | undefined;
+            isVerified?: boolean | undefined;
         } | null | undefined;
     };
 }>;
@@ -438,3 +494,196 @@ export declare const MedicalHistoryInputSchema: z.ZodObject<{
         notes?: string | undefined;
     }[];
 }>;
+export declare const GetProvidersQuerySchema: z.ZodObject<{
+    specialty: z.ZodOptional<z.ZodString>;
+    name: z.ZodOptional<z.ZodString>;
+    limit: z.ZodOptional<z.ZodString>;
+    offset: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    name?: string | undefined;
+    specialty?: string | undefined;
+    limit?: string | undefined;
+    offset?: string | undefined;
+}, {
+    name?: string | undefined;
+    specialty?: string | undefined;
+    limit?: string | undefined;
+    offset?: string | undefined;
+}>;
+export declare const HospitalDashboardResponseSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    data: z.ZodObject<{
+        hospital: z.ZodObject<{
+            id: z.ZodString;
+            name: z.ZodString;
+            phone: z.ZodNullable<z.ZodString>;
+            email: z.ZodNullable<z.ZodString>;
+            logoUrl: z.ZodNullable<z.ZodString>;
+            isActive: z.ZodBoolean;
+            createdAt: z.ZodString;
+        }, "strip", z.ZodTypeAny, {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        }, {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        }>;
+        stats: z.ZodObject<{
+            totalDoctors: z.ZodNumber;
+            totalAppointments: z.ZodNumber;
+            activePatients: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        }, {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        }>;
+    }, "strip", z.ZodTypeAny, {
+        hospital: {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        };
+        stats: {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        };
+    }, {
+        hospital: {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        };
+        stats: {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        };
+    }>;
+}, "strip", z.ZodTypeAny, {
+    success: boolean;
+    data: {
+        hospital: {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        };
+        stats: {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        };
+    };
+}, {
+    success: boolean;
+    data: {
+        hospital: {
+            email: string | null;
+            name: string;
+            phone: string | null;
+            id: string;
+            logoUrl: string | null;
+            isActive: boolean;
+            createdAt: string;
+        };
+        stats: {
+            totalDoctors: number;
+            totalAppointments: number;
+            activePatients: number;
+        };
+    };
+}>;
+export declare const ProviderDashboardResponseSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    data: z.ZodObject<{
+        stats: z.ZodObject<{
+            totalAppointments: z.ZodNumber;
+            pendingAppointments: z.ZodNumber;
+            completedAppointments: z.ZodNumber;
+            totalEarnings: z.ZodUnion<[z.ZodNumber, z.ZodString]>;
+        }, "strip", z.ZodTypeAny, {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        }, {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        }>;
+        upcomingAppointments: z.ZodArray<z.ZodAny, "many">;
+    }, "strip", z.ZodTypeAny, {
+        stats: {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        };
+        upcomingAppointments: any[];
+    }, {
+        stats: {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        };
+        upcomingAppointments: any[];
+    }>;
+}, "strip", z.ZodTypeAny, {
+    success: boolean;
+    data: {
+        stats: {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        };
+        upcomingAppointments: any[];
+    };
+}, {
+    success: boolean;
+    data: {
+        stats: {
+            totalAppointments: number;
+            pendingAppointments: number;
+            completedAppointments: number;
+            totalEarnings: string | number;
+        };
+        upcomingAppointments: any[];
+    };
+}>;
+export type UserProfileSchema = z.infer<typeof UserProfileSchema>;
+export type GetUserResponseSchema = z.infer<typeof GetUserResponseSchema>;
+export type UpdateProfileInputSchema = z.infer<typeof UpdateProfileInputSchema>;
+export type AvatarUploadInputSchema = z.infer<typeof AvatarUploadInputSchema>;
+export type MedicalHistoryInputSchema = z.infer<typeof MedicalHistoryInputSchema>;
+export type GetProvidersQuerySchema = z.infer<typeof GetProvidersQuerySchema>;
+export type HospitalDashboardResponseSchema = z.infer<typeof HospitalDashboardResponseSchema>;
+export type ProviderDashboardResponseSchema = z.infer<typeof ProviderDashboardResponseSchema>;

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate } from '@ricton/auth-middleware';
+import { requireAuth } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import {
   listConversations,
   getConversationMessages,
@@ -10,8 +11,11 @@ import {
 
 const router = Router();
 
+const messagingRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'messaging' });
+
 // All messaging routes require authentication
-router.use(authenticate);
+router.use(requireAuth);
+router.use(messagingRateLimit);
 
 /**
  * @openapi
@@ -21,15 +25,14 @@ router.use(authenticate);
  *     tags: [Messaging]
  *     parameters:
  *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 20
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: List of conversations
@@ -77,15 +80,14 @@ router.post('/conversations', createConversation);
  *         schema:
  *           type: string
  *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 50
+ *       - in: query
+ *         name: cursor
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Message history

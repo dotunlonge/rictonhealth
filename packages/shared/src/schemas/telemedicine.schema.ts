@@ -29,6 +29,10 @@ export const GetTokenResponseSchema = registry.register(
   })
 );
 
+// Type exports
+export type TelemedicineRoomSchema = z.infer<typeof TelemedicineRoomSchema>;
+export type GetTokenResponseSchema = z.infer<typeof GetTokenResponseSchema>;
+
 registry.registerPath({
   method: 'post',
   path: '/api/telemedicine/rooms',

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, WalletTransactionType, WalletReferenceType, PaymentType } from '@ricton/db';
+import { prisma, WalletTransactionType, WalletReferenceType } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -172,6 +172,8 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
         email: user.email,
         amount: Math.round(amount * 100), // Convert to kobo
         reference: `WALLET_TOPUP_${userId}_${Date.now()}`,
+        first_name: firstName,
+        last_name: lastName,
         metadata: {
           custom_fields: [
             {

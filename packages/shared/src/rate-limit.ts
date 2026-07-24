@@ -40,18 +40,21 @@ export function rateLimit(options: RateLimitOptions) {
         const newCount = count + 1;
         const ttl = Math.ceil(windowMs / 1000);
 
-        redis.set(key, JSON.stringify({ count: newCount, resetTime }), 'EX', ttl).catch(() => {
-          // Fallback: if Redis fails, allow the request through
-          // In production, you might want to fail open or closed
+        redis.set(key, JSON.stringify({ count: newCount, resetTime }), 'EX', ttl).catch((err) => {
+          console.error('[RateLimit] Redis error, failing closed:', err);
         });
 
         res.setHeader('X-RateLimit-Limit', String(max));
         res.setHeader('X-RateLimit-Remaining', String(max - newCount));
         next();
       })
-      .catch(() => {
-        // If Redis is down, allow the request through
-        next();
+      .catch((err) => {
+        console.error('[RateLimit] Redis unavailable, failing closed:', err);
+        res.setHeader('X-RateLimit-Limit', String(max));
+        res.setHeader('X-RateLimit-Remaining', '0');
+        res
+          .status(429)
+          .json(errorResponse('Service temporarily unavailable', 'RATE_LIMIT_UNAVAILABLE'));
       });
   };
 }

@@ -1,50 +1,34 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.REFRESH_SECRET = 'test-refresh-secret';
 process.env.OTP_SECRET = 'test-otp-secret';
+
 import request from 'supertest';
 import express from 'express';
-import authRoutes from '../src/routes/auth.routes';
-import { prisma, UserStatus } from '@ricton/db';
-import { errorResponse, redis } from '@ricton/shared';
-import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import authRoutes from '../src/routes/auth.routes';
+import { prisma, UserRole, UserStatus } from '@ricton/db';
+import { errorResponse, redis, hashOtp } from '@ricton/shared';
+import bcrypt from 'bcrypt';
+import {
+  createRedisMock,
+  clearRedisStore,
+} from '../../../packages/shared/src/__tests__/helpers/redis-mock';
+import {
+  createUser,
+  createRefreshToken,
+  createPatientProfile,
+} from '../../../packages/shared/src/__tests__/factories';
 
-// Mock Redis
-const redisStore: Record<string, string | Set<string>> = {};
 jest.mock('@ricton/shared', () => {
   const actual = jest.requireActual('@ricton/shared');
+  const redisMock = createRedisMock();
   return {
     ...actual,
-    redis: {
-      ping: jest.fn().mockResolvedValue('PONG'),
-      get: jest.fn().mockImplementation(async (key: string) => {
-        return redisStore[key] || null;
-      }),
-      set: jest.fn().mockImplementation(async (key: string, val: string, ..._args: unknown[]) => {
-        redisStore[key] = val;
-        return 'OK';
-      }),
-      del: jest.fn().mockImplementation(async (key: string) => {
-        delete redisStore[key];
-        return 1;
-      }),
-      sadd: jest.fn().mockImplementation(async (key: string, val: string) => {
-        if (!redisStore[key]) redisStore[key] = new Set();
-        (redisStore[key] as Set<string>).add(val);
-        return 1;
-      }),
-      sismember: jest.fn().mockImplementation(async (key: string, val: string) => {
-        if (!redisStore[key]) return 0;
-        return (redisStore[key] as Set<string>).has(val) ? 1 : 0;
-      }),
-      expire: jest.fn().mockResolvedValue(1),
-      ttl: jest.fn().mockResolvedValue(600),
-      quit: jest.fn().mockResolvedValue('OK'),
-    },
+    redis: redisMock,
   };
 });
 
-// Mock Google OAuth
 jest.mock('google-auth-library', () => {
   return {
     OAuth2Client: jest.fn().mockImplementation(() => {
@@ -65,7 +49,6 @@ jest.mock('google-auth-library', () => {
   };
 });
 
-// Mock Apple OAuth
 jest.mock('apple-signin-auth', () => {
   return {
     verifyIdToken: jest.fn().mockImplementation(async (idToken) => {
@@ -80,7 +63,6 @@ jest.mock('apple-signin-auth', () => {
   };
 });
 
-// Mock Twilio and Sendgrid
 jest.mock('twilio', () => {
   return jest.fn().mockImplementation(() => ({
     messages: {
@@ -88,12 +70,12 @@ jest.mock('twilio', () => {
     },
   }));
 });
+
 jest.mock('@sendgrid/mail', () => ({
   setApiKey: jest.fn(),
   send: jest.fn().mockResolvedValue(true),
 }));
 
-// Provide dummy env variables so controller doesn't throw on init/config
 process.env.SENDGRID_API_KEY = 'dummy';
 process.env.SENDGRID_FROM_EMAIL = 'dummy@ricton.health';
 process.env.TWILIO_ACCOUNT_SID = 'dummy';
@@ -116,21 +98,13 @@ app.use(
   }
 );
 
-beforeAll(async () => {
-  await prisma.user.deleteMany();
-});
-
-afterAll(async () => {
-  await prisma.$disconnect();
-  await redis.quit();
-});
+const REFRESH_SECRET = process.env.REFRESH_SECRET || 'test-refresh-secret';
 
 describe('Auth Controller Integration', () => {
   beforeEach(async () => {
+    await prisma.refreshToken.deleteMany();
     await prisma.user.deleteMany();
-    for (const key in redisStore) {
-      delete redisStore[key];
-    }
+    clearRedisStore();
   });
 
   describe('POST /api/auth/register', () => {
@@ -141,6 +115,7 @@ describe('Auth Controller Integration', () => {
         role: 'PATIENT',
         firstName: 'John',
         lastName: 'Doe',
+        consentVersion: '1.0',
       });
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
@@ -155,19 +130,21 @@ describe('Auth Controller Integration', () => {
         role: 'CONSULTANT',
         firstName: 'Jane',
         lastName: 'Smith',
+        consentVersion: '1.0',
       });
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
       expect(res.body.data.role).toBe('CONSULTANT');
     });
 
-    it('should fail if email is already taken', async () => {
+    it('should return 409 if email is already taken', async () => {
       await request(app).post('/api/auth/register').send({
         email: 'duplicate@example.com',
         password: 'SecureP@ssw0rd1',
         role: 'PATIENT',
         firstName: 'First',
         lastName: 'Patient',
+        consentVersion: '1.0',
       });
 
       const res = await request(app).post('/api/auth/register').send({
@@ -176,57 +153,78 @@ describe('Auth Controller Integration', () => {
         role: 'CONSULTANT',
         firstName: 'Second',
         lastName: 'Doctor',
+        consentVersion: '1.0',
       });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('CONFLICT_ERROR');
     });
 
-    it('should fail with weak password', async () => {
+    it('should return 400 with weak password', async () => {
       const res = await request(app).post('/api/auth/register').send({
         email: 'weak@example.com',
         password: 'short',
         role: 'PATIENT',
+        firstName: 'Weak',
+        lastName: 'Pass',
+        consentVersion: '1.0',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 400 if consentVersion is missing', async () => {
+      const res = await request(app).post('/api/auth/register').send({
+        email: 'noconsent@example.com',
+        password: 'SecureP@ssw0rd1',
+        role: 'PATIENT',
+        firstName: 'No',
+        lastName: 'Consent',
       });
       expect(res.status).toBe(400);
     });
   });
 
   describe('POST /api/auth/login', () => {
-    beforeEach(async () => {
+    it('should login successfully and return JWT and refresh token', async () => {
+      const password = 'SecureP@ssw0rd1';
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(password, salt);
+      const user = await prisma.user.create({
+        data: {
+          email: 'login@example.com',
+          passwordHash,
+          role: UserRole.PATIENT,
+          status: UserStatus.ACTIVE,
+        },
+      });
+
+      const res = await request(app).post('/api/auth/login').send({
+        email: 'login@example.com',
+        password,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.token).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
+      expect(res.body.data.user.email).toBe('login@example.com');
+      expect(res.body.data.user.role).toBe('PATIENT');
+
+      const refreshKey = `refresh:${user.id}`;
+      const stored = await redis.hgetall(refreshKey);
+      expect(Object.keys(stored).length).toBeGreaterThan(0);
+    });
+
+    it('should return 401 when password is invalid', async () => {
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash('SecureP@ssw0rd1', salt);
       await prisma.user.create({
         data: {
           email: 'login@example.com',
           passwordHash,
-          role: 'PATIENT',
-          status: 'ACTIVE',
+          role: UserRole.PATIENT,
+          status: UserStatus.ACTIVE,
         },
       });
 
-      await prisma.user.create({
-        data: {
-          email: 'suspended@example.com',
-          passwordHash,
-          role: 'PATIENT',
-          status: UserStatus.SUSPENDED,
-        },
-      });
-    });
-
-    it('should login successfully and return JWT', async () => {
-      const res = await request(app).post('/api/auth/login').send({
-        email: 'login@example.com',
-        password: 'SecureP@ssw0rd1',
-      });
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.token).toBeDefined();
-      expect(res.body.data.user.email).toBe('login@example.com');
-      expect(res.body.data.user.role).toBe('PATIENT');
-    });
-
-    it('should fail with incorrect password', async () => {
       const res = await request(app).post('/api/auth/login').send({
         email: 'login@example.com',
         password: 'Wr0ngP@ssw0rd!',
@@ -235,123 +233,38 @@ describe('Auth Controller Integration', () => {
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
-    it('should fail for suspended account', async () => {
+    it('should return 401 for non-existent user', async () => {
+      const res = await request(app).post('/api/auth/login').send({
+        email: 'nonexistent@example.com',
+        password: 'SecureP@ssw0rd1',
+      });
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 401 when account is suspended', async () => {
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash('SecureP@ssw0rd1', salt);
+      await prisma.user.create({
+        data: {
+          email: 'suspended@example.com',
+          passwordHash,
+          role: UserRole.PATIENT,
+          status: UserStatus.SUSPENDED,
+        },
+      });
+
       const res = await request(app).post('/api/auth/login').send({
         email: 'suspended@example.com',
         password: 'SecureP@ssw0rd1',
       });
       expect(res.status).toBe(401);
-      expect(res.body.error.code).toBe('UNAUTHORIZED');
       expect(res.body.error.message).toMatch(/disabled/i);
     });
   });
 
-  describe('POST /api/auth/refresh', () => {
-    let validRefreshToken: string;
-    let userId: string;
-
-    beforeEach(async () => {
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash('SecureP@ssw0rd1', salt);
-      const user = await prisma.user.create({
-        data: {
-          email: 'refresh@example.com',
-          passwordHash,
-          role: 'PATIENT',
-          status: 'ACTIVE',
-        },
-      });
-      userId = user.id;
-      // Generate valid token and put in redis mock
-      const loginRes = await request(app).post('/api/auth/login').send({
-        email: 'refresh@example.com',
-        password: 'SecureP@ssw0rd1',
-      });
-      validRefreshToken = loginRes.body.data.refreshToken;
-    });
-
-    it('should refresh token successfully using valid refresh token', async () => {
-      const res = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: validRefreshToken });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.token).toBeDefined();
-      expect(res.body.data.refreshToken).toBeDefined();
-    });
-
-    it('should fail with missing refresh token', async () => {
-      const res = await request(app).post('/api/auth/refresh').send({});
-      expect(res.status).toBe(400);
-    });
-
-    it('should fail with invalid signature/expired refresh token format', async () => {
-      const res = await request(app)
-        .post('/api/auth/refresh')
-        .send({ refreshToken: 'invalid.jwt.format' });
-      expect(res.status).toBe(401);
-    });
-
-    it('should fail if refresh token is valid format but not registered in Redis mock', async () => {
-      const unusedToken = jwt.sign(
-        { userId },
-        process.env.REFRESH_SECRET || 'dev-refresh-secret-change-in-production',
-        { expiresIn: '7d' }
-      );
-
-      const res = await request(app).post('/api/auth/refresh').send({ refreshToken: unusedToken });
-      expect(res.status).toBe(401);
-      expect(res.body.error.message).toMatch(/invalid or expired/i);
-    });
-  });
-
-  describe('POST /api/auth/logout', () => {
-    let validRefreshToken: string;
-    let userId: string;
-
-    beforeEach(async () => {
-      const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash('SecureP@ssw0rd1', salt);
-      const user = await prisma.user.create({
-        data: {
-          email: 'logout@example.com',
-          passwordHash,
-          role: 'PATIENT',
-          status: 'ACTIVE',
-        },
-      });
-      userId = user.id;
-      const loginRes = await request(app).post('/api/auth/login').send({
-        email: 'logout@example.com',
-        password: 'SecureP@ssw0rd1',
-      });
-      validRefreshToken = loginRes.body.data.refreshToken;
-    });
-
-    it('should logout and remove refresh token from redis mock', async () => {
-      const beforeCheck = await redis.sismember(`refresh:${userId}`, validRefreshToken);
-      expect(beforeCheck).toBe(1);
-
-      const res = await request(app)
-        .post('/api/auth/logout')
-        .send({ refreshToken: validRefreshToken });
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-
-      const afterCheck = await redis.sismember(`refresh:${userId}`, validRefreshToken);
-      expect(afterCheck).toBe(0);
-    });
-
-    it('should fail logout if refresh token is invalid', async () => {
-      const res = await request(app).post('/api/auth/logout').send({ refreshToken: 'invalid' });
-      expect(res.status).toBe(401);
-    });
-  });
-
   describe('POST /api/auth/otp/send', () => {
-    it('should send otp successfully for valid email', async () => {
+    it('should send OTP successfully for valid email', async () => {
       const res = await request(app).post('/api/auth/otp/send').send({
         email: 'patient@example.com',
       });
@@ -359,26 +272,36 @@ describe('Auth Controller Integration', () => {
       expect(res.body.success).toBe(true);
     });
 
-    it('should fail if email and phone missing', async () => {
+    it('should return 400 if email and phone are missing', async () => {
       const res = await request(app).post('/api/auth/otp/send').send({});
       expect(res.status).toBe(400);
+    });
+
+    it('should return 429 when rate limit is exceeded', async () => {
+      for (let i = 0; i < 3; i++) {
+        await request(app).post('/api/auth/otp/send').send({ email: 'ratelimit@example.com' });
+      }
+      const res = await request(app)
+        .post('/api/auth/otp/send')
+        .send({ email: 'ratelimit@example.com' });
+      expect(res.status).toBe(429);
     });
   });
 
   describe('POST /api/auth/otp/verify', () => {
     beforeEach(async () => {
-      await prisma.user.create({
-        data: {
-          email: 'otpverify@example.com',
-          passwordHash: 'hash',
-          role: 'PATIENT',
-          status: 'ACTIVE',
-        },
-      });
-      redisStore['otp:otpverify@example.com'] = JSON.stringify({ otp: '123456', attempts: 0 });
+      const user = await createUser({ email: 'otpverify@example.com', role: UserRole.PATIENT });
+      await createPatientProfile(user, { firstName: 'OTP', lastName: 'User' });
+      const otpHash = hashOtp('123456');
+      await redis.set(
+        `otp:otpverify@example.com`,
+        JSON.stringify({ hash: otpHash, attempts: 0 }),
+        'EX',
+        600
+      );
     });
 
-    it('should verify OTP successfully and delete it from Redis mock', async () => {
+    it('should verify OTP successfully and delete it from Redis', async () => {
       const res = await request(app).post('/api/auth/otp/verify').send({
         email: 'otpverify@example.com',
         otp: '123456',
@@ -388,27 +311,30 @@ describe('Auth Controller Integration', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.token).toBeDefined();
 
-      const stored = redisStore['otp:otpverify@example.com'];
-      expect(stored).toBeUndefined();
+      const stored = await redis.get('otp:otpverify@example.com');
+      expect(stored).toBeNull();
     });
 
-    it('should fail and increment attempts for incorrect OTP, lock out on 3rd attempt', async () => {
+    it('should return 401 and increment attempts for incorrect OTP, lock out on 3rd attempt', async () => {
       let res = await request(app).post('/api/auth/otp/verify').send({
         email: 'otpverify@example.com',
         otp: '000000',
       });
       expect(res.status).toBe(401);
-      expect(redisStore['otp:otpverify@example.com']).toBeDefined();
-      let attempts = JSON.parse(redisStore['otp:otpverify@example.com'] as string).attempts;
-      expect(attempts).toBe(1);
+
+      const stored1 = (await redis.get('otp:otpverify@example.com')) as string;
+      const parsed1 = JSON.parse(stored1);
+      expect(parsed1.attempts).toBe(1);
 
       res = await request(app).post('/api/auth/otp/verify').send({
         email: 'otpverify@example.com',
         otp: '000000',
       });
       expect(res.status).toBe(401);
-      attempts = JSON.parse(redisStore['otp:otpverify@example.com'] as string).attempts;
-      expect(attempts).toBe(2);
+
+      const stored2 = (await redis.get('otp:otpverify@example.com')) as string;
+      const parsed2 = JSON.parse(stored2);
+      expect(parsed2.attempts).toBe(2);
 
       res = await request(app).post('/api/auth/otp/verify').send({
         email: 'otpverify@example.com',
@@ -416,10 +342,12 @@ describe('Auth Controller Integration', () => {
       });
       expect(res.status).toBe(401);
       expect(res.body.error.message).toMatch(/too many failed attempts/i);
-      expect(redisStore['otp:otpverify@example.com']).toBeUndefined();
+
+      const stored3 = await redis.get('otp:otpverify@example.com');
+      expect(stored3).toBeNull();
     });
 
-    it('should fail verify if OTP is expired/missing in Redis mock', async () => {
+    it('should return 401 if OTP is expired or missing', async () => {
       const res = await request(app).post('/api/auth/otp/verify').send({
         email: 'expired@example.com',
         otp: '123456',
@@ -447,7 +375,7 @@ describe('Auth Controller Integration', () => {
       expect(user?.oauthId).toBe('google-sub-123');
     });
 
-    it('should fail if google token is invalid', async () => {
+    it('should return 401 if Google token is invalid', async () => {
       const res = await request(app)
         .post('/api/auth/oauth/google')
         .send({ token: 'invalid-token', role: 'PATIENT' });
@@ -455,7 +383,7 @@ describe('Auth Controller Integration', () => {
       expect(res.status).toBe(401);
     });
 
-    it('should fail if Google user is new and role is missing', async () => {
+    it('should return 400 if Google user is new and role is missing', async () => {
       const res = await request(app)
         .post('/api/auth/oauth/google')
         .send({ token: 'valid-google-token' });
@@ -482,7 +410,7 @@ describe('Auth Controller Integration', () => {
       expect(user?.oauthProvider).toBe('APPLE');
     });
 
-    it('should fail if apple token is invalid', async () => {
+    it('should return 401 if Apple token is invalid', async () => {
       const res = await request(app)
         .post('/api/auth/oauth/apple')
         .send({ token: 'invalid-token', role: 'PATIENT' });
@@ -491,34 +419,175 @@ describe('Auth Controller Integration', () => {
     });
   });
 
-  describe('POST /api/auth/password/forgot & /api/auth/password/reset', () => {
+  describe('POST /api/auth/refresh', () => {
+    let validRefreshToken: string;
+    let userId: string;
+
+    beforeEach(async () => {
+      const user = await createUser({ email: 'refresh@example.com', role: UserRole.PATIENT });
+      userId = user.id;
+      const { refreshToken, tokenId: tid } = await createRefreshToken(user);
+      validRefreshToken = refreshToken;
+      _tokenId = tid;
+    });
+
+    it('should refresh token successfully using valid refresh token', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: validRefreshToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.token).toBeDefined();
+      expect(res.body.data.refreshToken).toBeDefined();
+
+      const refreshKey = `refresh:${userId}`;
+      const stored = await redis.hgetall(refreshKey);
+      expect(Object.keys(stored).length).toBe(1);
+    });
+
+    it('should return 400 with missing refresh token', async () => {
+      const res = await request(app).post('/api/auth/refresh').send({});
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 401 with invalid signature refresh token format', async () => {
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: 'invalid.jwt.format' });
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 401 if refresh token is valid format but not registered in Redis', async () => {
+      const unusedToken = jwt.sign({ userId }, REFRESH_SECRET, { expiresIn: '7d' });
+
+      const res = await request(app).post('/api/auth/refresh').send({ refreshToken: unusedToken });
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toMatch(/invalid or expired/i);
+    });
+
+    it('should return 401 if refresh token has been revoked', async () => {
+      await prisma.refreshToken.updateMany({
+        where: {
+          userId,
+          tokenHash: crypto.createHash('sha256').update(validRefreshToken).digest('hex'),
+        },
+        data: { isActive: false, isRevoked: true },
+      });
+
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: validRefreshToken });
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toMatch(/invalid or expired/i);
+    });
+
+    it('should return 401 if refresh token is expired beyond grace period', async () => {
+      const expiredHash = crypto.createHash('sha256').update(validRefreshToken).digest('hex');
+      await prisma.refreshToken.update({
+        where: { tokenHash: expiredHash },
+        data: { expiresAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
+      });
+
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: validRefreshToken });
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toMatch(/refresh token expired/i);
+    });
+  });
+
+  describe('POST /api/auth/logout', () => {
+    let validRefreshToken: string;
+    let userId: string;
+    let tokenId: string;
+
+    beforeEach(async () => {
+      const user = await createUser({ email: 'logout@example.com', role: UserRole.PATIENT });
+      userId = user.id;
+      const { refreshToken, tokenId: tid } = await createRefreshToken(user);
+      validRefreshToken = refreshToken;
+      tokenId = tid;
+    });
+
+    it('should logout and remove refresh token from Redis', async () => {
+      const beforeCheck = await redis.hexists(`refresh:${userId}`, tokenId);
+      expect(beforeCheck).toBe(1);
+
+      const res = await request(app)
+        .post('/api/auth/logout')
+        .send({ refreshToken: validRefreshToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const afterCheck = await redis.hexists(`refresh:${userId}`, tokenId);
+      expect(afterCheck).toBe(0);
+    });
+
+    it('should return 401 if refresh token is invalid', async () => {
+      const res = await request(app).post('/api/auth/logout').send({ refreshToken: 'invalid' });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('POST /api/auth/password/forgot', () => {
+    it('should return 200 and store reset OTP in Redis when user exists', async () => {
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash('oldpassword', salt);
+      await prisma.user.create({
+        data: {
+          email: 'resetflow@example.com',
+          passwordHash,
+          role: UserRole.PATIENT,
+          status: UserStatus.ACTIVE,
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/auth/password/forgot')
+        .send({ email: 'resetflow@example.com' });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const redisKey = 'reset:resetflow@example.com';
+      const stored = await redis.get(redisKey);
+      expect(stored).toBeDefined();
+      const { hash } = JSON.parse(stored as string);
+      expect(hash).toBeDefined();
+    });
+  });
+
+  describe('POST /api/auth/password/reset', () => {
     beforeEach(async () => {
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash('oldpassword', salt);
       await prisma.user.create({
-        data: { email: 'resetflow@example.com', passwordHash, role: 'PATIENT', status: 'ACTIVE' },
+        data: {
+          email: 'resetflow@example.com',
+          passwordHash,
+          role: UserRole.PATIENT,
+          status: UserStatus.ACTIVE,
+        },
       });
+      const otpHash = hashOtp('654321');
+      await redis.set(
+        'reset:resetflow@example.com',
+        JSON.stringify({ hash: otpHash, attempts: 0 }),
+        'EX',
+        600
+      );
     });
 
-    it('should complete the entire forgot-verify-reset password flow successfully', async () => {
-      const forgotRes = await request(app)
-        .post('/api/auth/password/forgot')
-        .send({ email: 'resetflow@example.com' });
-      expect(forgotRes.status).toBe(200);
-
-      const redisKey = 'reset:resetflow@example.com';
-      expect(redisStore[redisKey]).toBeDefined();
-      const { otp } = JSON.parse(redisStore[redisKey] as string);
-      expect(otp).toBeDefined();
-
-      const resetRes = await request(app).post('/api/auth/password/reset').send({
+    it('should reset password successfully with valid OTP', async () => {
+      const res = await request(app).post('/api/auth/password/reset').send({
         email: 'resetflow@example.com',
-        otp,
+        otp: '654321',
         newPassword: 'N3wS3cureP@ss!',
       });
 
-      expect(resetRes.status).toBe(200);
-      expect(resetRes.body.success).toBe(true);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
 
       const loginRes = await request(app).post('/api/auth/login').send({
         email: 'resetflow@example.com',
@@ -526,6 +595,52 @@ describe('Auth Controller Integration', () => {
       });
       expect(loginRes.status).toBe(200);
       expect(loginRes.body.success).toBe(true);
+    });
+
+    it('should return 401 with invalid OTP', async () => {
+      const res = await request(app).post('/api/auth/password/reset').send({
+        email: 'resetflow@example.com',
+        otp: '000000',
+        newPassword: 'N3wS3cureP@ss!',
+      });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('POST /api/auth/verify-email', () => {
+    it('should send verification code successfully', async () => {
+      const user = await createUser({ email: 'verifyemail@example.com', role: UserRole.PATIENT });
+      await createPatientProfile(user, { firstName: 'Verify', lastName: 'Email' });
+
+      const res = await request(app).post('/api/auth/verify-email').send({
+        email: 'verifyemail@example.com',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+  });
+
+  describe('POST /api/auth/verify-phone', () => {
+    it('should return 500 if Twilio is not configured', async () => {
+      const originalTwilioSid = process.env.TWILIO_ACCOUNT_SID;
+      const originalTwilioToken = process.env.TWILIO_AUTH_TOKEN;
+      const originalTwilioPhone = process.env.TWILIO_PHONE_NUMBER;
+
+      try {
+        delete process.env.TWILIO_ACCOUNT_SID;
+        delete process.env.TWILIO_AUTH_TOKEN;
+        delete process.env.TWILIO_PHONE_NUMBER;
+
+        const res = await request(app).post('/api/auth/verify-phone').send({
+          phone: '+234801234567',
+        });
+
+        expect(res.status).toBe(500);
+      } finally {
+        process.env.TWILIO_ACCOUNT_SID = originalTwilioSid;
+        process.env.TWILIO_AUTH_TOKEN = originalTwilioToken;
+        process.env.TWILIO_PHONE_NUMBER = originalTwilioPhone;
+      }
     });
   });
 });

@@ -74,6 +74,13 @@ export const AddressListResponseSchema = registry.register(
   })
 );
 
+// Type exports
+export type AddressSchema = z.infer<typeof AddressSchema>;
+export type CreateAddressInputSchema = z.infer<typeof CreateAddressInputSchema>;
+export type UpdateAddressInputSchema = z.infer<typeof UpdateAddressInputSchema>;
+export type ValidateAddressInputSchema = z.infer<typeof ValidateAddressInputSchema>;
+export type AddressListResponseSchema = z.infer<typeof AddressListResponseSchema>;
+
 // Register OpenAPI paths
 registry.registerPath({
   method: 'get',

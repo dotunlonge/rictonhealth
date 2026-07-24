@@ -105,3 +105,6 @@ export const CreateOrderResponse = registry.register(
     data: PharmacyOrderSchema,
   })
 );
+
+// Type exports
+export type ProductSchema = z.infer<typeof ProductSchema>;
