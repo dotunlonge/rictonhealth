@@ -15,7 +15,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
       await Promise.all([
         prisma.user.count(),
         prisma.user.count({ where: { role: 'PATIENT' } }),
-        prisma.user.count({ where: { role: 'PROVIDER' } }),
+        prisma.user.count({ where: { role: 'CONSULTANT' } }),
         prisma.user.count({ where: { role: 'PHARMACIST' } }),
         prisma.user.count({ where: { role: 'HOSPITAL_ADMIN' } }),
       ]);
@@ -44,7 +44,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
         totalHospitals,
         totalAppointments,
         completedAppointments,
-        totalRevenue: payments._sum.amount || 0,
+        totalRevenue: payments._sum.amount ? Number(payments._sum.amount) : 0,
         activeSubscriptions,
       },
     });
@@ -76,19 +76,18 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
 
     const byType = appointments.reduce(
       (acc, apt) => {
-        acc[apt.type || 'UNKNOWN'] = (acc[apt.type || 'UNKNOWN'] || 0) + 1;
+        const typeKey = apt.type || 'UNKNOWN';
+        acc[typeKey] = (acc[typeKey] || 0) + 1;
         return acc;
       },
       {} as Record<string, number>
     );
 
-    // Simple trend calculation - group by period
     const trend = appointments.map((apt) => ({
       period: apt.createdAt.toISOString().split('T')[0],
       count: 1,
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
       trend.reduce(
         (acc, item) => {
@@ -130,12 +129,12 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
       where: { status: 'SUCCESS' },
     });
 
-    const totalRevenue = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
 
     const byType = payments.reduce(
       (acc, p) => {
         const type = p.type || 'UNKNOWN';
-        acc[type] = (acc[type] || 0) + p.amount;
+        acc[type] = (acc[type] || 0) + Number(p.amount);
         return acc;
       },
       {} as Record<string, number>
@@ -143,10 +142,9 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
 
     const trend = payments.map((p) => ({
       period: p.createdAt.toISOString().split('T')[0],
-      amount: p.amount,
+      amount: Number(p.amount),
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
       trend.reduce(
         (acc, item) => {
@@ -200,7 +198,6 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
       count: 1,
     }));
 
-    // Aggregate by date
     const aggregatedTrend = Object.values(
       trend.reduce(
         (acc, item) => {
@@ -233,14 +230,14 @@ export const getProviderPerformance = async (req: Request, res: Response, next: 
     RangeQuerySchema.parse(req.query);
 
     const providers = await prisma.user.findMany({
-      where: { role: 'PROVIDER' },
+      where: { role: 'CONSULTANT' },
       select: {
         id: true,
-        firstName: true,
-        lastName: true,
-        profile: {
+        email: true,
+        providerProfile: {
           select: {
             specialty: true,
+            rating: true,
           },
         },
       },
@@ -255,23 +252,13 @@ export const getProviderPerformance = async (req: Request, res: Response, next: 
           }),
         ]);
 
-        const reviews = await prisma.review.findMany({
-          where: { providerId: provider.id },
-          select: { rating: true },
-        });
-
-        const rating =
-          reviews.length > 0
-            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-            : null;
-
         return {
           providerId: provider.id,
-          name: `${provider.firstName} ${provider.lastName}`.trim(),
-          specialty: provider.profile?.specialty || null,
+          name: provider.email || 'Consultant',
+          specialty: provider.providerProfile?.specialty || null,
           appointmentCount,
           completedCount,
-          rating,
+          rating: provider.providerProfile?.rating ? Number(provider.providerProfile.rating) : null,
         };
       })
     );
@@ -295,10 +282,10 @@ export const getPharmacyMetrics = async (req: Request, res: Response, next: Next
 
     const [totalPharmacies, verifiedPharmacies] = await Promise.all([
       prisma.user.count({ where: { role: 'PHARMACIST' } }),
-      prisma.user.count({ where: { role: 'PHARMACIST', isVerified: true } }),
+      prisma.pharmacyProfile.count({ where: { isVerified: true } }),
     ]);
 
-    const orders = await prisma.order.findMany({
+    const orders = await prisma.pharmacyOrder.findMany({
       select: {
         status: true,
         totalAmount: true,
@@ -307,15 +294,12 @@ export const getPharmacyMetrics = async (req: Request, res: Response, next: Next
 
     const totalOrders = orders.length;
 
-    const ordersByStatus = orders.reduce(
-      (acc, o) => {
-        acc[o.status] = (acc[o.status] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
+    const ordersByStatus = orders.reduce((acc: Record<string, number>, o) => {
+      acc[o.status] = (acc[o.status] || 0) + 1;
+      return acc;
+    }, {});
 
-    const totalOrderValue = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+    const totalOrderValue = orders.reduce((sum: number, o) => sum + Number(o.totalAmount), 0);
 
     res.json({
       success: true,
