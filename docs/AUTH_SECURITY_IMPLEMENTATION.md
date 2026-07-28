@@ -13,12 +13,14 @@ This document details the comprehensive security enhancements implemented for th
 **Problem:** Without token versioning, compromised passwords couldn't instantly invalidate all existing sessions.
 
 **Solution Implemented:**
+
 - Added `tokenVersion Int @default(0)` field to User model
 - JWT payload now includes `tokenVersion` claim
 - Access token middleware validates tokenVersion matches current user version
 - Password reset automatically increments tokenVersion, invalidating all sessions
 
 **Code Changes:**
+
 ```prisma
 // schema.prisma
 model User {
@@ -28,12 +30,16 @@ model User {
 
 ```typescript
 // JWT generation
-const token = jwt.sign({
-  userId: user.id,
-  role: user.role,
-  tokenVersion: user.tokenVersion, // ← Included in payload
-  jti,
-}, JWT_SECRET, { expiresIn: '15m' });
+const token = jwt.sign(
+  {
+    userId: user.id,
+    role: user.role,
+    tokenVersion: user.tokenVersion, // ← Included in payload
+    jti,
+  },
+  JWT_SECRET,
+  { expiresIn: '15m' }
+);
 ```
 
 **Security Impact:** CRITICAL - Enables instant session invalidation on password change or security events.
@@ -45,12 +51,14 @@ const token = jwt.sign({
 **Problem:** AuditLog model existed but was never used in auth flows.
 
 **Solution Implemented:**
+
 - Created `auditLog()` helper function that logs all auth events
 - Integrated into every auth endpoint: login, logout, register, refresh, password reset
 - Includes risk scoring for suspicious activities
 - Captures device info, IP, user agent
 
 **Events Logged:**
+
 - `REGISTER_SUCCESS` / `REGISTER_FAILURE`
 - `LOGIN_SUCCESS` / `LOGIN_FAILURE` (with reason codes)
 - `TOKEN_REFRESH` (with family tracking)
@@ -61,12 +69,19 @@ const token = jwt.sign({
 - `DEVICE_MISMATCH` (suspicious activity)
 
 **Code Example:**
+
 ```typescript
-await auditLog('LOGIN_SUCCESS', user.id, req, {
-  deviceId,
-  rememberMe: true,
-  tokenId,
-}, riskScore); // Risk score 0-100
+await auditLog(
+  'LOGIN_SUCCESS',
+  user.id,
+  req,
+  {
+    deviceId,
+    rememberMe: true,
+    tokenId,
+  },
+  riskScore
+); // Risk score 0-100
 ```
 
 **Security Impact:** HIGH - Essential for compliance, forensics, and threat detection.
@@ -78,12 +93,14 @@ await auditLog('LOGIN_SUCCESS', user.id, req, {
 **Problem:** No way to detect when tokens were stolen and used from different devices.
 
 **Solution Implemented:**
+
 - Added `deviceId`, `deviceFingerprint` fields to RefreshToken model
 - Client sends `X-Device-ID` and `X-Device-Fingerprint` headers
 - Server validates device consistency on token refresh
 - Mismatch triggers high-risk audit log (risk score +50)
 
 **Schema Additions:**
+
 ```prisma
 model RefreshToken {
   deviceId          String?
@@ -95,13 +112,20 @@ model RefreshToken {
 ```
 
 **Validation Logic:**
+
 ```typescript
 if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
   riskScore += 50; // High risk
-  await auditLog('DEVICE_MISMATCH', decoded.userId, req, {
-    storedDeviceId: currentToken.deviceId,
-    incomingDeviceId: deviceId,
-  }, riskScore);
+  await auditLog(
+    'DEVICE_MISMATCH',
+    decoded.userId,
+    req,
+    {
+      storedDeviceId: currentToken.deviceId,
+      incomingDeviceId: deviceId,
+    },
+    riskScore
+  );
 }
 ```
 
@@ -114,17 +138,22 @@ if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
 **Problem:** Couldn't revoke individual tokens without affecting others.
 
 **Solution Implemented:**
+
 - Every JWT now includes unique `jti` (JWT ID) claim
 - Access tokens can be individually blacklisted
 - Refresh tokens tracked by JTI in database
 
 ```typescript
 const jti = crypto.randomUUID();
-const token = jwt.sign({
-  userId: user.id,
-  jti, // ← Unique identifier
-  tokenVersion,
-}, JWT_SECRET, { expiresIn: '15m' });
+const token = jwt.sign(
+  {
+    userId: user.id,
+    jti, // ← Unique identifier
+    tokenVersion,
+  },
+  JWT_SECRET,
+  { expiresIn: '15m' }
+);
 ```
 
 **Security Impact:** MEDIUM - Enables granular token revocation.
@@ -138,25 +167,33 @@ const token = jwt.sign({
 **Purpose:** Detect and respond to token reuse attacks.
 
 **Implementation:**
+
 - Each refresh token belongs to a "family" identified by `tokenFamily` field
 - Child tokens reference parent via `parentTokenId`
 - When a revoked token is reused, ENTIRE FAMILY is invalidated
 
 **Attack Detection:**
+
 ```typescript
 if (revokedToken && revokedToken.isRevoked) {
   // TOKEN REUSE ATTACK DETECTED
-  await auditLog('TOKEN_REUSE_ATTACK', decoded.userId, req, {
-    tokenId: revokedToken.id,
-    tokenFamily: revokedToken.tokenFamily,
-  }, 90); // Critical risk score
-  
+  await auditLog(
+    'TOKEN_REUSE_ATTACK',
+    decoded.userId,
+    req,
+    {
+      tokenId: revokedToken.id,
+      tokenFamily: revokedToken.tokenFamily,
+    },
+    90
+  ); // Critical risk score
+
   // Revoke entire family
   await prisma.refreshToken.updateMany({
     where: { userId, tokenFamily: revokedToken.tokenFamily },
     data: { isRevoked: true, revokeReason: 'TOKEN_REUSE_ATTACK_DETECTED' },
   });
-  
+
   // Increment tokenVersion to kill all access tokens
   await prisma.user.update({
     where: { id: userId },
@@ -166,6 +203,7 @@ if (revokedToken && revokedToken.isRevoked) {
 ```
 
 **Schema:**
+
 ```prisma
 model RefreshToken {
   parentTokenId   String?  @db.Uuid
@@ -184,17 +222,26 @@ model RefreshToken {
 **Purpose:** Balance security with UX - allow slightly expired tokens to refresh.
 
 **Implementation:**
+
 - 24-hour grace period after token expiry
 - Tokens can still refresh within grace period
 - Beyond grace period = hard failure
 
 ```typescript
 const gracePeriodMs = 24 * 60 * 60 * 1000; // 24 hours
-if (currentToken.expiresAt < now && 
-    currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()) {
-  await auditLog('REFRESH_TOKEN_EXPIRED', decoded.userId, req, {
-    expiresAt: currentToken.expiresAt,
-  }, 30);
+if (
+  currentToken.expiresAt < now &&
+  currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()
+) {
+  await auditLog(
+    'REFRESH_TOKEN_EXPIRED',
+    decoded.userId,
+    req,
+    {
+      expiresAt: currentToken.expiresAt,
+    },
+    30
+  );
   throw new UnauthorizedError('Refresh token expired');
 }
 ```
@@ -208,6 +255,7 @@ if (currentToken.expiresAt < now &&
 **Purpose:** Detect when account is accessed from geographically impossible locations.
 
 **Implementation:**
+
 - Tracks time between logins
 - If login occurs < 1 hour after previous login, increases risk score
 - Can be extended with GeoIP checking
@@ -215,7 +263,8 @@ if (currentToken.expiresAt < now &&
 ```typescript
 if (user.lastLoginAt) {
   const timeSinceLastLogin = Date.now() - user.lastLoginAt.getTime();
-  if (timeSinceLastLogin < 3600000) { // < 1 hour
+  if (timeSinceLastLogin < 3600000) {
+    // < 1 hour
     riskScore += 10; // Could add GeoIP check here
   }
 }
@@ -232,6 +281,7 @@ if (user.lastLoginAt) {
 **Purpose:** Trigger additional verification for suspicious logins.
 
 **Implementation:**
+
 - Risk score calculated during login (0-100)
 - Factors: new device, unusual timing, failed attempts
 - Score logged with audit event
@@ -248,6 +298,7 @@ if (user.lastLoginAt) {
 | Token reuse attack | +90 |
 
 **Future Enhancement:**
+
 ```typescript
 if (riskScore >= 50) {
   // Require 2FA
@@ -266,6 +317,7 @@ if (riskScore >= 50) {
 **Purpose:** Extend session duration for trusted devices.
 
 **Implementation:**
+
 - Login accepts `rememberMe: boolean` parameter
 - Extends refresh token from 7 days → 30 days
 - Stored in token metadata
@@ -288,18 +340,20 @@ const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
 **Purpose:** Skip 2FA on recognized, trusted devices.
 
 **Implementation:**
+
 - Device fingerprint stored on first successful 2FA
 - Subsequent logins from same device can bypass 2FA
 - Configurable trust duration (e.g., 30 days)
 
 **Future Enhancement:**
+
 ```typescript
 const trustedDevice = await prisma.trustedDevice.findFirst({
-  where: { 
-    userId, 
+  where: {
+    userId,
     deviceFingerprint,
-    expiresAt: { gt: new Date() }
-  }
+    expiresAt: { gt: new Date() },
+  },
 });
 
 if (trustedDevice) {
@@ -316,6 +370,7 @@ if (trustedDevice) {
 **Purpose:** Allow users to view and revoke active sessions.
 
 **New Endpoints:**
+
 ```typescript
 GET  /api/auth/sessions          // List active sessions
 DELETE /api/auth/sessions/:id    // Revoke specific session
@@ -323,6 +378,7 @@ POST /api/auth/logout-all        // Revoke all sessions
 ```
 
 **Response Format:**
+
 ```json
 {
   "success": true,
@@ -353,6 +409,7 @@ POST /api/auth/logout-all        // Revoke all sessions
 ### Migration Required
 
 Run after deployment:
+
 ```bash
 cd packages/db
 npx prisma migrate dev --name add_auth_security_features
@@ -362,9 +419,11 @@ npx prisma generate
 ### New Fields Summary
 
 **User Model:**
+
 - `tokenVersion Int @default(0)`
 
 **RefreshToken Model:**
+
 - `deviceId String?`
 - `deviceFingerprint String?`
 - `isRevoked Boolean @default(false)`
@@ -376,6 +435,7 @@ npx prisma generate
 - `usageCount Int @default(0)`
 
 **AuditLog Model:**
+
 - `userAgent String?`
 - `deviceId String?`
 - `riskScore Int?`
@@ -424,29 +484,35 @@ SENTRY_DSN=<sentry dsn>
 ### Modified Endpoints
 
 **POST /api/auth/login**
+
 - New optional body param: `rememberMe: boolean`
 - Returns: `{ token, refreshToken, user }`
 - Headers accepted: `X-Device-ID`, `X-Device-Fingerprint`
 
 **POST /api/auth/refresh**
+
 - Enhanced validation: device fingerprint, token family
 - Response includes rotated refresh token
 
 **POST /api/auth/logout**
+
 - Now audits the logout event
 - Properly marks token as revoked
 
 ### New Endpoints
 
 **POST /api/auth/logout-all**
+
 - Requires: Authentication
 - Effect: Revokes ALL sessions, increments tokenVersion
 
 **GET /api/auth/sessions**
+
 - Requires: Authentication
 - Returns: List of active sessions with device info
 
 **DELETE /api/auth/sessions/:sessionId**
+
 - Requires: Authentication
 - Effect: Revokes specific session
 
@@ -501,12 +567,14 @@ SENTRY_DSN=<sentry dsn>
 ## Testing Checklist
 
 ### Unit Tests
+
 - [ ] Token generation includes tokenVersion
 - [ ] Token generation includes jti
 - [ ] Remember me extends token expiry
 - [ ] Device info captured correctly
 
 ### Integration Tests
+
 - [ ] Login with new device increments risk score
 - [ ] Login with known device has low risk score
 - [ ] Token refresh rotates tokens correctly
@@ -515,6 +583,7 @@ SENTRY_DSN=<sentry dsn>
 - [ ] Password reset invalidates all sessions
 
 ### Security Tests
+
 - [ ] Stolen token used from different device is rejected
 - [ ] Token reuse triggers family revocation
 - [ ] Logout-all invalidates all sessions
@@ -522,6 +591,7 @@ SENTRY_DSN=<sentry dsn>
 - [ ] Audit logs capture all required events
 
 ### Load Tests
+
 - [ ] Token refresh under high load
 - [ ] Concurrent session management
 - [ ] Redis performance with large blacklist
@@ -531,11 +601,13 @@ SENTRY_DSN=<sentry dsn>
 ## Deployment Steps
 
 1. **Backup Database**
+
    ```bash
    pg_dump ricton > backup_$(date +%Y%m%d).sql
    ```
 
 2. **Apply Migration**
+
    ```bash
    cd packages/db
    npx prisma migrate dev --name add_auth_security_features
@@ -543,6 +615,7 @@ SENTRY_DSN=<sentry dsn>
    ```
 
 3. **Deploy Updated Code**
+
    ```bash
    npm run build
    npm run deploy
@@ -554,9 +627,10 @@ SENTRY_DSN=<sentry dsn>
    - Check database connectivity
 
 5. **Monitor Audit Logs**
+
    ```sql
-   SELECT action, "riskScore", COUNT(*) 
-   FROM audit_logs 
+   SELECT action, "riskScore", COUNT(*)
+   FROM audit_logs
    WHERE "resourceType" = 'AUTH'
    GROUP BY action, "riskScore"
    ORDER BY MAX("createdAt") DESC;
@@ -573,17 +647,20 @@ SENTRY_DSN=<sentry dsn>
 ## Compliance Notes
 
 ### NDPA (Nigeria Data Protection Act)
+
 - ✅ Consent version tracked
 - ✅ Audit logs retained (configure retention policy)
 - ✅ Session data available for user access requests
 - ✅ Right to be forgotten: delete user cascades to tokens/logs
 
 ### PCI-DSS (if handling payments)
+
 - ✅ Token rotation prevents replay attacks
 - ✅ Audit logging for all auth events
 - ✅ Device fingerprinting for fraud detection
 
 ### HIPAA (if US expansion)
+
 - ✅ Access logging (who accessed what when)
 - ✅ Session management (ability to terminate access)
 - ✅ Automatic session timeout (15-min access tokens)
@@ -622,16 +699,19 @@ SENTRY_DSN=<sentry dsn>
 ### Common Issues
 
 **Issue:** Users report being logged out after password reset
+
 - **Expected:** This is intentional security behavior
 - **Explanation:** tokenVersion increment invalidates all sessions
 - **Resolution:** Inform users this is a security feature
 
 **Issue:** High rate of DEVICE_MISMATCH audit logs
+
 - **Possible Cause:** Users switching devices frequently
 - **Investigation:** Check if deviceId is being generated consistently on client
 - **Resolution:** Ensure client generates deviceId once per app install
 
 **Issue:** Token refresh failing with "Token reuse detected"
+
 - **Possible Cause:** Network retry causing duplicate refresh attempts
 - **Investigation:** Check client-side retry logic
 - **Resolution:** Implement idempotency key for refresh requests
@@ -639,6 +719,7 @@ SENTRY_DSN=<sentry dsn>
 ### Monitoring Queries
 
 **Check for token reuse attacks:**
+
 ```sql
 SELECT COUNT(*), DATE("createdAt") as day
 FROM audit_logs
@@ -648,6 +729,7 @@ ORDER BY day DESC;
 ```
 
 **High-risk login attempts:**
+
 ```sql
 SELECT "actorId", "ipAddress", "riskScore", "createdAt"
 FROM audit_logs
@@ -657,6 +739,7 @@ LIMIT 100;
 ```
 
 **Active sessions per user:**
+
 ```sql
 SELECT u.email, COUNT(rt.id) as session_count
 FROM users u
@@ -672,6 +755,7 @@ ORDER BY session_count DESC;
 ## Conclusion
 
 This implementation provides enterprise-grade authentication security with:
+
 - ✅ Instant session invalidation capability
 - ✅ Comprehensive audit logging
 - ✅ Advanced threat detection (token reuse, device mismatch)
