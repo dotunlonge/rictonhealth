@@ -18,9 +18,13 @@ class ApiClient {
     return null;
   }
 
-  public setToken(token: string) {
+  public setToken(token: string | null) {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('ricton_access_token', token);
+      if (token) {
+        localStorage.setItem('ricton_access_token', token);
+      } else {
+        localStorage.removeItem('ricton_access_token');
+      }
     }
   }
 
@@ -97,6 +101,14 @@ class ApiClient {
 
   public delete<T = any>(endpoint: string, options?: RequestInit) {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
+  }
+
+  public patch<T = any>(endpoint: string, body?: any, options?: RequestInit) {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
   }
 }
 

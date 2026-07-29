@@ -1,23 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'PATIENT' | 'DOCTOR' | 'PHARMACIST' | 'HOSPITAL_ADMIN'>('PATIENT');
+  const [role, setRole] = useState<'PATIENT' | 'CONSULTANT' | 'PHARMACIST' | 'HOSPITAL_ADMIN'>('PATIENT');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const canContinue =
+    firstName.trim().length > 0 &&
+    lastName.trim().length > 0 &&
+    email.trim().length > 0 &&
+    phone.trim().length > 0 &&
+    password.length >= 8;
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canContinue || isLoading) return;
+
     setIsLoading(true);
     setErrorMsg('');
 
@@ -42,146 +52,188 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-slate-50 dark:bg-slate-900">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="inline-flex items-center gap-2 text-2xl font-bold text-teal-600 dark:text-teal-400">
-          <span className="p-2 bg-teal-600 text-white rounded-xl shadow-md">🏥</span>
-          Ricton Health
+    <main className="bg-slate-50 min-h-screen w-full relative overflow-x-hidden font-sans antialiased text-slate-900 pb-16">
+      {/* Primary Navigation Header */}
+      <header className="max-w-[1400px] mx-auto px-8 py-6 w-full flex items-center justify-between sticky top-0 bg-slate-50/90 backdrop-blur-md z-50">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 font-black text-2xl text-[#1c7bcf]"
+          aria-label="Ricton home"
+        >
+          <img src="/logo.svg" alt="Ricton Logo" className="w-10 h-10 object-contain" />
+          <span className="tracking-tight text-slate-900 font-extrabold text-2xl">Ricton</span>
+        </Link>
+
+        <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-12">
+          <Link href="/" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
+            Home
+          </Link>
+          <Link href="/#services" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
+            Services
+          </Link>
+          <Link href="/#resources" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
+            Resources
+          </Link>
+          <Link href="/#pricing" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
+            Pricing
+          </Link>
+          <Link href="/#about-us" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
+            About us
+          </Link>
+        </nav>
+      </header>
+
+      {/* Registration Form Card Section */}
+      <section
+        className="max-w-[925px] mx-auto mt-8 sm:mt-12 bg-white rounded-[40px] md:rounded-[50px] shadow-[0px_4px_30px_rgba(0,0,0,0.08)] border border-slate-100 p-8 sm:p-14 space-y-8"
+        aria-labelledby="register-heading"
+      >
+        <div>
+          <h1
+            id="register-heading"
+            className="text-2xl font-bold text-slate-900 tracking-tight"
+          >
+            Create Your Account
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Join the Ricton Healthcare Network as a patient, doctor, or partner.
+          </p>
         </div>
-        <h2 className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-          Create Account
-        </h2>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Join the healthcare network
-        </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white dark:bg-slate-800 py-8 px-4 shadow-xl sm:rounded-2xl sm:px-10 border border-slate-200 dark:border-slate-700">
-          {errorMsg && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg text-sm">
-              {errorMsg}
-            </div>
-          )}
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-              Select Role
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { key: 'PATIENT', label: 'Patient' },
-                { key: 'DOCTOR', label: 'Doctor' },
-                { key: 'PHARMACIST', label: 'Pharmacist' },
-                { key: 'HOSPITAL_ADMIN', label: 'Hospital' },
-              ].map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setRole(item.key as any)}
-                  className={`py-2 px-3 text-xs font-semibold rounded-xl border transition-all ${
-                    role === item.key
-                      ? 'bg-teal-600 border-teal-600 text-white shadow-sm'
-                      : 'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:border-teal-500'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+        {errorMsg && (
+          <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl text-sm font-medium">
+            {errorMsg}
           </div>
+        )}
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-2 gap-3">
+        {/* Role Selector Pills */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+            I am joining as:
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { key: 'PATIENT', label: 'Patient', icon: '👤' },
+              { key: 'CONSULTANT', label: 'Doctor', icon: '🩺' },
+              { key: 'PHARMACIST', label: 'Pharmacist', icon: '💊' },
+              { key: 'HOSPITAL_ADMIN', label: 'Hospital', icon: '🏥' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setRole(item.key as any)}
+                className={`py-3 px-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 border transition-all ${
+                  role === item.key
+                    ? 'bg-[#1c7bcf] border-[#1c7bcf] text-white shadow-md'
+                    : 'border-slate-200 text-slate-700 hover:border-[#1c7bcf]/50 bg-slate-50/50'
+                }`}
+              >
+                <span>{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Registration Form */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-5">
+            {/* First & Last Name Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                  First Name
-                </label>
+                <label className="sr-only">First Name</label>
                 <input
+                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
                   type="text"
-                  required
+                  placeholder="First Name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl shadow-sm text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  required
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                  Last Name
-                </label>
+                <label className="sr-only">Last Name</label>
                 <input
+                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
                   type="text"
-                  required
+                  placeholder="Last Name"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
-                  className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl shadow-sm text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                  required
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                Email Address
-              </label>
+            {/* Email Field */}
+            <div className="relative">
+              <label className="sr-only">Email Address</label>
               <input
+                className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
                 type="email"
-                required
+                placeholder="Email Address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl shadow-sm text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                required
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                Phone Number
-              </label>
+            {/* Phone Number Field */}
+            <div className="relative">
+              <label className="sr-only">Phone Number</label>
               <input
+                className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
                 type="tel"
-                required
+                placeholder="Phone Number (+234...)"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+234..."
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl shadow-sm text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                required
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
-                Password
-              </label>
+            {/* Password Field */}
+            <div className="relative flex items-center">
+              <label className="sr-only">Password</label>
               <input
-                type="password"
-                required
+                className="w-full h-14 pl-6 pr-14 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
+                type={isPasswordVisible ? 'text' : 'password'}
+                placeholder="Password (8+ characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="mt-1 block w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-xl shadow-sm text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white"
+                required
               />
-            </div>
-
-            <div className="pt-2">
               <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-md text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition-colors disabled:opacity-50"
+                className="absolute right-5 p-2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                type="button"
+                onClick={() => setIsPasswordVisible((v) => !v)}
+                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
               >
-                {isLoading ? 'Creating Account...' : 'Continue to Verification'}
+                {isPasswordVisible ? '👁️' : '🔒'}
               </button>
             </div>
-          </form>
+          </div>
 
-          <div className="mt-6 text-center text-sm">
-            <span className="text-slate-600 dark:text-slate-400">Already registered? </span>
-            <Link
-              href="/login"
-              className="font-semibold text-teal-600 hover:text-teal-500 dark:text-teal-400"
-            >
+          {/* Submit Button */}
+          <button
+            className={`w-full h-14 flex items-center justify-center bg-[#1c7bcf] hover:bg-[#1561a7] text-white font-semibold text-lg rounded-2xl shadow-lg shadow-[#1c7bcf]/20 transition-all ${
+              canContinue && !isLoading ? 'opacity-100 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+            }`}
+            type="submit"
+            disabled={!canContinue || isLoading}
+          >
+            {isLoading ? 'Creating Account...' : 'Continue to Verification'}
+          </button>
+        </form>
+
+        {/* Footer Link */}
+        <div className="text-center pt-2">
+          <p className="text-slate-500 text-base font-medium">
+            Already have an account?{' '}
+            <Link href="/login" className="font-bold text-[#1c7bcf] hover:underline">
               Sign In
             </Link>
-          </div>
+          </p>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
