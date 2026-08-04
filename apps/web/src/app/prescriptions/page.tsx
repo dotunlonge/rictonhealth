@@ -2,99 +2,222 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 
+const navigationItems = [
+  { label: 'Home', href: '/dashboard', icon: '🏠' },
+  { label: 'Doctor', href: '/providers', icon: '🩺' },
+  { label: 'Patients', href: '/patients', icon: '👥' },
+  { label: 'Appiontment', href: '/appointments', icon: '📅' },
+  { label: 'E-prescription', href: '/prescriptions', icon: '💊' },
+  { label: 'Earnings', href: '/wallet', icon: '💳' },
+  { label: 'Reward', href: '/rewards', icon: '⭐' },
+  { label: 'Tele-medicine', href: '/telemedicine/demo', icon: '📞' },
+  { label: 'Inbox', href: '/inbox', icon: '✉️' },
+  { label: 'Setting', href: '/settings', icon: '⚙️' },
+];
+
 export default function PrescriptionsPage() {
+  const router = useRouter();
+  const [activeNav, setActiveNav] = useState('E-prescription');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('Delivered');
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadPrescriptions() {
+    async function loadData() {
+      const userRes = await api.get('/users/me');
+      if (userRes.success && userRes.data) {
+        setCurrentUser(userRes.data);
+      }
+
       const res = await api.get('/prescriptions');
       if (res.success && res.data) {
         setPrescriptions(Array.isArray(res.data) ? res.data : res.data.prescriptions || []);
       }
-      setLoading(false);
     }
-    loadPrescriptions();
+    loadData();
   }, []);
 
+  const adminName = currentUser?.email ? currentUser.email.split('@')[0] : 'Abolaji Dami';
+
+  const handleLogout = () => {
+    api.setToken(null);
+    api.clearToken();
+    router.push('/login');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <span className="p-2 bg-teal-600 text-white rounded-xl font-bold">💊</span>
-            <span className="text-xl font-bold text-slate-900 dark:text-white">E-Prescriptions</span>
-          </Link>
-          <nav className="flex items-center gap-6 text-sm font-medium">
-            <Link href="/dashboard" className="text-slate-600 dark:text-slate-300 hover:text-teal-600">
-              Dashboard
-            </Link>
-            <Link href="/pharmacy" className="text-slate-600 dark:text-slate-300 hover:text-teal-600">
-              Pharmacy Store
-            </Link>
-            <Link href="/prescriptions" className="text-teal-600 font-semibold">
-              Prescriptions
-            </Link>
+    <main className="bg-[#E8EEF9] min-h-screen flex font-sans antialiased text-slate-800">
+      {/* Blue Left Sidebar */}
+      <aside className="w-60 bg-[#1877F2] text-white flex flex-col justify-between shrink-0 shadow-lg sticky top-0 h-screen z-20">
+        <div>
+          <div className="px-6 py-6 flex items-center gap-3">
+            <img src="/logo.svg" alt="Ricton emblem" className="h-8 w-8 object-contain" />
+            <span className="text-2xl font-bold tracking-tight text-white">Ricton</span>
+          </div>
+
+          <nav className="px-3 py-2 space-y-1">
+            {navigationItems.map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                onClick={() => setActiveNav(item.label)}
+                className={`flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-medium transition-all ${
+                  activeNav === item.label
+                    ? 'bg-white text-[#1877F2] font-bold shadow-md'
+                    : 'text-white/90 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <span className="text-lg">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            ))}
           </nav>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Digital Prescriptions</h1>
-          <p className="text-sm text-slate-500">Verified doctor prescriptions signed with digital certificate integrity</p>
+        <div className="p-4 border-t border-white/10">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm font-medium text-white/90 hover:bg-white/10 hover:text-white transition-all text-left"
+          >
+            <span className="text-lg">↪️</span>
+            <span>Logout</span>
+          </button>
         </div>
+      </aside>
 
-        {loading ? (
-          <p className="text-sm text-slate-500 py-8 text-center">Loading prescriptions...</p>
-        ) : prescriptions.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-2xl p-12 text-center border border-slate-200 dark:border-slate-700">
-            <p className="text-sm text-slate-600 dark:text-slate-300">No active digital prescriptions found.</p>
+      {/* Main Workspace Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Header Bar */}
+        <header className="h-20 bg-white border-b border-slate-200/80 px-8 flex items-center justify-between sticky top-0 z-10 shadow-xs">
+          <div className="relative w-96">
+            <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-sm">
+              🔍
+            </span>
+            <input
+              type="text"
+              placeholder="Search for patient, doctor, or appointment..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-100/80 border border-slate-200 rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1877F2] focus:bg-white transition-all"
+            />
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {prescriptions.map((rx) => (
-              <div
-                key={rx.id}
-                className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="px-3 py-1 bg-teal-100 text-teal-800 rounded-full text-xs font-bold">
-                    Rx #{rx.id.slice(-6)}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    Issued: {new Date(rx.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
 
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
-                    {rx.medicationName || 'Prescribed Medication'}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1">Dosage: {rx.dosage || 'As directed by physician'}</p>
-                  <p className="text-xs text-slate-500">Frequency: {rx.frequency || 'Daily'}</p>
-                </div>
-
-                <div className="pt-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400">
-                    ✓ Doctor Digitally Signed
-                  </span>
-                  <Link
-                    href="/pharmacy"
-                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl text-xs transition-colors"
-                  >
-                    Order from Pharmacy
-                  </Link>
-                </div>
+          <div className="flex items-center gap-4">
+            <button className="p-2.5 bg-slate-100 rounded-full text-slate-600 hover:bg-slate-200 relative transition-colors">
+              🔔
+            </button>
+            <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
+              <div className="w-10 h-10 rounded-full bg-slate-300 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600">
+                👤
               </div>
-            ))}
+              <div className="text-left leading-tight">
+                <p className="text-xs font-bold text-slate-900 capitalize">{adminName}</p>
+                <p className="text-[10px] font-medium text-slate-500">Admin</p>
+              </div>
+            </div>
           </div>
-        )}
-      </main>
-    </div>
+        </header>
+
+        {/* Content Body */}
+        <main className="flex-1 p-8 overflow-y-auto space-y-6">
+          {/* Action & Filter Bar */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="relative w-80">
+              <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-sm">
+                🔍
+              </span>
+              <input
+                type="text"
+                placeholder="Search for patient"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-200/60 border-none rounded-full text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white transition-all"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-4 py-2 bg-[#1877F2] text-white rounded-full text-xs font-bold focus:outline-none cursor-pointer"
+              >
+                <option value="Delivered">Delivered</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Prescriptions Table Card */}
+          <section className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-200 font-bold uppercase tracking-wider">
+                    <th className="pb-3 px-3 w-8">
+                      <input type="checkbox" className="rounded text-[#1877F2]" />
+                    </th>
+                    <th className="pb-3 px-4">Patient name</th>
+                    <th className="pb-3 px-4">Date</th>
+                    <th className="pb-3 px-4">Medication</th>
+                    <th className="pb-3 px-4">Dose</th>
+                    <th className="pb-3 px-4">Form</th>
+                    <th className="pb-3 px-4">Quantity</th>
+                    <th className="pb-3 px-4 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-800 font-semibold">
+                  {Array.from({ length: 10 }).map((_, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-4 px-3">
+                        <input type="checkbox" className="rounded text-[#1877F2]" />
+                      </td>
+                      <td className="py-4 px-4 font-bold text-slate-900">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-600">
+                            👤
+                          </div>
+                          <span>Helen Olaleye</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-slate-600">
+                        <p>06/07/2025</p>
+                        <p className="text-[10px] text-slate-400">9:02am</p>
+                      </td>
+                      <td className="py-4 px-4 text-slate-900">
+                        <p className="font-bold">Amoxicillin</p>
+                        <p className="text-[10px] text-slate-500">500mg</p>
+                      </td>
+                      <td className="py-4 px-4 text-slate-600">
+                        <p>1 Capsule</p>
+                        <p className="text-[10px] text-slate-400">Every 12hrs</p>
+                      </td>
+                      <td className="py-4 px-4 text-slate-600">Capsule</td>
+                      <td className="py-4 px-4 text-slate-600">20 Capsules</td>
+                      <td className="py-4 px-4 text-right">
+                        <span className="text-slate-600 font-bold text-xs">{sortBy}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex justify-end items-center gap-2 pt-6">
+              <button className="w-8 h-8 rounded-full bg-slate-200 text-slate-500 font-bold text-xs flex items-center justify-center hover:bg-slate-300">
+                ‹
+              </button>
+              <button className="w-8 h-8 rounded-full bg-[#1877F2] text-white font-bold text-xs flex items-center justify-center shadow-md">
+                ›
+              </button>
+            </div>
+          </section>
+        </main>
+      </div>
+    </main>
   );
 }

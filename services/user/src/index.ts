@@ -1,13 +1,17 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
 import ddTrace from 'dd-trace';
 
 ddTrace.init({
   service: 'user-service',
   env: process.env.NODE_ENV || 'development',
 });
-
-import express, { Request, Response, NextFunction } from 'express';
-import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import {
   HTTP_STATUS,

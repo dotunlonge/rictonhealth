@@ -74,11 +74,15 @@ const generateTokens = async (
 
   const tokenHash = hashToken(refreshToken);
 
-  // Store token in Redis set with appropriate TTL
-  const refreshKey = `refresh:${user.id}`;
-  const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
-  await redis.sadd(refreshKey, refreshToken);
-  await redis.expire(refreshKey, ttlSeconds);
+  // Store token in Redis set with appropriate TTL (non-blocking fallback for dev)
+  try {
+    const refreshKey = `refresh:${user.id}`;
+    const ttlSeconds = options?.rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
+    await redis.sadd(refreshKey, refreshToken);
+    await redis.expire(refreshKey, ttlSeconds);
+  } catch (err) {
+    console.warn('Redis unavailable, proceeding with DB token tracking:', err);
+  }
 
   // Get device info from request
   const deviceIp = req

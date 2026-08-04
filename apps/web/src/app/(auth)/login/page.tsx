@@ -30,8 +30,9 @@ export default function LogInPage() {
 
     setIsLoading(false);
 
-    if (res.success && res.data?.accessToken) {
-      api.setToken(res.data.accessToken);
+    const accessToken = res.data?.token || res.data?.accessToken;
+    if (res.success && accessToken) {
+      api.setToken(accessToken);
       if (res.data.user) {
         localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
       }
