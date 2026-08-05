@@ -19,7 +19,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     { label: 'E-prescription', href: '/prescriptions', icon: '💊' },
     { label: 'Earnings', href: '/wallet', icon: '💳' },
     { label: 'Reward', href: '/rewards', icon: '⭐' },
-    { label: 'Tele-medicine', href: '/telemedicine/demo', icon: '📞' },
+    { label: 'Tele-medicine', href: '/telemedicine', icon: '📞' },
     { label: 'Pharmacy', href: '/pharmacy', icon: '🛒' },
     { label: 'Inbox', href: '/inbox', icon: '✉️' },
     { label: 'Setting', href: '/settings', icon: '⚙️' },

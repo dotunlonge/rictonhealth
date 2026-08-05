@@ -12,7 +12,7 @@ const navigationItems = [
   { label: 'E-prescription', href: '/prescriptions', icon: '💊' },
   { label: 'Earns', href: '/wallet', icon: '💳' },
   { label: 'Reward', href: '/rewards', icon: '⭐' },
-  { label: 'Tele-medicine', href: '/telemedicine/demo', icon: '📞' },
+  { label: 'Tele-medicine', href: '/telemedicine', icon: '📞' },
   { label: 'Setting', href: '/settings', icon: '⚙️' },
 ];
 

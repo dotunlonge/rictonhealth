@@ -31,7 +31,7 @@
     "db:generate": "npm run generate --workspace=@ricton/db",
     "db:seed": "npm run seed --workspace=@ricton/db",
     "docs:generate": "JWT_SECRET=docs-generation-secret npx ts-node -O '{\"module\":\"commonjs\"}' scripts/generate-docs.ts",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "**/*.ts": [

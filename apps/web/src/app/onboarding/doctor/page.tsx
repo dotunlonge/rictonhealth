@@ -1,495 +1,422 @@
 'use client';
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 
-type FormValues = {
-  firstName: string;
-  lastName: string;
-  gender: string;
-  dateOfBirth: string;
-  email: string;
-  phone: string;
-  password: string;
-};
-
-const initialFormValues: FormValues = {
-  firstName: '',
-  lastName: '',
-  gender: '',
-  dateOfBirth: '',
-  email: '',
-  phone: '',
-  password: '',
-};
+const STEPS = [
+  { id: 1, title: 'Personal Information', description: 'Basic details and profile photo' },
+  { id: 2, title: 'Professional Details', description: 'Specialty and experience' },
+  { id: 3, title: 'Licensing', description: 'Medical credentials' },
+  { id: 4, title: 'Education', description: 'Qualifications and degrees' },
+  { id: 5, title: 'Affiliations', description: 'Hospital and clinic ties' },
+  { id: 6, title: 'Billing', description: 'Bank and payout details' },
+  { id: 7, title: 'Verification', description: 'Document uploads' },
+];
 
 export default function DoctorOnboardingPage() {
   const router = useRouter();
-
-  // Onboarding Step State: 1 = Details, 2 = Verification Code
-  const [step, setStep] = useState<1 | 2>(1);
-
-  // Form Details
-  const [formValues, setFormValues] = useState<FormValues>(initialFormValues);
-  const [showPassword, setShowPassword] = useState(false);
-
-  // Email Verification Code
-  const [verificationCode, setVerificationCode] = useState<string[]>(
-    Array.from({ length: 5 }, () => '')
-  );
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
-
+  const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  
+  const [formData, setFormData] = useState({
+    // Step 1
+    firstName: '',
+    lastName: '',
+    gender: '',
+    dob: '',
+    nationality: '',
+    // Step 2
+    specialty: '',
+    subSpecialty: '',
+    yearsExperience: '',
+    // Step 3
+    licenseNumber: '',
+    licenseExpiry: '',
+    // Step 4
+    degree: '',
+    university: '',
+    graduationYear: '',
+    // Step 5
+    primaryHospital: '',
+    hospitalAddress: '',
+    // Step 6
+    bankName: '',
+    accountNumber: '',
+    // Step 7
+    idFile: null as File | null,
+    licenseFile: null as File | null,
+  });
 
-  // Password Requirements
-  const passwordRequirements = useMemo(
-    () => [
-      {
-        label: '8 character minimum',
-        isMet: formValues.password.length >= 8,
-      },
-      {
-        label: 'a number',
-        isMet: /\d/.test(formValues.password),
-      },
-      {
-        label: 'a symbol',
-        isMet: /[^A-Za-z0-9]/.test(formValues.password),
-      },
-    ],
-    [formValues.password]
-  );
-
-  const isFormValid =
-    formValues.firstName.trim().length > 0 &&
-    formValues.lastName.trim().length > 0 &&
-    formValues.gender.length > 0 &&
-    formValues.dateOfBirth.length > 0 &&
-    /\S+@\S+\.\S+/.test(formValues.email) &&
-    formValues.phone.trim().length > 0 &&
-    passwordRequirements.every((requirement) => requirement.isMet);
-
-  const isCodeComplete = verificationCode.every((digit) => digit.length === 1);
-
-  const updateField = (field: keyof FormValues, value: string) => {
-    setFormValues((currentValues) => ({
-      ...currentValues,
-      [field]: value,
-    }));
-    setErrorMsg('');
+  const updateForm = (field: string, value: any) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Step 1: Submit Details & Move to Verification
-  const handleDetailsSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!isFormValid) return;
-    setStep(2);
-  };
+  const handleNext = () => setStep((s) => Math.min(s + 1, 7));
+  const handlePrev = () => setStep((s) => Math.max(s - 1, 1));
 
-  // Step 2 Verification Input Handlers
-  const handleCodeChange = (index: number, event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value.replace(/\D/g, '');
-
-    if (!value) {
-      const nextCode = [...verificationCode];
-      nextCode[index] = '';
-      setVerificationCode(nextCode);
-      return;
-    }
-
-    const nextCode = [...verificationCode];
-    const incomingDigits = value.slice(0, verificationCode.length - index).split('');
-
-    incomingDigits.forEach((digit, digitIndex) => {
-      nextCode[index + digitIndex] = digit;
-    });
-
-    setVerificationCode(nextCode);
-
-    const nextInputIndex = Math.min(
-      index + incomingDigits.length,
-      verificationCode.length - 1
-    );
-
-    inputRefs.current[nextInputIndex]?.focus();
-  };
-
-  const handleKeyDown = (index: number, event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Backspace' && !verificationCode[index] && index > 0) {
-      event.preventDefault();
-      const nextCode = [...verificationCode];
-      nextCode[index - 1] = '';
-      setVerificationCode(nextCode);
-      inputRefs.current[index - 1]?.focus();
-    }
-
-    if (event.key === 'ArrowLeft' && index > 0) {
-      event.preventDefault();
-      inputRefs.current[index - 1]?.focus();
-    }
-
-    if (event.key === 'ArrowRight' && index < verificationCode.length - 1) {
-      event.preventDefault();
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleDifferentEmail = () => {
-    setVerificationCode(Array.from({ length: 5 }, () => ''));
-    setStep(1);
-  };
-
-  // Step 2: Final Verification Submit
-  const handleVerifySubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!isCodeComplete || submitting) {
-      inputRefs.current[verificationCode.findIndex((digit) => !digit)]?.focus();
-      return;
-    }
-
+  const handleSubmit = async () => {
     setSubmitting(true);
-    setErrorMsg('');
-
-    // Register doctor account & onboarding details
-    const res = await api.post('/auth/register', {
-      firstName: formValues.firstName,
-      lastName: formValues.lastName,
-      email: formValues.email,
-      phone: formValues.phone,
-      password: formValues.password,
-      role: 'DOCTOR',
-      gender: formValues.gender,
-      dateOfBirth: formValues.dateOfBirth,
-      verificationCode: verificationCode.join(''),
+    
+    // In a real implementation we would hit an endpoint specifically for provider onboarding
+    // For now we map it to user profile update
+    const res = await api.put('/users/me', {
+      consultantProfile: {
+        specialization: formData.specialty,
+        licenseNumber: formData.licenseNumber,
+        yearsOfExperience: parseInt(formData.yearsExperience) || 0,
+        metadata: formData,
+      },
     });
-
     setSubmitting(false);
 
-    if (res.success && res.data?.accessToken) {
-      api.setToken(res.data.accessToken);
-      if (res.data.user) {
-        localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
-      }
-      router.push('/dashboard');
+    if (res.success) {
+      router.push('/dashboard/provider');
     } else {
-      setErrorMsg(res.error?.message || 'Verification failed. Please check your 5-digit code.');
+      alert(res.error?.message || 'Provider onboarding failed.');
     }
   };
 
   return (
-    <main className="bg-slate-50 min-h-screen w-full relative overflow-x-hidden font-sans antialiased text-slate-900 pb-16">
-      {/* Background Cover Image Banner */}
-      <div className="w-full h-80 md:h-[450px] relative overflow-hidden bg-slate-200">
-        <img
-          src="/hero-doctors.png"
-          alt="African American medical doctor"
-          className="w-full h-full object-cover object-top filter brightness-95"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-slate-50" />
-      </div>
+    <div className="min-h-screen bg-slate-50 flex font-sans antialiased">
+      {/* Sidebar Progress */}
+      <aside className="w-80 bg-white border-r border-slate-200 hidden md:flex flex-col p-8">
+        <div className="flex items-center gap-2 mb-12">
+          <div className="w-8 h-8 rounded-xl bg-[#1877F2] text-white flex items-center justify-center font-bold text-sm shadow-md">
+            R
+          </div>
+          <span className="text-xl font-bold tracking-tight text-slate-900">Ricton</span>
+        </div>
 
-      {/* Primary Navigation Header */}
-      <header className="max-w-[1400px] mx-auto px-8 py-6 w-full flex items-center justify-between absolute top-0 left-0 right-0 z-50">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 font-black text-2xl text-[#1c7bcf]"
-          aria-label="Ricton home"
-        >
-          <img
-            src="/logo.svg"
-            alt="Ricton Logo"
-            className="w-10 h-10 object-contain drop-shadow"
-          />
-          <span className="tracking-tight text-slate-900 font-extrabold text-2xl">Ricton</span>
-        </Link>
-
-        <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-12">
-          <Link href="/" className="text-base font-semibold text-slate-900 hover:text-[#1c7bcf] transition-colors">
-            Home
-          </Link>
-          <Link href="/#services" className="text-base font-semibold text-slate-900 hover:text-[#1c7bcf] transition-colors">
-            Services
-          </Link>
-          <Link href="/#resources" className="text-base font-semibold text-slate-900 hover:text-[#1c7bcf] transition-colors">
-            Resources
-          </Link>
-          <Link href="/#pricing" className="text-base font-semibold text-slate-900 hover:text-[#1c7bcf] transition-colors">
-            Pricing
-          </Link>
-          <Link href="/#about-us" className="text-base font-semibold text-slate-900 hover:text-[#1c7bcf] transition-colors">
-            About us
-          </Link>
-        </nav>
-      </header>
-
-      {/* Step 1: Your Details Form */}
-      {step === 1 && (
-        <section
-          className="max-w-[925px] mx-auto -mt-32 md:-mt-48 relative z-20 bg-white/95 backdrop-blur-md rounded-[40px] md:rounded-[50px] shadow-[0px_4px_30px_rgba(0,0,0,0.08)] border border-slate-100 p-8 sm:p-14 space-y-8"
-          aria-labelledby="details-heading"
-        >
-          <h1
-            id="details-heading"
-            className="text-2xl font-bold text-slate-900 tracking-tight"
-          >
-            Your details
-          </h1>
-
-          {errorMsg && (
-            <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl text-sm font-medium">
-              {errorMsg}
-            </div>
-          )}
-
-          <form onSubmit={handleDetailsSubmit} noValidate className="space-y-6">
-            <div className="flex flex-col gap-4">
-              {/* First Name */}
-              <div className="relative">
-                <label className="sr-only">First name</label>
-                <input
-                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                  type="text"
-                  name="firstName"
-                  value={formValues.firstName}
-                  onChange={(event) => updateField('firstName', event.target.value)}
-                  placeholder="First name"
-                  autoComplete="given-name"
-                  required
-                />
-              </div>
-
-              {/* Last Name */}
-              <div className="relative">
-                <label className="sr-only">Last name</label>
-                <input
-                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                  type="text"
-                  name="lastName"
-                  value={formValues.lastName}
-                  onChange={(event) => updateField('lastName', event.target.value)}
-                  placeholder="Last name"
-                  autoComplete="family-name"
-                  required
-                />
-              </div>
-
-              {/* Gender Select */}
-              <div className="relative">
-                <label className="sr-only">Gender</label>
-                <select
-                  className={`w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-base outline-none transition-all appearance-none bg-white ${
-                    formValues.gender ? 'text-slate-900' : 'text-slate-400'
-                  }`}
-                  name="gender"
-                  value={formValues.gender}
-                  onChange={(event) => updateField('gender', event.target.value)}
-                  required
-                >
-                  <option value="" disabled>
-                    Gender
-                  </option>
-                  <option value="female">Female</option>
-                  <option value="male">Male</option>
-                  <option value="non-binary">Non-binary</option>
-                  <option value="prefer-not-to-say">Prefer not to say</option>
-                </select>
-              </div>
-
-              {/* Date of Birth */}
-              <div className="relative">
-                <label className="sr-only">Date of birth</label>
-                <input
-                  className={`w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-base outline-none transition-all ${
-                    formValues.dateOfBirth ? 'text-slate-900' : 'text-slate-400'
-                  }`}
-                  type="date"
-                  name="dateOfBirth"
-                  value={formValues.dateOfBirth}
-                  onChange={(event) => updateField('dateOfBirth', event.target.value)}
-                  aria-label="Date of birth"
-                  required
-                />
-              </div>
-
-              {/* Email Address */}
-              <div className="relative">
-                <label className="sr-only">Email address</label>
-                <input
-                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                  type="email"
-                  name="email"
-                  value={formValues.email}
-                  onChange={(event) => updateField('email', event.target.value)}
-                  placeholder="Email address"
-                  autoComplete="email"
-                  required
-                />
-              </div>
-
-              {/* Phone Number */}
-              <div className="relative">
-                <label className="sr-only">Phone number</label>
-                <input
-                  className="w-full h-14 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                  type="tel"
-                  name="phone"
-                  value={formValues.phone}
-                  onChange={(event) => updateField('phone', event.target.value)}
-                  placeholder="Phone number"
-                  autoComplete="tel"
-                  required
-                />
-              </div>
-
-              {/* Password */}
-              <div className="relative flex items-center">
-                <label className="sr-only">Enter password</label>
-                <input
-                  className="w-full h-14 pl-6 pr-14 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                  type={showPassword ? 'text' : 'password'}
-                  name="password"
-                  value={formValues.password}
-                  onChange={(event) => updateField('password', event.target.value)}
-                  placeholder="Enter password"
-                  autoComplete="new-password"
-                  required
-                />
-                <button
-                  className="absolute right-5 p-2 text-slate-400 hover:text-slate-600 focus:outline-none"
-                  type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? '👁️' : '🔒'}
-                </button>
-              </div>
-            </div>
-
-            {/* Password Requirements */}
-            <div className="space-y-4 pt-2">
-              <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#1c7bcf] transition-all duration-300"
-                  style={{
-                    width: `${
-                      (passwordRequirements.filter((r) => r.isMet).length /
-                        passwordRequirements.length) *
-                      100
-                    }%`,
-                  }}
-                />
-              </div>
-
-              <ul className="space-y-2">
-                {passwordRequirements.map((requirement) => (
-                  <li
-                    className="flex items-center gap-3 text-slate-700 text-sm font-medium"
-                    key={requirement.label}
-                  >
-                    <span
-                      className={`w-5 h-5 rounded-full border border-slate-400 flex items-center justify-center text-xs text-white transition-colors ${
-                        requirement.isMet ? 'bg-[#1c7bcf] border-[#1c7bcf]' : 'bg-transparent'
+        <div className="flex-1">
+          <h2 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-6">Onboarding Progress</h2>
+          <div className="space-y-6">
+            {STEPS.map((s) => {
+              const isActive = step === s.id;
+              const isPast = step > s.id;
+              return (
+                <div key={s.id} className="flex gap-4 group">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
+                        isActive
+                          ? 'bg-[#1877F2] text-white shadow-md shadow-blue-500/20'
+                          : isPast
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-slate-100 text-slate-400'
                       }`}
                     >
-                      {requirement.isMet ? '✓' : ''}
-                    </span>
-                    <span>{requirement.label}</span>
-                  </li>
-                ))}
-              </ul>
+                      {isPast ? '✓' : s.id}
+                    </div>
+                    {s.id !== 7 && (
+                      <div className={`w-0.5 h-full mt-2 transition-colors ${isPast ? 'bg-green-100' : 'bg-slate-100'}`} />
+                    )}
+                  </div>
+                  <div className="pb-4 pt-1">
+                    <h3 className={`text-sm font-bold ${isActive ? 'text-slate-900' : isPast ? 'text-slate-700' : 'text-slate-400'}`}>
+                      {s.title}
+                    </h3>
+                    <p className={`text-xs mt-1 ${isActive ? 'text-slate-500' : 'text-slate-400'}`}>
+                      {s.description}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="text-xs text-slate-400 font-medium">Need help? Contact support@ricton.com</div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col h-screen overflow-y-auto">
+        <div className="flex-1 max-w-2xl mx-auto w-full p-8 md:p-12 flex flex-col justify-center">
+          
+          <div className="bg-white rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
+            {/* Form Headers */}
+            <div className="mb-8">
+              <h1 className="text-2xl font-bold text-slate-900">{STEPS[step - 1].title}</h1>
+              <p className="text-sm text-slate-500 mt-1">{STEPS[step - 1].description}</p>
             </div>
 
-            {/* Step 1 Continue Button */}
+            {/* Step 1: Personal Information */}
+            {step === 1 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">First Name</label>
+                    <input
+                      type="text"
+                      value={formData.firstName}
+                      onChange={(e) => updateForm('firstName', e.target.value)}
+                      placeholder="e.g. John"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Last Name</label>
+                    <input
+                      type="text"
+                      value={formData.lastName}
+                      onChange={(e) => updateForm('lastName', e.target.value)}
+                      placeholder="e.g. Doe"
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Gender</label>
+                    <select
+                      value={formData.gender}
+                      onChange={(e) => updateForm('gender', e.target.value)}
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white appearance-none"
+                    >
+                      <option value="">Select gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={formData.dob}
+                      onChange={(e) => updateForm('dob', e.target.value)}
+                      className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Nationality</label>
+                  <input
+                    type="text"
+                    value={formData.nationality}
+                    onChange={(e) => updateForm('nationality', e.target.value)}
+                    placeholder="e.g. Nigerian"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Professional Details */}
+            {step === 2 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Primary Specialty</label>
+                  <select
+                    value={formData.specialty}
+                    onChange={(e) => updateForm('specialty', e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white appearance-none"
+                  >
+                    <option value="">Select a specialty...</option>
+                    <option>General Practice</option>
+                    <option>Cardiology</option>
+                    <option>Pediatrics</option>
+                    <option>Neurology</option>
+                    <option>Orthopedics</option>
+                    <option>Psychiatry</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Sub-Specialty (Optional)</label>
+                  <input
+                    type="text"
+                    value={formData.subSpecialty}
+                    onChange={(e) => updateForm('subSpecialty', e.target.value)}
+                    placeholder="e.g. Pediatric Cardiology"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Years of Experience</label>
+                  <input
+                    type="number"
+                    value={formData.yearsExperience}
+                    onChange={(e) => updateForm('yearsExperience', e.target.value)}
+                    placeholder="e.g. 5"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Licensing */}
+            {step === 3 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Medical License Number (e.g. MDCN)</label>
+                  <input
+                    type="text"
+                    value={formData.licenseNumber}
+                    onChange={(e) => updateForm('licenseNumber', e.target.value)}
+                    placeholder="Enter your license number"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">License Expiry Date</label>
+                  <input
+                    type="date"
+                    value={formData.licenseExpiry}
+                    onChange={(e) => updateForm('licenseExpiry', e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 4: Education */}
+            {step === 4 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Primary Medical Degree</label>
+                  <input
+                    type="text"
+                    value={formData.degree}
+                    onChange={(e) => updateForm('degree', e.target.value)}
+                    placeholder="e.g. MBBS, MD"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">University / Institution</label>
+                  <input
+                    type="text"
+                    value={formData.university}
+                    onChange={(e) => updateForm('university', e.target.value)}
+                    placeholder="e.g. University of Lagos"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Graduation Year</label>
+                  <input
+                    type="number"
+                    value={formData.graduationYear}
+                    onChange={(e) => updateForm('graduationYear', e.target.value)}
+                    placeholder="e.g. 2015"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 5: Affiliations */}
+            {step === 5 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Primary Hospital / Clinic Affiliation</label>
+                  <input
+                    type="text"
+                    value={formData.primaryHospital}
+                    onChange={(e) => updateForm('primaryHospital', e.target.value)}
+                    placeholder="e.g. St. Jude Hospital"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Hospital Address</label>
+                  <input
+                    type="text"
+                    value={formData.hospitalAddress}
+                    onChange={(e) => updateForm('hospitalAddress', e.target.value)}
+                    placeholder="Full address of the hospital"
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 6: Billing Info */}
+            {step === 6 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Bank Name</label>
+                  <select
+                    value={formData.bankName}
+                    onChange={(e) => updateForm('bankName', e.target.value)}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white appearance-none"
+                  >
+                    <option value="">Select a Bank...</option>
+                    <option>Guaranty Trust Bank</option>
+                    <option>Access Bank</option>
+                    <option>Zenith Bank</option>
+                    <option>United Bank for Africa</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Account Number (For Telemedicine payouts)</label>
+                  <input
+                    type="text"
+                    value={formData.accountNumber}
+                    onChange={(e) => updateForm('accountNumber', e.target.value)}
+                    placeholder="0000000000"
+                    maxLength={10}
+                    className="w-full h-12 px-4 rounded-xl border border-slate-200 focus:border-[#1877F2] focus:ring-2 focus:ring-[#1877F2]/20 text-sm outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Step 7: Verification */}
+            {step === 7 && (
+              <div className="space-y-5 animate-in fade-in slide-in-from-right-4 duration-300 text-center py-4">
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-2xl mx-auto mb-2 text-[#1877F2]">
+                  🩺
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Upload Credentials</h3>
+                <p className="text-sm text-slate-500 mb-4">
+                  Please upload your medical license and a valid government ID.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 hover:bg-slate-50 hover:border-[#1877F2] transition-colors cursor-pointer group">
+                    <span className="text-2xl mb-2 block group-hover:scale-110 transition-transform">📄</span>
+                    <span className="text-xs font-semibold text-[#1877F2]">Upload Medical License</span>
+                  </div>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 hover:bg-slate-50 hover:border-[#1877F2] transition-colors cursor-pointer group">
+                    <span className="text-2xl mb-2 block group-hover:scale-110 transition-transform">🪪</span>
+                    <span className="text-xs font-semibold text-[#1877F2]">Upload Valid ID</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Navigation Buttons */}
+          <div className="flex items-center justify-between mt-8">
             <button
-              className={`w-full h-14 flex items-center justify-center bg-[#1c7bcf] hover:bg-[#1561a7] text-white font-semibold text-lg rounded-2xl shadow-lg shadow-[#1c7bcf]/20 transition-all ${
-                isFormValid ? 'opacity-100 cursor-pointer' : 'opacity-50 cursor-not-allowed'
+              onClick={handlePrev}
+              disabled={step === 1 || submitting}
+              className={`px-6 py-3 rounded-full font-bold text-sm transition-colors ${
+                step === 1 ? 'opacity-0 pointer-events-none' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
               }`}
-              type="submit"
-              disabled={!isFormValid}
             >
-              Continue
+              ← Back
             </button>
-          </form>
-        </section>
-      )}
-
-      {/* Step 2: Email Verification Code Section */}
-      {step === 2 && (
-        <section
-          className="max-w-[925px] mx-auto -mt-32 md:-mt-48 relative z-20 bg-white/95 backdrop-blur-md rounded-[40px] md:rounded-[50px] shadow-[0px_4px_30px_rgba(0,0,0,0.08)] border border-slate-100 p-8 sm:p-14 space-y-8"
-          aria-labelledby="verify-email-heading"
-        >
-          <h1
-            id="verify-email-heading"
-            className="text-2xl font-bold text-slate-900 tracking-tight"
-          >
-            Verify your email
-          </h1>
-
-          <p className="text-slate-800 text-lg font-medium">
-            We just sent a 5-digit code to{' '}
-            <span className="font-bold text-[#1c7bcf]">{formValues.email}</span>, enter it below:
-          </p>
-
-          {errorMsg && (
-            <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl text-sm font-medium">
-              {errorMsg}
-            </div>
-          )}
-
-          <form onSubmit={handleVerifySubmit} noValidate className="space-y-8">
-            <fieldset className="flex justify-center gap-3 sm:gap-4 py-4">
-              <legend className="sr-only">Five digit verification code</legend>
-              {verificationCode.map((digit, index) => (
-                <input
-                  key={index}
-                  ref={(element) => {
-                    inputRefs.current[index] = element;
-                  }}
-                  className="w-14 h-16 sm:w-20 sm:h-24 rounded-xl border border-slate-300 bg-white text-center font-bold text-2xl sm:text-3xl text-slate-900 caret-[#1c7bcf] focus:border-[#1c7bcf] focus:ring-4 focus:ring-[#1c7bcf]/20 outline-none transition-all"
-                  aria-label={`Verification code digit ${index + 1}`}
-                  autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                  inputMode="numeric"
-                  maxLength={5}
-                  name={`verification-digit-${index + 1}`}
-                  onChange={(event) => handleCodeChange(index, event)}
-                  onKeyDown={(event) => handleKeyDown(index, event)}
-                  pattern="[0-9]*"
-                  type="text"
-                  value={digit}
-                />
-              ))}
-            </fieldset>
-
-            <button
-              className={`w-full h-14 flex items-center justify-center bg-[#1c7bcf] hover:bg-[#1561a7] text-white font-semibold text-lg rounded-2xl shadow-lg shadow-[#1c7bcf]/20 transition-all ${
-                isCodeComplete && !submitting ? 'opacity-100 cursor-pointer' : 'opacity-50 cursor-not-allowed'
-              }`}
-              disabled={!isCodeComplete || submitting}
-              type="submit"
-            >
-              {submitting ? 'Verifying...' : 'Verify email'}
-            </button>
-
-            <div className="text-center pt-2">
-              <p className="text-slate-800 text-base font-medium">
-                <span>Wrong email? </span>
-                <button
-                  className="font-bold text-[#1c7bcf] hover:underline focus:outline-none ml-1"
-                  onClick={handleDifferentEmail}
-                  type="button"
-                >
-                  Send to a different email
-                </button>
-              </p>
-            </div>
-          </form>
-        </section>
-      )}
-    </main>
+            
+            {step < 7 ? (
+              <button
+                onClick={handleNext}
+                className="px-8 py-3 rounded-full font-bold text-sm bg-[#1877F2] hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30 transition-all"
+              >
+                Continue →
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="px-8 py-3 rounded-full font-bold text-sm bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-500/30 transition-all disabled:opacity-50"
+              >
+                {submitting ? 'Submitting...' : 'Complete Profile ✓'}
+              </button>
+            )}
+          </div>
+          
+        </div>
+      </main>
+    </div>
   );
 }

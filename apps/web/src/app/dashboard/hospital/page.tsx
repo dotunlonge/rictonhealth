@@ -13,7 +13,7 @@ const navigationItems = [
   { label: 'E-prescription', href: '/prescriptions', icon: '💊' },
   { label: 'Earnings', href: '/wallet', icon: '💳' },
   { label: 'Reward', href: '/rewards', icon: '⭐' },
-  { label: 'Tele-medicine', href: '/telemedicine/demo', icon: '📞' },
+  { label: 'Tele-medicine', href: '/telemedicine', icon: '📞' },
   { label: 'Inbox', href: '/inbox', icon: '✉️' },
   { label: 'Setting', href: '/settings', icon: '⚙️' },
 ];
@@ -21,38 +21,38 @@ const navigationItems = [
 const calendarDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'];
 
 // --- Formatting Helpers ---
-function formatDateShort(iso: string) {
+function formatDateShort(iso?: string) {
+  if (!iso) return 'N/A';
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function formatTime(iso: string) {
+function formatTime(iso?: string) {
+  if (!iso) return 'N/A';
   const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
-function formatTimeRange(iso: string, durationMinutes: number = 60) {
-  const start = new Date(iso);
-  const end = new Date(start.getTime() + durationMinutes * 60_000);
-  const fmt = (d: Date) =>
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  return `${fmt(start)} - ${fmt(end)}`;
+  return isNaN(d.getTime()) ? 'N/A' : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 function getPatientName(appointment: any): string {
-  const profile = appointment.patient?.patientProfile;
+  const profile = appointment?.patient?.patientProfile;
   if (profile?.firstName && profile?.lastName) {
     return `${profile.firstName} ${profile.lastName}`;
   }
-  return appointment.patient?.email || 'Patient';
+  if (appointment?.patient?.email) {
+    return appointment.patient.email.split('@')[0];
+  }
+  return 'Patient';
 }
 
 function getDoctorName(appointment: any): string {
-  const profile = appointment.provider?.providerProfile;
+  const profile = appointment?.provider?.providerProfile;
   if (profile?.firstName && profile?.lastName) {
     return `Dr. ${profile.firstName} ${profile.lastName}`;
   }
-  return appointment.provider?.email || 'Doctor';
+  if (appointment?.provider?.email) {
+    return `Dr. ${appointment.provider.email.split('@')[0]}`;
+  }
+  return 'Doctor';
 }
 
 function getMonthName(offset: number): string {
@@ -67,11 +67,10 @@ function getCalendarGrid(offset: number) {
   const month = now.getMonth() + offset;
   const target = new Date(year, month, 1);
   const daysInMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
-  const firstDayOfWeek = target.getDay(); // 0=Sun
+  const firstDayOfWeek = target.getDay();
   return { daysInMonth, firstDayOfWeek, year: target.getFullYear(), month: target.getMonth() };
 }
 
-// --- Profile Completion Calculator ---
 function computeProfileCompletion(user: any): {
   percentage: number;
   steps: { label: string; done: boolean }[];
@@ -87,18 +86,19 @@ function computeProfileCompletion(user: any): {
   return { percentage: Math.round((doneCount / steps.length) * 100), steps };
 }
 
-// --- Revenue chart helpers ---
 function buildMonthlyChart(trend: any[]): { month: string; value: number }[] {
   const months = ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const byMonth: Record<string, number> = {};
   for (const item of trend) {
     const d = new Date(item.period);
-    const key = months[d.getMonth()];
-    byMonth[key] = (byMonth[key] || 0) + item.amount;
+    if (!isNaN(d.getTime())) {
+      const key = months[d.getMonth()];
+      byMonth[key] = (byMonth[key] || 0) + (item.amount || 0);
+    }
   }
   return Object.entries(byMonth).map(([month, amount]) => ({
     month,
-    value: Math.min(Math.max(Math.round(amount / 1000), 20), 140),
+    value: Math.min(Math.max(Math.round(amount / 1000), 10), 140),
   }));
 }
 
@@ -111,14 +111,13 @@ export default function ElementHospitalHomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // --- Dynamic state from APIs ---
+  // --- Real Dynamic state from APIs ---
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [hospitalStats, setHospitalStats] = useState<{
     totalDoctors: number;
     totalAppointments: number;
     activePatients: number;
   }>({ totalDoctors: 0, totalAppointments: 0, activePatients: 0 });
-  const [hospitalInfo, setHospitalInfo] = useState<any>(null);
   const [appointmentsList, setAppointmentsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
   const [walletData, setWalletData] = useState<{ balance: number; weekly: number }>({
@@ -128,7 +127,6 @@ export default function ElementHospitalHomePage() {
   const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
 
-  // --- Computed Views ---
   const adminName = currentUser?.email ? currentUser.email.split('@')[0] : 'Admin';
   const profileData = useMemo(() => computeProfileCompletion(currentUser), [currentUser]);
   const revenueChart = useMemo(() => buildMonthlyChart(revenueTrend), [revenueTrend]);
@@ -140,43 +138,45 @@ export default function ElementHospitalHomePage() {
   const today = new Date();
   const isCurrentMonth = calYear === today.getFullYear() && calMonth === today.getMonth();
 
-  const newAppointment = appointmentsList[0] || null;
+  const newAppointment = appointmentsList.length > 0 ? appointmentsList[0] : null;
 
   useEffect(() => {
     async function loadAllData() {
       setLoading(true);
 
-      // 1. Fetch Current User Profile
+      // 1. Current User Profile
       const userRes = await api.get('/users/me');
       if (userRes.success && userRes.data) {
         setCurrentUser(userRes.data);
       }
 
-      // 2. Fetch Hospital Dashboard Stats (via GET /users/dashboard/hospital or GET /analytics/overview)
+      // 2. Hospital Dashboard Stats (GET /users/dashboard/hospital or GET /analytics/overview)
       const hospitalRes = await api.get('/users/dashboard/hospital');
-      if (hospitalRes.success && hospitalRes.data) {
-        setHospitalStats(hospitalRes.data.stats || {});
-        setHospitalInfo(hospitalRes.data.hospital || {});
+      if (hospitalRes.success && hospitalRes.data?.stats) {
+        setHospitalStats({
+          activePatients: Number(hospitalRes.data.stats.activePatients) || 0,
+          totalDoctors: Number(hospitalRes.data.stats.totalDoctors) || 0,
+          totalAppointments: Number(hospitalRes.data.stats.totalAppointments) || 0,
+        });
       } else {
-        // Fallback to overview analytics if role permissions allow
         const overviewRes = await api.get('/analytics/overview');
         if (overviewRes.success && overviewRes.data) {
           setHospitalStats({
-            activePatients: overviewRes.data.totalPatients || 0,
-            totalDoctors: overviewRes.data.totalProviders || 0,
-            totalAppointments: overviewRes.data.totalAppointments || 0,
+            activePatients: Number(overviewRes.data.totalPatients) || 0,
+            totalDoctors: Number(overviewRes.data.totalProviders) || 0,
+            totalAppointments: Number(overviewRes.data.totalAppointments) || 0,
           });
         }
       }
 
-      // 3. Fetch Appointments List
+      // 3. Appointments List
       const apptRes = await api.get('/appointments');
       if (apptRes.success && apptRes.data) {
         const list = Array.isArray(apptRes.data) ? apptRes.data : apptRes.data.appointments || [];
         setAppointmentsList(list);
       }
 
-      // 4. Fetch Doctors/Providers List
+      // 4. Doctors List
       const providersRes = await api.get('/users/providers');
       if (providersRes.success && providersRes.data) {
         const provs = Array.isArray(providersRes.data)
@@ -185,7 +185,7 @@ export default function ElementHospitalHomePage() {
         setDoctorsList(provs);
       }
 
-      // 5. Fetch Wallet Earnings Data
+      // 5. Wallet
       const walletRes = await api.get('/wallet');
       if (walletRes.success && walletRes.data) {
         const bal = Number(walletRes.data.balance) || 0;
@@ -194,17 +194,17 @@ export default function ElementHospitalHomePage() {
         const txs = walletRes.data.transactions || [];
         const weekly = txs
           .filter((tx: any) => tx.type === 'CREDIT' && new Date(tx.createdAt) >= oneWeekAgo)
-          .reduce((sum: number, tx: any) => sum + Number(tx.amount), 0);
+          .reduce((sum: number, tx: any) => sum + Number(tx.amount || 0), 0);
         setWalletData({ balance: bal, weekly });
       }
 
-      // 6. Fetch Revenue Trend
+      // 6. Revenue Trend
       const revRes = await api.get('/analytics/revenue');
       if (revRes.success && revRes.data?.trend) {
         setRevenueTrend(revRes.data.trend);
       }
 
-      // 7. Fetch Notifications
+      // 7. Notifications
       const notifRes = await api.get('/notifications');
       if (notifRes.success && notifRes.data?.notifications) {
         setNotificationsList(notifRes.data.notifications);
@@ -224,7 +224,7 @@ export default function ElementHospitalHomePage() {
 
   return (
     <main className="bg-[#E8EEF9] min-h-screen flex font-sans antialiased text-slate-800">
-      {/* Blue Sidebar Navigation */}
+      {/* Blue Left Sidebar */}
       <aside className="w-60 bg-[#1877F2] text-white flex flex-col justify-between shrink-0 shadow-lg sticky top-0 h-screen z-20">
         <div>
           {/* Brand Header */}
@@ -312,42 +312,42 @@ export default function ElementHospitalHomePage() {
               {/* Stat Summary Cards Header */}
               <section className="grid grid-cols-3 gap-6" aria-label="Hospital Statistics">
                 {/* Patient Stat Card */}
-                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="p-2.5 bg-blue-50 text-[#1877F2] rounded-xl text-xl font-bold">
-                      👥
-                    </span>
-                    <span className="font-bold text-slate-700 text-sm">Patient</span>
+                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center text-xl font-bold">
+                    👥
                   </div>
-                  <p className="text-4xl font-extrabold text-slate-900 mt-4">
-                    {hospitalStats.activePatients}
-                  </p>
+                  <div>
+                    <span className="font-bold text-slate-700 text-sm block">Patient</span>
+                    <p className="text-4xl font-extrabold text-slate-900 mt-1">
+                      {hospitalStats.activePatients}
+                    </p>
+                  </div>
                 </article>
 
                 {/* Doctor Stat Card */}
-                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="p-2.5 bg-blue-50 text-[#1877F2] rounded-xl text-xl font-bold">
-                      🩺
-                    </span>
-                    <span className="font-bold text-slate-700 text-sm">Doctor</span>
+                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center text-xl font-bold">
+                    🩺
                   </div>
-                  <p className="text-4xl font-extrabold text-slate-900 mt-4">
-                    {hospitalStats.totalDoctors}
-                  </p>
+                  <div>
+                    <span className="font-bold text-slate-700 text-sm block">Doctor</span>
+                    <p className="text-4xl font-extrabold text-slate-900 mt-1">
+                      {hospitalStats.totalDoctors}
+                    </p>
+                  </div>
                 </article>
 
                 {/* Appointment Stat Card */}
-                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex flex-col justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="p-2.5 bg-blue-50 text-[#1877F2] rounded-xl text-xl font-bold">
-                      📅
-                    </span>
-                    <span className="font-bold text-slate-700 text-sm">Appointment</span>
+                <article className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center text-xl font-bold">
+                    📅
                   </div>
-                  <p className="text-4xl font-extrabold text-slate-900 mt-4">
-                    {hospitalStats.totalAppointments}
-                  </p>
+                  <div>
+                    <span className="font-bold text-slate-700 text-sm block">Appointment</span>
+                    <p className="text-4xl font-extrabold text-slate-900 mt-1">
+                      {hospitalStats.totalAppointments}
+                    </p>
+                  </div>
                 </article>
               </section>
 
@@ -371,7 +371,7 @@ export default function ElementHospitalHomePage() {
                   <select
                     value={patientOverviewRange}
                     onChange={(e) => setPatientOverviewRange(e.target.value)}
-                    className="px-4 py-2 bg-blue-50 text-[#1877F2] rounded-full text-xs font-bold border-none outline-none cursor-pointer"
+                    className="px-4 py-2 bg-[#1877F2] text-white rounded-full text-xs font-bold border-none outline-none cursor-pointer"
                   >
                     <option value="Day">Day</option>
                     <option value="Week">Week</option>
@@ -379,7 +379,7 @@ export default function ElementHospitalHomePage() {
                   </select>
                 </div>
 
-                {/* Multi-bar Chart Placeholder Container */}
+                {/* Multi-bar Chart Container */}
                 <div className="h-56 flex items-end justify-between px-4 pb-2 border-b border-slate-200 gap-2">
                   {['4 Jul', '5 Jul', '6 Jul', '7 Jul', '8 Jul', '9 Jul', '10 Jul', '11 Jul', '12 Jul', '13 Jul'].map(
                     (dayLabel, i) => (
@@ -436,7 +436,7 @@ export default function ElementHospitalHomePage() {
                       <div key={m} className="flex flex-col items-center justify-end h-full">
                         <div
                           className="w-10 bg-[#1877F2] rounded-t-xl"
-                          style={{ height: `${[100, 45, 140, 110, 85, 140, 125, 60][idx]}px` }}
+                          style={{ height: `${[20, 30, 45, 60, 40, 75, 90, 50][idx]}px` }}
                         />
                         <span className="mt-3 text-xs font-semibold text-slate-600">{m}</span>
                       </div>
@@ -476,7 +476,7 @@ export default function ElementHospitalHomePage() {
                 <h2 className="font-bold text-lg text-slate-900">Patient appointment</h2>
 
                 {appointmentsList.length === 0 ? (
-                  <p className="text-slate-500 text-sm">No patient appointments recorded yet.</p>
+                  <p className="text-slate-500 text-xs py-4">No patient appointments found in database.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -490,22 +490,20 @@ export default function ElementHospitalHomePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
-                        {appointmentsList.slice(0, 5).map((appt) => (
-                          <tr key={appt.id} className="hover:bg-slate-50/80 transition-colors">
+                        {appointmentsList.slice(0, 5).map((appt, idx) => (
+                          <tr key={appt.id || idx} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-4">
                               <p className="font-bold text-slate-900">{getPatientName(appt)}</p>
                               <p className="text-[10px] text-slate-400 font-medium">
                                 {formatTime(appt.scheduledAt)}
                               </p>
                             </td>
-                            <td className="py-4 text-slate-600">
-                              {formatDateShort(appt.scheduledAt)}
-                            </td>
+                            <td className="py-4 text-slate-600">{formatDateShort(appt.scheduledAt)}</td>
                             <td className="py-4 text-slate-600">{getDoctorName(appt)}</td>
                             <td className="py-4 text-slate-600">{appt.type || appt.reason || 'Consultation'}</td>
                             <td className="py-4 text-right">
                               <span className="px-3 py-1 bg-green-500 text-white rounded-full font-bold text-[10px]">
-                                {appt.status === 'COMPLETED' ? 'Confirmed' : appt.status}
+                                {appt.status || 'CONFIRMED'}
                               </span>
                             </td>
                           </tr>
@@ -574,10 +572,10 @@ export default function ElementHospitalHomePage() {
                       </div>
                       <div>
                         <p className="font-bold text-sm text-slate-900">
-                          {newAppointment.type || 'Specialist Consultation'}
+                          {newAppointment.type || newAppointment.reason || 'Consultation'}
                         </p>
                         <p className="text-xs text-slate-400 font-medium">
-                          {formatTimeRange(newAppointment.scheduledAt, newAppointment.durationMinutes)}
+                          {formatTime(newAppointment.scheduledAt)}
                         </p>
                         <p className="text-xs font-semibold text-slate-600">
                           {getDoctorName(newAppointment)}
@@ -587,7 +585,7 @@ export default function ElementHospitalHomePage() {
                     <span className="text-slate-400 text-lg">›</span>
                   </div>
                 ) : (
-                  <p className="text-slate-500 text-xs">No new appointment requests.</p>
+                  <p className="text-slate-500 text-xs py-2">No new appointments queued.</p>
                 )}
               </section>
 
@@ -622,7 +620,7 @@ export default function ElementHospitalHomePage() {
                 <h2 className="font-bold text-base text-slate-900">Doctors Schedule</h2>
 
                 {doctorsList.length === 0 ? (
-                  <p className="text-slate-500 text-xs">No doctor schedule data available.</p>
+                  <p className="text-slate-500 text-xs py-2">No active doctors registered in hospital.</p>
                 ) : (
                   <div className="space-y-4">
                     {doctorsList.slice(0, 4).map((doc, idx) => (
@@ -637,16 +635,16 @@ export default function ElementHospitalHomePage() {
                             </p>
                             <p className="text-[10px] text-slate-400 font-medium">10 AM - 12 AM</p>
                             <p className="text-xs font-semibold text-slate-600">
-                              Dr. {doc.firstName || 'Doctor'} {doc.lastName || ''}
+                              Dr. {doc.firstName || doc.user?.email?.split('@')[0] || 'Doctor'} {doc.lastName || ''}
                             </p>
                           </div>
                         </div>
                         <span
                           className={`px-3 py-1 rounded-full text-[10px] font-bold text-white ${
-                            idx % 3 === 2 ? 'bg-red-600' : 'bg-green-500'
+                            doc.status === 'UNAVAILABLE' ? 'bg-red-600' : 'bg-green-500'
                           }`}
                         >
-                          {idx % 3 === 2 ? 'Unavailable' : 'Available'}
+                          {doc.status === 'UNAVAILABLE' ? 'Unavailable' : 'Available'}
                         </span>
                       </div>
                     ))}
