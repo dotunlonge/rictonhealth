@@ -7,6 +7,7 @@
     { "path": "./services/auth" },
     { "path": "./services/user" },
     { "path": "./services/payment" },
-    { "path": "./services/wallet" }
+    { "path": "./services/wallet" },
+    { "path": "./services/smartguard" }
   ]
 }

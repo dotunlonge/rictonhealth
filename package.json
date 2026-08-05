@@ -16,7 +16,10 @@
     "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",
     "services:dev": "concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
     "worker": "JWT_SECRET=worker-secret npx ts-node -O '{\"module\":\"commonjs\"}' -e \"import('./packages/shared/src/jobs/processors').then(m => m.startJobProcessors())\"",
-    "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service --workspace=@ricton/appointment-service",
+    "build": "npm run build --workspace=@ricton/db --workspace=@ricton/shared --workspace=@ricton/auth-middleware --workspace=@ricton/auth-service --workspace=@ricton/user-service --workspace=@ricton/payment-service --workspace=@ricton/wallet-service --workspace=@ricton/appointment-service --workspace=@ricton/smartguard-service",
+    "build:smartguard": "bash scripts/build-smartguard.sh",
+    "build:smartguard:exe": "pkg --targets node20-win-x64 --output dist/smartguard/smartguard.exe services/smartguard/dist/services/smartguard/src/index.js",
+    "build:smartguard:dng": "tar -czf dist/smartguard/smartguard.dng -C services/smartguard/dist --transform 's|^|smartguard/|' services/smartguard/src/",
     "test": "./scripts/test-e2e.sh",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
@@ -54,6 +57,7 @@
     "js-yaml": "^5.1.0",
     "lint-staged": "^16.4.0",
     "openapi-typescript-codegen": "^0.29.0",
+    "pkg": "^5.8.1",
     "prettier": "^3.2.5",
     "swagger-jsdoc": "^6.2.8",
     "ts-jest": "^29.1.2",
@@ -62,7 +66,7 @@
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",
-    "uuid": "^14.0.1",
-    "bullmq": "^5.20.0"
+    "bullmq": "^5.20.0",
+    "uuid": "^14.0.1"
   }
 }

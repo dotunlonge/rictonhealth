@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 target/
+/RICTON_UI_UX
 
 # Environment variables
 # Python
