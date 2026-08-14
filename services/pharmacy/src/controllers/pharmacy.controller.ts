@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, OrderStatus, DeliveryType, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError, ForbiddenError } from '@ricton/shared';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError,
+} from '@ricton/shared';
 
 /**
  * List pharmacy products with optional filtering
@@ -61,18 +67,18 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
     const { id } = req.params;
 
     const product = await prisma.product.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: {
         pharmacy: {
           select: {
             id: true,
-            pharmacyProfile: { select: { pharmacyName: true, address: true } },
+            pharmacyProfile: { select: { pharmacyName: true } },
           },
         },
       },
     });
 
-    if (!product) {
+    if (!product || !product.isActive) {
       throw new NotFoundError('Product not found');
     }
 
@@ -83,7 +89,7 @@ export const getProductById = async (req: Request, res: Response, next: NextFunc
 };
 
 /**
- * Create a new product (Pharmacist only)
+ * Create product (Pharmacy only)
  */
 export const createProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -93,22 +99,14 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       throw new ForbiddenError('Only pharmacists can create products');
     }
 
-    const { name, description, price, stock, category, imageUrl } = req.body;
+    const { name, description, category, price, stock, imageUrl } = req.body;
 
-    if (!name || !price) {
-      throw new ValidationError('Name and price are required');
+    if (!name || price === undefined || stock === undefined) {
+      throw new ValidationError('Name, price, and stock are required');
     }
 
-    // Validate price is a non-negative finite number
-    const numericPrice = Number(price);
-    if (!Number.isFinite(numericPrice) || numericPrice < 0) {
-      throw new ValidationError('Price must be a non-negative number');
-    }
-
-    // Validate stock is a non-negative integer
-    const numericStock = Number(stock) || 0;
-    if (!Number.isInteger(numericStock) || numericStock < 0) {
-      throw new ValidationError('Stock must be a non-negative integer');
+    if (Number(price) < 0 || stock < 0) {
+      throw new ValidationError('Price and stock cannot be negative');
     }
 
     const product = await prisma.product.create({
@@ -116,9 +114,9 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
         pharmacyId: userPayload.userId,
         name,
         description: description || null,
-        price: numericPrice,
-        stock: numericStock,
-        category: category || null,
+        category: category || 'General',
+        price,
+        stock,
         imageUrl: imageUrl || null,
       },
     });
@@ -130,41 +128,53 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
 };
 
 /**
- * Update product (Pharmacist only, own products)
+ * Get product categories
+ */
+export const getCategories = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const categories = await prisma.product.findMany({
+      select: { category: true },
+      distinct: ['category'],
+    });
+    res.status(200).json(successResponse(categories.map((c) => c.category).filter(Boolean)));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update product (Pharmacy only)
  */
 export const updateProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-
-    if (userPayload.role !== UserRole.PHARMACIST) {
-      throw new ForbiddenError('Only pharmacists can update products');
-    }
-
     const { id } = req.params;
-    const { name, description, price, stock, category, imageUrl, isActive } = req.body;
 
-    const existing = await prisma.product.findUnique({
-      where: { id, isActive: true },
-    });
+    const existingProduct = await prisma.product.findUnique({ where: { id } });
 
-    if (!existing) {
+    if (!existingProduct) {
       throw new NotFoundError('Product not found');
     }
 
-    if (existing.pharmacyId !== userPayload.userId) {
-      throw new ForbiddenError('You can only update your own products');
+    if (
+      existingProduct.pharmacyId !== userPayload.userId &&
+      userPayload.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenError('Not authorized to update this product');
     }
 
+    const { name, description, category, price, stock, imageUrl, isActive } = req.body;
+
     const updated = await prisma.product.update({
-      where: { id, isActive: true },
+      where: { id },
       data: {
-        name,
-        description,
-        price: price !== undefined ? Number(price) : undefined,
-        stock: stock !== undefined ? Number(stock) : undefined,
-        category,
-        imageUrl,
-        isActive: isActive !== undefined ? Boolean(isActive) : undefined,
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+        ...(category && { category }),
+        ...(price !== undefined && { price }),
+        ...(stock !== undefined && { stock }),
+        ...(imageUrl !== undefined && { imageUrl }),
+        ...(isActive !== undefined && { isActive }),
       },
     });
 
@@ -175,67 +185,40 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
 };
 
 /**
- * Delete product (soft delete via isActive)
+ * Delete product (Pharmacy only)
  */
 export const deleteProduct = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-
-    if (userPayload.role !== UserRole.PHARMACIST) {
-      throw new ForbiddenError('Only pharmacists can delete products');
-    }
-
     const { id } = req.params;
 
-    const existing = await prisma.product.findUnique({
-      where: { id, isActive: true },
-    });
+    const existingProduct = await prisma.product.findUnique({ where: { id } });
 
-    if (!existing) {
+    if (!existingProduct) {
       throw new NotFoundError('Product not found');
     }
 
-    if (existing.pharmacyId !== userPayload.userId) {
-      throw new ForbiddenError('You can only delete your own products');
+    if (
+      existingProduct.pharmacyId !== userPayload.userId &&
+      userPayload.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenError('Not authorized to delete this product');
     }
 
-    const updated = await prisma.product.update({
-      where: { id, isActive: true },
+    // Soft delete by setting isActive to false
+    await prisma.product.update({
+      where: { id },
       data: { isActive: false },
     });
 
-    res.status(200).json(successResponse(updated));
+    res.status(200).json(successResponse({ message: 'Product deleted successfully' }));
   } catch (error) {
     next(error);
   }
 };
 
 /**
- * Get product categories
- */
-export const getCategories = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const categories = await prisma.product.groupBy({
-      by: ['category'],
-      where: { isActive: true, category: { not: null } },
-      _count: true,
-    });
-
-    res.status(200).json(
-      successResponse(
-        categories.map((c) => ({
-          name: c.category,
-          count: c._count,
-        }))
-      )
-    );
-  } catch (error) {
-    next(error);
-  }
-};
-
-/**
- * Create pharmacy order
+ * Create order (Patient only)
  */
 export const createOrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -251,12 +234,16 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
       throw new ValidationError('At least one item is required');
     }
 
-    // Validate items and calculate total
     let totalAmount = 0;
-    const orderItemsData = [];
+    const orderItemsData: {
+      drugName: string;
+      quantity: number;
+      unitPrice: number;
+      subtotal: number;
+      productId: string;
+    }[] = [];
     let pharmacyId: string | null = null;
 
-    // Fetch all products in a single query to avoid N+1 problem
     const productIds = items.map((item: { productId: string }) => item.productId).filter(Boolean);
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -275,7 +262,6 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         throw new NotFoundError(`Product ${item.productId} not found or inactive`);
       }
 
-      // Validate price and stock are non-negative
       if (Number(product.price) < 0 || product.stock < 0) {
         throw new ValidationError(`Invalid product data for ${product.name}`);
       }
@@ -284,54 +270,49 @@ export const createOrder = async (req: Request, res: Response, next: NextFunctio
         throw new ValidationError(`Insufficient stock for ${product.name}`);
       }
 
-      // Track pharmacy ID and ensure all products belong to the same pharmacy
       if (pharmacyId === null) {
         pharmacyId = product.pharmacyId;
       } else if (product.pharmacyId !== pharmacyId) {
         throw new ValidationError('All items in an order must belong to the same pharmacy');
       }
 
-      totalAmount += Number(product.price) * item.quantity;
+      const subtotal = Number(product.price) * item.quantity;
+      totalAmount += subtotal;
       orderItemsData.push({
-        productId: item.productId,
+        drugName: product.name,
         quantity: item.quantity,
         unitPrice: Number(product.price),
+        subtotal,
+        productId: product.id,
       });
     }
 
-    // Create order with items in transaction
     const order = await prisma.$transaction(async (tx) => {
       const newOrder = await tx.pharmacyOrder.create({
         data: {
           patientId: userPayload.userId,
           pharmacyId: pharmacyId!,
-          status: OrderStatus.PENDING,
+          status: OrderStatus.PLACED,
           deliveryType: deliveryType || DeliveryType.DELIVERY,
           deliveryAddress: deliveryAddress || null,
           notes: notes || null,
           totalAmount,
           items: {
-            create: orderItemsData,
+            create: orderItemsData.map((d) => ({
+              drugName: d.drugName,
+              quantity: d.quantity,
+              unitPrice: d.unitPrice,
+              subtotal: d.subtotal,
+            })),
           },
         },
         include: {
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  imageUrl: true,
-                },
-              },
-            },
-          },
+          items: true,
           pharmacy: {
             select: {
               pharmacyProfile: {
                 select: {
                   pharmacyName: true,
-                  address: true,
                 },
               },
             },
@@ -391,17 +372,7 @@ export const getOrders = async (req: Request, res: Response, next: NextFunction)
         skip: Number(offset),
         orderBy: { createdAt: 'desc' },
         include: {
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  imageUrl: true,
-                },
-              },
-            },
-          },
+          items: true,
           pharmacy: {
             select: {
               pharmacyProfile: {
@@ -439,25 +410,14 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
     const { id } = req.params;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                imageUrl: true,
-              },
-            },
-          },
-        },
+        items: true,
         pharmacy: {
           select: {
             pharmacyProfile: {
               select: {
                 pharmacyName: true,
-                address: true,
               },
             },
           },
@@ -478,7 +438,6 @@ export const getOrderById = async (req: Request, res: Response, next: NextFuncti
       throw new NotFoundError('Order not found');
     }
 
-    // Authorization check
     if (userPayload.role === UserRole.PATIENT && order.patientId !== userPayload.userId) {
       throw new ForbiddenError('Not authorized to view this order');
     }
@@ -512,7 +471,7 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
     }
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
     });
 
     if (!order) {
@@ -523,54 +482,24 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
       throw new ForbiddenError('Not authorized to update this order');
     }
 
-    // Handle CANCELLED status specially - restore stock
     if (status === OrderStatus.CANCELLED && order.status !== OrderStatus.CANCELLED) {
-      // Restore product stock inside a transaction
-      await prisma.$transaction(async (tx) => {
-        const orderItems = await tx.orderItem.findMany({
-          where: { orderId: id },
-          include: { product: true },
-        });
-
-        await Promise.all(
-          orderItems.map((item) =>
-            tx.product.update({
-              where: { id: item.productId },
-              data: { stock: { increment: item.quantity } },
-            })
-          )
-        );
-
-        await tx.pharmacyOrder.update({
-          where: { id },
-          data: { status: OrderStatus.CANCELLED },
-        });
+      await prisma.pharmacyOrder.update({
+        where: { id },
+        data: { status: OrderStatus.CANCELLED },
       });
 
       const updatedOrder = await prisma.pharmacyOrder.findUnique({
         where: { id },
-        include: {
-          items: {
-            include: {
-              product: true,
-            },
-          },
-        },
+        include: { items: true },
       });
 
       return res.status(200).json(successResponse(updatedOrder));
     }
 
     const updated = await prisma.pharmacyOrder.update({
-      where: { id, isActive: true },
+      where: { id },
       data: { status: status as OrderStatus },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
-        },
-      },
+      include: { items: true },
     });
 
     res.status(200).json(successResponse(updated));
@@ -580,16 +509,15 @@ export const updateOrderStatus = async (req: Request, res: Response, next: NextF
 };
 
 /**
- * Cancel order (Patient only, pending orders)
+ * Cancel order (Patient only, placed orders)
  */
 export const cancelOrder = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
     const { id } = req.params;
-    const { reason } = req.body;
 
     const order = await prisma.pharmacyOrder.findUnique({
-      where: { id, isActive: true },
+      where: { id },
       include: { items: true },
     });
 
@@ -601,32 +529,16 @@ export const cancelOrder = async (req: Request, res: Response, next: NextFunctio
       throw new ForbiddenError('Not authorized to cancel this order');
     }
 
-    if (order.status !== OrderStatus.PENDING) {
-      throw new ValidationError('Only pending orders can be cancelled');
+    if (order.status !== OrderStatus.PLACED) {
+      throw new ValidationError('Only newly placed orders can be cancelled');
     }
 
-    const updated = await prisma.$transaction(async (tx) => {
-      // Restore stock
-      await Promise.all(
-        order.items.map((item) =>
-          tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stock: { increment: item.quantity },
-            },
-          })
-        )
-      );
-
-      // Cancel order
-      return tx.pharmacyOrder.update({
-        where: { id, isActive: true },
-        data: {
-          status: OrderStatus.CANCELLED,
-          cancellationReason: reason || null,
-        },
-        include: { items: true },
-      });
+    const updated = await prisma.pharmacyOrder.update({
+      where: { id },
+      data: {
+        status: OrderStatus.CANCELLED,
+      },
+      include: { items: true },
     });
 
     res.status(200).json(successResponse(updated));
@@ -664,14 +576,12 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
       throw new NotFoundError('Prescription not found');
     }
 
-    // Validate prescription status - only SENT_TO_PHARMACY prescriptions can be fulfilled
     if (prescription.status !== 'SENT_TO_PHARMACY') {
       throw new ValidationError(
         `Prescription cannot be fulfilled. Current status: ${prescription.status}`
       );
     }
 
-    // Check if order already exists for this prescription
     const existingOrder = await prisma.pharmacyOrder.findFirst({
       where: { prescriptionId: prescription.id },
     });
@@ -680,14 +590,13 @@ export const fulfillPrescription = async (req: Request, res: Response, next: Nex
       throw new ConflictError('Order already exists for this prescription');
     }
 
-    // Create order from prescription items
     const order = await prisma.pharmacyOrder.create({
       data: {
         patientId: prescription.patientId,
         pharmacyId: userPayload.userId,
-        status: OrderStatus.PENDING,
+        status: OrderStatus.PLACED,
         deliveryType: DeliveryType.PICKUP,
-        totalAmount: 0, // To be calculated based on products
+        totalAmount: 0,
         prescriptionId: prescription.id,
       },
     });
