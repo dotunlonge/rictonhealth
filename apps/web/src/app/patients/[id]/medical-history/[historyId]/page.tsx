@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter, useParams } from 'next/navigation';
 import { ChevronLeft, Download, FileText } from 'lucide-react';
@@ -11,14 +11,14 @@ export default function MedicalHistoryDetailPage() {
   const patientId = (params?.id as string) || 'PT-1001';
   const historyId = (params?.historyId as string) || 'diff-breathing';
 
-  const [title, setTitle] = useState('Difficulty breathing at night - 17 July 2025');
-
-  useEffect(() => {
+  const title = useMemo(() => {
     if (historyId === 'mh-1') {
-      setTitle('Persistent chest pain for 3 days, worsens with exertion - 17 July 2025');
-    } else if (historyId === 'mh-2') {
-      setTitle('Severe headache and blurred vision for 2 days - 17 July 2025');
+      return 'Persistent chest pain for 3 days, worsens with exertion - 17 July 2025';
     }
+    if (historyId === 'mh-2') {
+      return 'Severe headache and blurred vision for 2 days - 17 July 2025';
+    }
+    return 'Difficulty breathing at night - 17 July 2025';
   }, [historyId]);
 
   const handleDownload = (filename: string) => {
