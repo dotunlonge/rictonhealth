@@ -1,5 +1,4 @@
-#!/usr/bin/env bgzip
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ==============================================================================
 # Ricton Microservices AWS ECR Build & Push Automation Script

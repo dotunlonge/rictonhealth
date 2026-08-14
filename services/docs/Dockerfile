@@ -10,7 +10,7 @@ COPY tsconfig*.json ./
 COPY packages/ ./packages/
 COPY services/docs/ ./services/docs/
 
-RUN npm ci
+RUN npm install
 
 RUN npm run generate --workspace=@ricton/db
 
