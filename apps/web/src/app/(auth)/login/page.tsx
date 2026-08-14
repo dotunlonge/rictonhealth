@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
+import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function LogInPage() {
