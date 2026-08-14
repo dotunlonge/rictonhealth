@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useAppStore } from '@/store/useAppStore';
 import { api } from '@/lib/api-client';
-import { Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Plus, DollarSign, History } from 'lucide-react';
+import { Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Plus, History } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -24,18 +24,8 @@ interface Transaction {
   status: 'COMPLETED' | 'PENDING';
 }
 
-const defaultChartData = [
-  { day: 'Mon', revenue: 15000 },
-  { day: 'Tue', revenue: 22000 },
-  { day: 'Wed', revenue: 18500 },
-  { day: 'Thu', revenue: 32000 },
-  { day: 'Fri', revenue: 28000 },
-  { day: 'Sat', revenue: 12000 },
-  { day: 'Sun', revenue: 9500 },
-];
-
 export default function WalletPage() {
-  const { walletBalance, fetchWallet } = useAppStore();
+  const { user, walletBalance, fetchWallet } = useAppStore();
   const [balance, setBalance] = useState<number>(walletBalance || 0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,39 +41,14 @@ export default function WalletPage() {
           res.data.map((t: any, idx: number) => ({
             id: t.id || `TX-${100 + idx}`,
             type: t.type || 'PAYMENT',
-            description: t.description || 'Telemedicine Consultation Fee',
-            amount: t.amount || 5000,
+            description: t.description || 'Health Consultation Service',
+            amount: Number(t.amount) || 0,
             date: new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             status: 'COMPLETED',
           }))
         );
       } else {
-        setTransactions([
-          {
-            id: 'TX-101',
-            type: 'PAYMENT',
-            description: 'Telemedicine Session - Dr. Oluwaseun Davies',
-            amount: 15000,
-            date: 'Today',
-            status: 'COMPLETED',
-          },
-          {
-            id: 'TX-102',
-            type: 'DEPOSIT',
-            description: 'Wallet Top Up via GTBank Transfer',
-            amount: 25000,
-            date: 'Yesterday',
-            status: 'COMPLETED',
-          },
-          {
-            id: 'TX-103',
-            type: 'PAYMENT',
-            description: 'Prescription Medication Refill #RX-101',
-            amount: 5000,
-            date: 'Aug 10',
-            status: 'COMPLETED',
-          },
-        ]);
+        setTransactions([]);
       }
       setLoading(false);
     }
@@ -97,7 +62,7 @@ export default function WalletPage() {
     setBalance(newBal);
     setTransactions((prev) => [
       {
-        id: `TX-${Date.now().toString().slice(-4)}`,
+        id: res.data?.id || `TX-${Date.now().toString().slice(-4)}`,
         type: 'DEPOSIT',
         description: 'Instant Wallet Fund Deposit',
         amount,
@@ -106,9 +71,25 @@ export default function WalletPage() {
       },
       ...prev,
     ]);
-    setActionMsg('Successfully added ₦10,000 to your wallet balance!');
+    setActionMsg(`Wallet successfully funded with ₦${amount.toLocaleString()}`);
     setTimeout(() => setActionMsg(null), 4000);
   };
+
+  const monthlyExpenses = useMemo(() => {
+    return transactions
+      .filter((t) => t.type !== 'DEPOSIT')
+      .reduce((sum, t) => sum + t.amount, 0);
+  }, [transactions]);
+
+  const chartData = useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days.map((day) => {
+      const total = transactions
+        .filter((t) => t.date.toLowerCase().includes(day.toLowerCase()))
+        .reduce((sum, t) => sum + t.amount, 0);
+      return { day, revenue: total };
+    });
+  }, [transactions]);
 
   return (
     <SidebarLayout>
@@ -157,9 +138,9 @@ export default function WalletPage() {
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">This Month Expenses</span>
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-bold text-slate-500">₦</span>
-              <span className="text-3xl font-black text-slate-900">20,000</span>
+              <span className="text-3xl font-black text-slate-900">{monthlyExpenses.toLocaleString()}</span>
             </div>
-            <p className="text-[11px] font-semibold text-slate-500">3 Consultations & 1 Refill</p>
+            <p className="text-[11px] font-semibold text-slate-500">{transactions.length} Total Health Transactions</p>
           </div>
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
@@ -169,8 +150,8 @@ export default function WalletPage() {
                 <CreditCard className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-900">GTBank •••• 4091</p>
-                <p className="text-[10px] font-semibold text-slate-400">Default Payout Account</p>
+                <p className="text-xs font-bold text-slate-900">{user?.email || 'Ricton Health Wallet'}</p>
+                <p className="text-[10px] font-semibold text-slate-400">Verified Health Payout Account</p>
               </div>
             </div>
           </div>
@@ -183,7 +164,7 @@ export default function WalletPage() {
             <h2 className="text-sm font-bold text-slate-900">Weekly Health Expense Analytics</h2>
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={defaultChartData}>
+                <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                   <XAxis dataKey="day" stroke="#94A3B8" fontSize={12} tickLine={false} />
                   <YAxis stroke="#94A3B8" fontSize={12} tickLine={false} />
@@ -200,26 +181,42 @@ export default function WalletPage() {
               <History className="w-4 h-4 text-[#1877F2]" /> Recent Activity
             </h2>
             <div className="space-y-3">
-              {transactions.map((tx) => (
-                <div key={tx.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                        tx.type === 'DEPOSIT' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-[#1877F2]'
-                      }`}
-                    >
-                      {tx.type === 'DEPOSIT' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">{tx.description}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">{tx.date}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-black text-slate-900">
-                    {tx.type === 'DEPOSIT' ? '+' : '-'}₦{tx.amount.toLocaleString()}
-                  </span>
+              {loading ? (
+                <div className="p-4 text-center text-xs text-slate-400 font-bold">Loading transactions...</div>
+              ) : transactions.length === 0 ? (
+                <div className="p-8 text-center space-y-2">
+                  <Wallet className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">No transaction activity recorded</p>
+                  <button
+                    type="button"
+                    onClick={handleTopUp}
+                    className="text-xs text-[#1877F2] font-bold hover:underline"
+                  >
+                    + Fund Wallet Now
+                  </button>
                 </div>
-              ))}
+              ) : (
+                transactions.map((tx) => (
+                  <div key={tx.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                          tx.type === 'DEPOSIT' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-[#1877F2]'
+                        }`}
+                      >
+                        {tx.type === 'DEPOSIT' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">{tx.description}</p>
+                        <p className="text-[10px] font-semibold text-slate-400">{tx.date}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-black text-slate-900">
+                      {tx.type === 'DEPOSIT' ? '+' : '-'}₦{tx.amount.toLocaleString()}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
-import { Pill, Search, Plus, FileText, CheckCircle2, Clock, Filter } from 'lucide-react';
+import { Pill, Search, Plus, FileText, CheckCircle2, Clock } from 'lucide-react';
 
 interface PrescriptionItem {
   id: string;
@@ -22,7 +22,7 @@ interface PrescriptionItem {
 }
 
 export default function PrescriptionsPage() {
-  const { prescriptions: storePrescriptions, fetchPrescriptions } = useAppStore();
+  const { user, fetchPrescriptions } = useAppStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'All' | 'Delivered' | 'Pending'>('All');
   const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([]);
@@ -33,108 +33,79 @@ export default function PrescriptionsPage() {
   // New Prescription Form State
   const [newPatientName, setNewPatientName] = useState('');
   const [newMedication, setNewMedication] = useState('');
-  const [newDosage, setNewDosage] = useState('');
-  const [newFrequency, setNewFrequency] = useState('');
+  const [newDosage, setNewDosage] = useState('500mg');
+  const [newFrequency, setNewFrequency] = useState('Every 12hrs');
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       await fetchPrescriptions();
       const res = await api.get('/pharmacy/prescriptions');
-      if (res.success && Array.isArray(res.data)) {
-        setPrescriptions(
-          res.data.map((p: any, idx: number) => ({
-            id: p.id || `RX-10${idx}`,
-            patientName: p.patientName || p.patient?.email || 'Helen Olaleye',
-            date: new Date(p.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            time: new Date(p.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            medication: p.medicationName || p.medication || 'Amoxicillin',
-            strength: p.dosage || '500mg',
-            dosage: '1 Capsule',
-            frequency: p.frequency || 'Every 12hrs',
-            form: 'Capsule',
-            quantity: '20 Capsules',
-            status: p.status === 'FULFILLED' || p.status === 'Delivered' ? 'Delivered' : 'Pending',
-            doctor: p.doctorName || 'Dr. Oluwaseun Davies',
-          }))
-        );
-      } else {
-        // High quality fallbacks
-        setPrescriptions([
-          {
-            id: 'RX-101',
-            patientName: 'Helen Olaleye',
-            date: 'Aug 5, 2026',
-            time: '09:02 AM',
-            medication: 'Amoxicillin Trihydrate',
-            strength: '500mg',
-            dosage: '1 Capsule',
-            frequency: 'Every 12hrs',
-            form: 'Capsule',
-            quantity: '20 Capsules',
-            status: 'Delivered',
-            doctor: 'Dr. Oluwaseun Davies',
-          },
-          {
-            id: 'RX-102',
-            patientName: 'James Carter',
-            date: 'Aug 8, 2026',
-            time: '02:15 PM',
-            medication: 'Paracetamol Extra',
-            strength: '500mg',
-            dosage: '2 Tablets',
-            frequency: 'Every 8hrs',
-            form: 'Tablet',
-            quantity: '30 Tablets',
-            status: 'Pending',
-            doctor: 'Dr. Fatima Abubakar',
-          },
-          {
-            id: 'RX-103',
-            patientName: 'Kolawole Samson',
-            date: 'Aug 11, 2026',
-            time: '11:30 AM',
-            medication: 'Metformin HCl',
-            strength: '850mg',
-            dosage: '1 Tablet',
-            frequency: 'With Meals',
-            form: 'Tablet',
-            quantity: '60 Tablets',
-            status: 'Pending',
-            doctor: 'Dr. Chioma Nnadi',
-          },
-        ]);
-      }
+      const rawList = res.success
+        ? Array.isArray(res.data)
+          ? res.data
+          : res.data?.prescriptions || []
+        : [];
+
+      setPrescriptions(
+        rawList.map((p: any, idx: number) => ({
+          id: p.id || `RX-10${idx + 1}`,
+          patientName:
+            p.patientName ||
+            (p.patient
+              ? `${p.patient.firstName || ''} ${p.patient.lastName || ''}`.trim() || p.patient.email
+              : user?.firstName
+              ? `${user.firstName} ${user.lastName || ''}`.trim()
+              : 'Patient Record'),
+          date: p.createdAt
+            ? new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          time: p.createdAt
+            ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '09:00 AM',
+          medication: p.medicationName || p.medication || 'Prescribed Medication',
+          strength: p.dosage || '500mg',
+          dosage: '1 Unit',
+          frequency: p.frequency || 'Daily',
+          form: 'Tablet',
+          quantity: '1 Pack',
+          status: p.status === 'FULFILLED' || p.status === 'Delivered' ? 'Delivered' : 'Pending',
+          doctor: p.doctorName || (p.provider ? `Dr. ${p.provider.firstName || ''} ${p.provider.lastName || ''}`.trim() : 'Attending Specialist'),
+        }))
+      );
       setLoading(false);
     }
     loadData();
-  }, [fetchPrescriptions]);
+  }, [fetchPrescriptions, user]);
 
-  const handleCreatePrescription = (e: React.FormEvent) => {
+  const handleCreatePrescription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPatientName || !newMedication) return;
-
-    const newRx: PrescriptionItem = {
-      id: `RX-${Math.floor(1000 + Math.random() * 9000)}`,
+    const res = await api.post('/pharmacy/prescriptions', {
       patientName: newPatientName,
+      medicationName: newMedication,
+      dosage: newDosage,
+      frequency: newFrequency,
+    });
+
+    const newItem: PrescriptionItem = {
+      id: res.data?.id || `RX-${Math.floor(100 + Math.random() * 900)}`,
+      patientName: newPatientName || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Patient Record'),
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      medication: newMedication,
-      strength: '500mg',
-      dosage: newDosage || '1 Tablet',
-      frequency: newFrequency || 'Daily',
+      medication: newMedication || 'Amoxicillin',
+      strength: newDosage,
+      dosage: '1 Unit',
+      frequency: newFrequency,
       form: 'Tablet',
-      quantity: '30 Tablets',
+      quantity: '1 Pack',
       status: 'Pending',
-      doctor: 'Dr. Oluwaseun Davies',
+      doctor: user?.firstName ? `Dr. ${user.firstName} ${user.lastName || ''}` : 'Attending Specialist',
     };
 
-    setPrescriptions((prev) => [newRx, ...prev]);
+    setPrescriptions((prev) => [newItem, ...prev]);
     setShowAddPane(false);
     setNewPatientName('');
     setNewMedication('');
-    setNewDosage('');
-    setNewFrequency('');
   };
 
   const filteredPrescriptions = prescriptions.filter((p) => {
@@ -142,8 +113,8 @@ export default function PrescriptionsPage() {
       p.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.medication.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesSort = sortBy === 'All' || p.status === sortBy;
-    return matchesSearch && matchesSort;
+    const matchesFilter = sortBy === 'All' || p.status === sortBy;
+    return matchesSearch && matchesFilter;
   });
 
   return (
@@ -170,7 +141,7 @@ export default function PrescriptionsPage() {
           </button>
         </div>
 
-        {/* Action & Filter Bar */}
+        {/* Search & Status Filters */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="relative w-80">
             <Search className="absolute inset-y-0 left-3.5 my-auto text-slate-400 w-4 h-4" />
@@ -184,21 +155,18 @@ export default function PrescriptionsPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-bold text-slate-600">Status Filter:</span>
+            <span className="text-xs font-bold text-slate-500">Status Filter:</span>
             <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-              {(['All', 'Pending', 'Delivered'] as const).map((st) => (
+              {(['All', 'Pending', 'Delivered'] as const).map((tab) => (
                 <button
-                  key={st}
+                  key={tab}
                   type="button"
-                  onClick={() => setSortBy(st)}
-                  className={`px-4 py-1 rounded-full text-xs font-bold transition-all ${
-                    sortBy === st
-                      ? 'bg-[#1877F2] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                  onClick={() => setSortBy(tab)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                    sortBy === tab ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {st}
+                  {tab}
                 </button>
               ))}
             </div>
@@ -228,8 +196,16 @@ export default function PrescriptionsPage() {
                   </tr>
                 ) : filteredPrescriptions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-xs font-bold text-slate-400">
-                      No prescriptions found.
+                    <td colSpan={6} className="py-12 text-center space-y-3">
+                      <Pill className="w-10 h-10 text-slate-300 mx-auto" />
+                      <p className="text-xs font-bold text-slate-600">No active electronic prescriptions found</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddPane(true)}
+                        className="text-xs text-[#1877F2] font-bold hover:underline"
+                      >
+                        + Issue Digital Prescription
+                      </button>
                     </td>
                   </tr>
                 ) : (
@@ -247,30 +223,26 @@ export default function PrescriptionsPage() {
                         </div>
                       </td>
                       <td className="py-4 px-4">
-                        <p className="font-bold text-slate-900">{rx.medication} ({rx.strength})</p>
-                        <p className="text-[10px] font-semibold text-slate-500">{rx.dosage} • {rx.frequency}</p>
+                        <p className="font-extrabold text-slate-900 text-xs">{rx.medication} ({rx.strength})</p>
+                        <p className="text-[10px] font-semibold text-slate-400">{rx.dosage} • {rx.frequency}</p>
                       </td>
-                      <td className="py-4 px-4 font-semibold text-slate-700">
-                        {rx.date}
-                      </td>
+                      <td className="py-4 px-4 font-semibold text-slate-700">{rx.date}</td>
                       <td className="py-4 px-4 font-bold text-[#1877F2]">{rx.doctor}</td>
                       <td className="py-4 px-4">
                         <span
                           className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                            rx.status === 'Delivered'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700 animate-pulse'
+                            rx.status === 'Delivered' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                           }`}
                         >
                           {rx.status === 'Delivered' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          {rx.status}
+                          <span>{rx.status}</span>
                         </span>
                       </td>
                       <td className="py-4 px-4 text-right">
                         <button
                           type="button"
                           onClick={() => setSelectedPrescription(rx)}
-                          className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-full text-xs transition-all"
+                          className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
                         >
                           View Details
                         </button>
@@ -283,63 +255,17 @@ export default function PrescriptionsPage() {
           </div>
         </div>
 
-        {/* Selected Prescription Details Modal */}
-        {selectedPrescription && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs" onClick={() => setSelectedPrescription(null)} />
-            <div className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <h2 className="text-base font-extrabold text-slate-900">E-Prescription Voucher #{selectedPrescription.id}</h2>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPrescription(null)}
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2">
-                  <p className="font-bold text-slate-900 text-sm">{selectedPrescription.medication} ({selectedPrescription.strength})</p>
-                  <p className="text-slate-600 font-semibold">Dosage: {selectedPrescription.dosage} ({selectedPrescription.frequency})</p>
-                  <p className="text-slate-500 font-medium">Quantity: {selectedPrescription.quantity}</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 p-3 bg-blue-50/50 rounded-2xl text-[11px]">
-                  <div>
-                    <span className="font-bold text-slate-400 uppercase">Patient</span>
-                    <p className="font-extrabold text-slate-900">{selectedPrescription.patientName}</p>
-                  </div>
-                  <div>
-                    <span className="font-bold text-slate-400 uppercase">Prescribing Doctor</span>
-                    <p className="font-extrabold text-[#1877F2]">{selectedPrescription.doctor}</p>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedPrescription(null)}
-                className="w-full py-3 bg-[#1877F2] text-white font-bold rounded-2xl text-xs shadow-md"
-              >
-                Close Prescription
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Add Prescription Modal */}
+        {/* Issue New Prescription Modal */}
         {showAddPane && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs" onClick={() => setShowAddPane(false)} />
             <form onSubmit={handleCreatePrescription} className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h2 className="text-base font-extrabold text-slate-900">Issue New Electronic Prescription</h2>
+                <h2 className="text-base font-extrabold text-slate-900">Issue E-Prescription</h2>
                 <button
                   type="button"
                   onClick={() => setShowAddPane(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-xs"
+                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center text-xs"
                 >
                   ✕
                 </button>
@@ -351,40 +277,53 @@ export default function PrescriptionsPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Helen Olaleye"
+                    placeholder="e.g. John Doe"
                     value={newPatientName}
                     onChange={(e) => setNewPatientName(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   />
                 </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Medication Name</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Amoxicillin Trihydrate 500mg"
+                    placeholder="e.g. Amoxicillin Trihydrate"
                     value={newMedication}
                     onChange={(e) => setNewMedication(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   />
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Dosage & Frequency</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 1 Capsule every 12 hours"
-                    value={newDosage}
-                    onChange={(e) => setNewDosage(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
-                  />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Dosage / Strength</label>
+                    <input
+                      type="text"
+                      value={newDosage}
+                      onChange={(e) => setNewDosage(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Frequency</label>
+                    <input
+                      type="text"
+                      value={newFrequency}
+                      onChange={(e) => setNewFrequency(e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                    />
+                  </div>
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="w-full py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
+                className="w-full py-3 bg-[#1877F2] text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
               >
-                Issue & Send to Pharmacy
+                Issue Digital Prescription
               </button>
             </form>
           </div>

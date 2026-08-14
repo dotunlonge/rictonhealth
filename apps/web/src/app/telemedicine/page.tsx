@@ -30,45 +30,31 @@ export default function TelemedicinePage() {
     async function loadMeetings() {
       setLoading(true);
       const res = await api.get('/telemedicine/meetings');
-      if (res.success && Array.isArray(res.data)) {
-        setMeetings(
-          res.data.map((m: any) => ({
-            id: m.id,
-            status: m.status || 'ACTIVE',
-            providerName: m.provider ? `Dr. ${m.provider.firstName || ''} ${m.provider.lastName || ''}`.trim() : 'Dr. Oluwaseun Davies',
-            patientName: m.appointment?.patientName || 'Kolawole Samson',
-            scheduledTime: new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            roomType: m.roomType || 'HD Video Call',
-            createdAt: m.createdAt,
-          }))
-        );
-      } else {
-        // High quality fallback active consultation rooms
-        setMeetings([
-          {
-            id: 'ROOM-8012',
-            status: 'ACTIVE',
-            providerName: 'Dr. Oluwaseun Davies',
-            patientName: 'Kolawole Samson',
-            scheduledTime: 'Immediate Call',
-            roomType: 'General Telemedicine HD',
-            createdAt: new Date().toISOString(),
-          },
-          {
-            id: 'ROOM-8013',
-            status: 'CREATED',
-            providerName: 'Dr. Fatima Abubakar',
-            patientName: 'Kolawole Samson',
-            scheduledTime: 'Today, 4:00 PM',
-            roomType: 'Ophthalmology Review HD',
-            createdAt: new Date(Date.now() - 3600000).toISOString(),
-          },
-        ]);
-      }
+      const rawList = res.success
+        ? Array.isArray(res.data)
+          ? res.data
+          : res.data?.meetings || []
+        : [];
+
+      setMeetings(
+        rawList.map((m: any) => ({
+          id: m.id,
+          status: m.status || 'ACTIVE',
+          providerName: m.provider
+            ? `Dr. ${m.provider.firstName || ''} ${m.provider.lastName || ''}`.trim()
+            : user?.role === 'CONSULTANT'
+            ? `Dr. ${user.firstName || ''} ${user.lastName || ''}`.trim()
+            : 'Assigned Specialist',
+          patientName: m.appointment?.patientName || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Patient Consultation'),
+          scheduledTime: new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          roomType: m.roomType || 'General Telemedicine HD',
+          createdAt: m.createdAt || new Date().toISOString(),
+        }))
+      );
       setLoading(false);
     }
     loadMeetings();
-  }, []);
+  }, [user]);
 
   const handleCreateMeeting = async () => {
     setCreating(true);
@@ -77,7 +63,6 @@ export default function TelemedicinePage() {
     if (res.success && res.data?.id) {
       router.push(`/telemedicine/${res.data.id}`);
     } else {
-      // Fallback create demo room
       const demoId = `ROOM-${Math.floor(1000 + Math.random() * 9000)}`;
       router.push(`/telemedicine/${demoId}`);
     }
@@ -114,34 +99,33 @@ export default function TelemedicinePage() {
             className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            <span>{creating ? 'Starting Session...' : 'Start Instant Consultation'}</span>
+            <span>{creating ? 'Initializing Room...' : 'Start Instant Consultation'}</span>
           </button>
         </div>
 
-        {/* Join Meeting Input Card */}
-        <div className="bg-gradient-to-br from-[#0A192F] to-[#1E3A8A] text-white rounded-3xl p-8 shadow-xl border border-slate-800 space-y-6">
+        {/* Join Consultation Card */}
+        <div className="bg-[#0A192F] text-white rounded-3xl p-8 shadow-xl space-y-4 border border-slate-800">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 text-cyan-400 flex items-center justify-center font-bold">
-              <Play className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-[#1877F2] flex items-center justify-center font-bold border border-blue-500/30">
+              <Play className="w-5 h-5 fill-current" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Join Video Room with Code</h2>
-              <p className="text-xs text-slate-300">Enter your appointment room ID or access pin to join</p>
+              <h2 className="text-base font-bold text-white">Join Video Room with Code</h2>
+              <p className="text-xs text-slate-400 font-medium">Enter your appointment room ID or access pin to join</p>
             </div>
           </div>
 
-          <form onSubmit={handleJoin} className="flex items-center gap-3 max-w-lg">
+          <form onSubmit={handleJoin} className="flex gap-3 max-w-md">
             <input
               type="text"
               placeholder="e.g. ROOM-8012"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
-              className="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-2xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1877F2] focus:bg-white/20"
+              className="flex-1 px-4 py-2.5 bg-slate-900/80 border border-slate-700/80 rounded-2xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
             />
             <button
               type="submit"
-              disabled={!joinCode.trim()}
-              className="px-6 py-3 bg-cyan-400 hover:bg-cyan-300 disabled:opacity-50 text-slate-900 font-extrabold rounded-2xl text-xs shadow-md transition-all flex items-center gap-1.5 shrink-0"
+              className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all flex items-center gap-1.5 shadow-md"
             >
               <span>Join Room</span>
               <ArrowRight className="w-4 h-4" />
@@ -149,75 +133,81 @@ export default function TelemedicinePage() {
           </form>
         </div>
 
-        {/* Meeting Rooms Table Card */}
+        {/* Consultation Rooms List */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-6">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+          <div className="flex items-center justify-between flex-wrap gap-4 border-b border-slate-100 pb-4">
             <h2 className="text-base font-bold text-slate-900">Your Video Consultation Sessions</h2>
 
-            {/* Filter Pills */}
-            <div className="flex items-center gap-2">
-              {(['All', 'ACTIVE', 'CREATED', 'ENDED'] as const).map((st) => (
+            <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
+              {(['All', 'ACTIVE', 'CREATED', 'ENDED'] as const).map((tab) => (
                 <button
-                  key={st}
+                  key={tab}
                   type="button"
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                    statusFilter === st
-                      ? 'bg-[#1877F2] text-white shadow-xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  onClick={() => setStatusFilter(tab)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                    statusFilter === tab ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {st}
+                  {tab}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Sessions List */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {loading ? (
-              <div className="p-8 text-center text-xs font-bold text-slate-400">Loading consultation sessions...</div>
+              <div className="p-8 text-center text-xs font-bold text-slate-400">Loading consultation rooms...</div>
             ) : filteredMeetings.length === 0 ? (
-              <div className="p-8 text-center text-xs font-bold text-slate-400">No consultation sessions found.</div>
+              <div className="p-12 text-center space-y-3">
+                <Video className="w-10 h-10 text-slate-300 mx-auto" />
+                <p className="text-xs font-bold text-slate-600">No video consultation sessions currently active</p>
+                <button
+                  type="button"
+                  onClick={handleCreateMeeting}
+                  className="text-xs text-[#1877F2] font-bold hover:underline"
+                >
+                  + Create Instant Video Consultation Room
+                </button>
+              </div>
             ) : (
-              filteredMeetings.map((meeting) => (
+              filteredMeetings.map((room) => (
                 <div
-                  key={meeting.id}
-                  className="p-5 rounded-2xl bg-slate-50/70 border border-slate-100 flex items-center justify-between flex-wrap gap-4 hover:bg-slate-100/60 transition-all"
+                  key={room.id}
+                  className="p-5 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between gap-4 hover:border-blue-200 transition-all flex-wrap"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1877F2] border border-blue-100 flex items-center justify-center font-bold shrink-0">
                       <Video className="w-6 h-6" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-bold text-slate-900">{meeting.providerName}</h3>
+                        <h3 className="font-extrabold text-slate-900 text-sm">{room.providerName}</h3>
                         <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                            meeting.status === 'ACTIVE'
-                              ? 'bg-emerald-100 text-emerald-700 animate-pulse'
-                              : 'bg-blue-100 text-blue-700'
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
+                            room.status === 'ACTIVE'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : room.status === 'CREATED'
+                              ? 'bg-blue-100 text-[#1877F2]'
+                              : 'bg-slate-200 text-slate-600'
                           }`}
                         >
-                          {meeting.status}
+                          {room.status}
                         </span>
                       </div>
                       <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                        {meeting.roomType} • {meeting.scheduledTime}
+                        {room.roomType} • {room.scheduledTime}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/telemedicine/${meeting.id}`)}
-                      className="px-5 py-2 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-xs transition-all flex items-center gap-1.5"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>Enter Consultation Room</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/telemedicine/${room.id}`)}
+                    className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-sm flex items-center gap-2"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Enter Consultation Room</span>
+                  </button>
                 </div>
               ))
             )}
