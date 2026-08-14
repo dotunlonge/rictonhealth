@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
+import Navbar from '@/components/Navbar';
 
 export default function LogInPage() {
   const router = useRouter();
@@ -47,8 +48,18 @@ export default function LogInPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await triggerGoogleAuth('PATIENT');
+      const res = await triggerGoogleAuth('');
       setIsLoading(false);
+
+      if (res.success && res.data?.requiresRoleSelection) {
+        router.push(
+          `/oauth/select-role?email=${encodeURIComponent(res.data.email)}&token=${encodeURIComponent(
+            res.data.token
+          )}&provider=google`
+        );
+        return;
+      }
+
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -69,8 +80,18 @@ export default function LogInPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await triggerAppleAuth('PATIENT');
+      const res = await triggerAppleAuth('');
       setIsLoading(false);
+
+      if (res.success && res.data?.requiresRoleSelection) {
+        router.push(
+          `/oauth/select-role?email=${encodeURIComponent(res.data.email)}&token=${encodeURIComponent(
+            res.data.token
+          )}&provider=apple`
+        );
+        return;
+      }
+
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -89,39 +110,7 @@ export default function LogInPage() {
 
   return (
     <main className="bg-slate-50 min-h-screen w-full relative overflow-x-hidden font-sans antialiased text-slate-900 pb-16">
-      {/* Primary Navigation Header */}
-      <header className="max-w-[1400px] mx-auto px-8 py-6 w-full flex items-center justify-between sticky top-0 bg-slate-50/90 backdrop-blur-md z-50">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 font-black text-2xl text-[#1c7bcf]"
-          aria-label="Ricton home"
-        >
-          <img
-            src="/logo.svg"
-            alt="Ricton Logo"
-            className="w-10 h-10 object-contain"
-          />
-          <span className="tracking-tight text-slate-900 font-extrabold text-2xl">Ricton</span>
-        </Link>
-
-        <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-12">
-          <Link href="/" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Home
-          </Link>
-          <Link href="/#services" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Services
-          </Link>
-          <Link href="/#resources" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Resources
-          </Link>
-          <Link href="/#pricing" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Pricing
-          </Link>
-          <Link href="/#about-us" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            About us
-          </Link>
-        </nav>
-      </header>
+      <Navbar />
 
       {/* Login Card Section */}
       <section

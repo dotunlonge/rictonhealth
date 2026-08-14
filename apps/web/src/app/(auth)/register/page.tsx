@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
+import Navbar from '@/components/Navbar';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function RegisterPage() {
       role,
       firstName,
       lastName,
+      consentVersion: '1.0',
     });
 
     setIsLoading(false);
@@ -96,37 +98,48 @@ export default function RegisterPage() {
     }
   };
 
+  const roleOptions = [
+    {
+      key: 'PATIENT',
+      label: 'Patient',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+      ),
+    },
+    {
+      key: 'CONSULTANT',
+      label: 'Doctor',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-3-3v6m-9 1a9 9 0 1118 0 9 9 0 01-18 0z" />
+        </svg>
+      ),
+    },
+    {
+      key: 'PHARMACIST',
+      label: 'Pharmacist',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L5.6 15.12a2 2 0 00-1.8.568l-.4.4a2 2 0 000 2.828l.4.4a2 2 0 001.8.568l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.8-.568l.4-.4a2 2 0 000-2.828l-.4-.4z" />
+        </svg>
+      ),
+    },
+    {
+      key: 'HOSPITAL_ADMIN',
+      label: 'Hospital',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+    },
+  ];
+
   return (
     <main className="bg-slate-50 min-h-screen w-full relative overflow-x-hidden font-sans antialiased text-slate-900 pb-16">
-      {/* Primary Navigation Header */}
-      <header className="max-w-[1400px] mx-auto px-8 py-6 w-full flex items-center justify-between sticky top-0 bg-slate-50/90 backdrop-blur-md z-50">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 font-black text-2xl text-[#1c7bcf]"
-          aria-label="Ricton home"
-        >
-          <img src="/logo.svg" alt="Ricton Logo" className="w-10 h-10 object-contain" />
-          <span className="tracking-tight text-slate-900 font-extrabold text-2xl">Ricton</span>
-        </Link>
-
-        <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-12">
-          <Link href="/" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Home
-          </Link>
-          <Link href="/#services" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Services
-          </Link>
-          <Link href="/#resources" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Resources
-          </Link>
-          <Link href="/#pricing" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            Pricing
-          </Link>
-          <Link href="/#about-us" className="text-base font-semibold text-slate-700 hover:text-[#1c7bcf] transition-colors">
-            About us
-          </Link>
-        </nav>
-      </header>
+      <Navbar />
 
       {/* Registration Form Card Section */}
       <section
@@ -157,12 +170,7 @@ export default function RegisterPage() {
             I am joining as:
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { key: 'PATIENT', label: 'Patient', icon: '👤' },
-              { key: 'CONSULTANT', label: 'Doctor', icon: '🩺' },
-              { key: 'PHARMACIST', label: 'Pharmacist', icon: '💊' },
-              { key: 'HOSPITAL_ADMIN', label: 'Hospital', icon: '🏥' },
-            ].map((item) => (
+            {roleOptions.map((item) => (
               <button
                 key={item.key}
                 type="button"
@@ -252,7 +260,13 @@ export default function RegisterPage() {
                 onClick={() => setIsPasswordVisible((v) => !v)}
                 aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
               >
-                {isPasswordVisible ? '👁️' : '🔒'}
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {isPasswordVisible ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  )}
+                </svg>
               </button>
             </div>
           </div>

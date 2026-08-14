@@ -418,26 +418,65 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
     if (!googleClient)
       throw new AppError('Google OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
 
-    const ticket = await googleClient.verifyIdToken({
-      idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const payload = ticket.getPayload();
-    if (!payload || !payload.email) throw new UnauthorizedError('Invalid Google Token');
+    let email: string | undefined;
+    let googleSub: string | undefined;
 
-    const email = payload.email;
+    if (token.startsWith('ya29.')) {
+      const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!userinfoRes.ok) {
+        throw new UnauthorizedError('Invalid Google Access Token');
+      }
+      const info = (await userinfoRes.json()) as { email?: string; sub?: string };
+      email = info.email;
+      googleSub = info.sub;
+    } else {
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: token,
+          audience: process.env.GOOGLE_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        email = payload?.email;
+        googleSub = payload?.sub;
+      } catch (_err) {
+        const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (userinfoRes.ok) {
+          const info = (await userinfoRes.json()) as { email?: string; sub?: string };
+          email = info.email;
+          googleSub = info.sub;
+        } else {
+          throw new UnauthorizedError('Invalid Google Token');
+        }
+      }
+    }
+
+    if (!email) throw new UnauthorizedError('Invalid Google Token payload');
 
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      if (!role) throw new ValidationError('Role is required for new OAuth users');
+      if (!role) {
+        res.status(200).json(
+          successResponse({
+            requiresRoleSelection: true,
+            email,
+            token,
+            oauthProvider: 'GOOGLE',
+          })
+        );
+        return;
+      }
       user = await prisma.user.create({
         data: {
           email,
           role,
           status: UserStatus.PENDING,
           oauthProvider: 'GOOGLE',
-          oauthId: payload.sub,
+          oauthId: googleSub || null,
         },
       });
     }
@@ -485,7 +524,17 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      if (!role) throw new ValidationError('Role is required for new OAuth users');
+      if (!role) {
+        res.status(200).json(
+          successResponse({
+            requiresRoleSelection: true,
+            email,
+            token,
+            oauthProvider: 'APPLE',
+          })
+        );
+        return;
+      }
       user = await prisma.user.create({
         data: {
           email,

@@ -6,7 +6,12 @@ declare global {
       accounts: {
         id: {
           initialize: (config: Record<string, unknown>) => void;
-          prompt: (notification?: unknown) => void;
+          prompt: (notification?: (n: any) => void) => void;
+        };
+        oauth2: {
+          initTokenClient: (config: Record<string, unknown>) => {
+            requestAccessToken: () => void;
+          };
         };
       };
     };
@@ -62,35 +67,55 @@ export function loadScript(src: string): Promise<void> {
 
 export async function triggerGoogleAuth(role: string = 'PATIENT'): Promise<any> {
   await loadScript('https://accounts.google.com/gsi/client');
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+  if (!clientId) {
+    throw new Error('NEXT_PUBLIC_GOOGLE_CLIENT_ID environment variable is missing');
+  }
+
+  if (!window.google?.accounts) {
+    throw new Error('Google Accounts SDK failed to load');
+  }
+
   return new Promise((resolve, reject) => {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
-    if (!clientId) {
-      reject(new Error('NEXT_PUBLIC_GOOGLE_CLIENT_ID environment variable is missing'));
-      return;
-    }
-
-    if (!window.google?.accounts?.id) {
-      reject(new Error('Google Accounts SDK failed to load'));
-      return;
-    }
-
-    window.google.accounts.id.initialize({
-      client_id: clientId,
-      callback: async (response: { credential?: string }) => {
-        if (response.credential) {
-          try {
-            const res = await loginWithGoogleToken(response.credential, role);
-            resolve(res);
-          } catch (err) {
-            reject(err);
+    // Standard OAuth2 Popup client
+    if (window.google?.accounts?.oauth2) {
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'email profile openid',
+        callback: async (tokenResponse: { access_token?: string; id_token?: string }) => {
+          const token = tokenResponse.id_token || tokenResponse.access_token;
+          if (token) {
+            try {
+              const res = await loginWithGoogleToken(token, role);
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
+          } else {
+            reject(new Error('No token returned from Google'));
           }
-        } else {
-          reject(new Error('No Google credential returned'));
-        }
-      },
-    });
-
-    window.google.accounts.id.prompt();
+        },
+        error_callback: (err: any) => reject(err),
+      });
+      client.requestAccessToken();
+    } else {
+      window.google!.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: { credential?: string }) => {
+          if (response.credential) {
+            try {
+              const res = await loginWithGoogleToken(response.credential, role);
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
+          } else {
+            reject(new Error('No Google credential returned'));
+          }
+        },
+      });
+      window.google!.accounts.id.prompt();
+    }
   });
 }
 

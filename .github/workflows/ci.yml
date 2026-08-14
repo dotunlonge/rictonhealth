@@ -2,9 +2,9 @@ name: Backend CI
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'master']
   pull_request:
-    branches: ['main']
+    branches: ['main', 'master']
 
 jobs:
   build-and-test:
@@ -21,14 +21,14 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-    - name: Lint Code
-      run: npm run lint --workspaces --if-present
+      - name: Lint Code
+        run: npm run lint --workspaces --if-present
 
-    - name: Check Formatting
-      run: npm run format:check
+      - name: Check Formatting
+        run: npm run format:check
 
-    - name: Run Integration Tests
-      run: ./scripts/test-e2e.sh
+      - name: Run Integration Tests
+        run: ./scripts/test-e2e.sh
 
   helm-lint:
     runs-on: ubuntu-latest

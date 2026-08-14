@@ -55,7 +55,10 @@ export const OAuthInputSchema = registry.register(
   'OAuthInput',
   z.object({
     token: z.string(),
-    role: z.enum(['PATIENT', 'CONSULTANT']).optional(),
+    role: z
+      .enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN', 'ADMIN'])
+      .or(z.literal(''))
+      .optional(),
   })
 );
 

@@ -1,4 +1,54 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+const OVERRIDE_API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+// Local port mappings when testing on localhost
+const LOCAL_SERVICE_PORTS: Record<string, number> = {
+  auth: 3001,
+  user: 3002,
+  users: 3002,
+  prescription: 3004,
+  prescriptions: 3004,
+  appointment: 3005,
+  appointments: 3005,
+  pharmacy: 3006,
+  payment: 3007,
+  payments: 3007,
+  wallet: 3008,
+  notification: 3009,
+  notifications: 3009,
+  admin: 3010,
+  rewards: 3011,
+  telemedicine: 3013,
+};
+
+function getEndpointUrl(endpoint: string): string {
+  // If endpoint is an absolute URL, return as-is
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+
+  // If in browser and on localhost, route to local service ports
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+    const pathParts = cleanEndpoint.split('/');
+    const servicePrefix = pathParts[0];
+
+    const targetPort = LOCAL_SERVICE_PORTS[servicePrefix];
+    if (targetPort) {
+      return `http://localhost:${targetPort}/api/${cleanEndpoint}`;
+    }
+    return `http://localhost:3001/api/${cleanEndpoint}`;
+  }
+
+  // Default to production API Gateway or environment variable
+  const baseUrl = OVERRIDE_API_URL || 'https://api.ricton.com';
+  const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  if (cleanPath.startsWith('/api/')) {
+    return `${cleanBase}${cleanPath}`;
+  }
+  return `${cleanBase}/api${cleanPath}`;
+}
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -49,8 +99,10 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    const fullUrl = getEndpointUrl(endpoint);
+
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(fullUrl, {
         ...options,
         headers,
       });
