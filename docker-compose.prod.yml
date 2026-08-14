@@ -1,0 +1,127 @@
+version: '3.8'
+
+services:
+  kong:
+    image: kong:3.6
+    container_name: ricton-kong-prod
+    restart: always
+    environment:
+      KONG_DATABASE: 'off'
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - '80:8000'
+      - '443:8443'
+    volumes:
+      - ./gateway/kong.yml:/kong/declarative/kong.yml
+    networks:
+      - ricton-network
+
+  auth-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-auth:latest
+    container_name: ricton-auth-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_SECRET: ${REFRESH_SECRET}
+      OTP_SECRET: ${OTP_SECRET}
+      NODE_ENV: production
+      PORT_AUTH: 3001
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    networks:
+      - ricton-network
+
+  user-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-user:latest
+    container_name: ricton-user-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      PORT_USER: 3002
+    networks:
+      - ricton-network
+
+  appointment-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-appointment:latest
+    container_name: ricton-appointment-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      PORT_APPOINTMENT: 3003
+    networks:
+      - ricton-network
+
+  prescription-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-prescription:latest
+    container_name: ricton-prescription-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      NODE_ENV: production
+      PORT_PRESCRIPTION: 3004
+    networks:
+      - ricton-network
+
+  telemedicine-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-telemedicine:latest
+    container_name: ricton-telemedicine-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_API_KEY_SID: ${TWILIO_API_KEY_SID}
+      TWILIO_API_KEY_SECRET: ${TWILIO_API_KEY_SECRET}
+      NODE_ENV: production
+      PORT_TELEMEDICINE: 3005
+    networks:
+      - ricton-network
+
+  payment-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-payment:latest
+    container_name: ricton-payment-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      NODE_ENV: production
+      PORT_PAYMENT: 3009
+    networks:
+      - ricton-network
+
+  wallet-service:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-us-east-1}.amazonaws.com/ricton-wallet:latest
+    container_name: ricton-wallet-service-prod
+    restart: always
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      NODE_ENV: production
+      PORT_WALLET: 3010
+    networks:
+      - ricton-network
+
+networks:
+  ricton-network:
+    driver: bridge
