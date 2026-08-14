@@ -38,6 +38,7 @@ SERVICES=(
   "subscription"
   "rewards"
   "admin"
+  "smartguard"
   "docs"
 )
 
