@@ -5,6 +5,9 @@ const LOCAL_SERVICE_PORTS: Record<string, number> = {
   auth: 3001,
   user: 3002,
   users: 3002,
+  messaging: 3003,
+  messages: 3003,
+  message: 3003,
   prescription: 3004,
   prescriptions: 3004,
   appointment: 3005,
@@ -17,7 +20,13 @@ const LOCAL_SERVICE_PORTS: Record<string, number> = {
   notifications: 3009,
   admin: 3010,
   rewards: 3011,
+  analytics: 3012,
   telemedicine: 3013,
+  address: 3014,
+  addresses: 3014,
+  smartguard: 3015,
+  subscription: 3016,
+  subscriptions: 3016,
 };
 
 function getEndpointUrl(endpoint: string): string {
