@@ -243,11 +243,12 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
             user: {
               select: {
                 id: true,
-                firstName: true,
-                lastName: true,
                 email: true,
+                phone: true,
                 role: true,
-                avatarUrl: true,
+                status: true,
+                patientProfile: true,
+                providerProfile: true,
               },
             },
           },
