@@ -9,7 +9,6 @@ import {
   getCached,
   setCached,
   makeCacheKey,
-  UserProfileSchema,
 } from '@ricton/shared';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -45,8 +44,15 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
       throw new NotFoundError('User not found');
     }
 
-    const serializedUser = UserProfileSchema.parse(user);
-    res.status(200).json(successResponse(serializedUser));
+    const activeProfile = (user as any).patientProfile || (user as any).providerProfile || {};
+    const formatted = {
+      ...user,
+      firstName: activeProfile.firstName || user.email?.split('@')[0],
+      lastName: activeProfile.lastName || '',
+      avatarUrl: activeProfile.avatarUrl || null,
+    };
+
+    res.status(200).json(successResponse(formatted));
   } catch (error: unknown) {
     next(error);
   }
@@ -180,44 +186,68 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
     const role = userPayload.role;
     const updateData = req.body;
 
-    let updatedProfile;
-
     if (role === UserRole.PATIENT) {
-      const data = {
+      const data: Record<string, unknown> = {
         firstName: updateData.firstName,
         lastName: updateData.lastName,
+        avatarUrl: updateData.avatarUrl,
         dateOfBirth: updateData.dateOfBirth ? new Date(updateData.dateOfBirth) : undefined,
         gender: updateData.gender,
         bloodType: updateData.bloodType,
         allergies: updateData.allergies,
       };
-      updatedProfile = await prisma.patientProfile.update({
+      // Clean undefined keys
+      Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
+      await prisma.patientProfile.update({
         where: { userId },
         data,
       });
     } else if (role === UserRole.CONSULTANT) {
-      const data = {
+      const data: Record<string, unknown> = {
         firstName: updateData.firstName,
         lastName: updateData.lastName,
+        avatarUrl: updateData.avatarUrl,
         specialty: updateData.specialty,
         consultationFee: updateData.consultationFee,
         title: updateData.title,
       };
-      updatedProfile = await prisma.providerProfile.update({
+      Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
+      await prisma.providerProfile.update({
         where: { userId },
         data,
       });
     } else if (role === UserRole.PHARMACIST) {
-      const data = {
+      const data: Record<string, unknown> = {
         pharmacyName: updateData.pharmacyName,
       };
-      updatedProfile = await prisma.pharmacyProfile.update({
+      Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
+      await prisma.pharmacyProfile.update({
         where: { userId },
         data,
       });
     }
 
-    res.status(200).json(successResponse(updatedProfile));
+    const fullUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        patientProfile: true,
+        providerProfile: true,
+        pharmacyProfile: true,
+      },
+    });
+
+    const activeProfile = (fullUser?.patientProfile || fullUser?.providerProfile || {}) as Record<
+      string,
+      unknown
+    >;
+    const formatted = {
+      ...fullUser,
+      firstName: activeProfile.firstName || fullUser?.email?.split('@')[0],
+      lastName: activeProfile.lastName || '',
+      avatarUrl: activeProfile.avatarUrl || null,
+    };
+
+    res.status(200).json(successResponse(formatted));
   } catch (error: unknown) {
     next(error);
   }

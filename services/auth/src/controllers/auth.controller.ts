@@ -422,6 +422,9 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
 
     let email: string | undefined;
     let googleSub: string | undefined;
+    let googleFirstName: string | undefined;
+    let googleLastName: string | undefined;
+    let googleAvatarUrl: string | undefined;
 
     if (token.startsWith('ya29.')) {
       const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -430,9 +433,19 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
       if (!userinfoRes.ok) {
         throw new UnauthorizedError('Invalid Google Access Token');
       }
-      const info = (await userinfoRes.json()) as { email?: string; sub?: string };
+      const info = (await userinfoRes.json()) as {
+        email?: string;
+        sub?: string;
+        given_name?: string;
+        family_name?: string;
+        picture?: string;
+        name?: string;
+      };
       email = info.email;
       googleSub = info.sub;
+      googleFirstName = info.given_name || info.name?.split(' ')[0];
+      googleLastName = info.family_name || info.name?.split(' ').slice(1).join(' ');
+      googleAvatarUrl = info.picture;
     } else {
       try {
         const ticket = await googleClient.verifyIdToken({
@@ -442,14 +455,27 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         const payload = ticket.getPayload();
         email = payload?.email;
         googleSub = payload?.sub;
+        googleFirstName = payload?.given_name || payload?.name?.split(' ')[0];
+        googleLastName = payload?.family_name || payload?.name?.split(' ').slice(1).join(' ');
+        googleAvatarUrl = payload?.picture;
       } catch (_err) {
         const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (userinfoRes.ok) {
-          const info = (await userinfoRes.json()) as { email?: string; sub?: string };
+          const info = (await userinfoRes.json()) as {
+            email?: string;
+            sub?: string;
+            given_name?: string;
+            family_name?: string;
+            picture?: string;
+            name?: string;
+          };
           email = info.email;
           googleSub = info.sub;
+          googleFirstName = info.given_name || info.name?.split(' ')[0];
+          googleLastName = info.family_name || info.name?.split(' ').slice(1).join(' ');
+          googleAvatarUrl = info.picture;
         } else {
           throw new UnauthorizedError('Invalid Google Token');
         }
@@ -472,6 +498,9 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         );
         return;
       }
+      const resolvedFirst = googleFirstName || email.split('@')[0];
+      const resolvedLast = googleLastName || '';
+
       user = await prisma.user.create({
         data: {
           email,
@@ -479,11 +508,37 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
           status: UserStatus.PENDING,
           oauthProvider: 'GOOGLE',
           oauthId: googleSub || null,
+          ...(role === UserRole.PATIENT
+            ? {
+                patientProfile: {
+                  create: {
+                    firstName: resolvedFirst,
+                    lastName: resolvedLast,
+                    avatarUrl: googleAvatarUrl || null,
+                  },
+                },
+              }
+            : role === UserRole.CONSULTANT
+              ? {
+                  providerProfile: {
+                    create: {
+                      firstName: resolvedFirst,
+                      lastName: resolvedLast,
+                      avatarUrl: googleAvatarUrl || null,
+                    },
+                  },
+                }
+              : {}),
+        },
+        include: {
+          patientProfile: true,
+          providerProfile: true,
         },
       });
     }
 
     const { token: jwtToken, refreshToken } = await generateTokens(user, req);
+    const profile = (user as any).patientProfile || (user as any).providerProfile || {};
 
     res.status(200).json(
       successResponse({
@@ -495,6 +550,11 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
           phone: user.phone,
           role: user.role,
           status: user.status,
+          firstName: googleFirstName || profile.firstName || user.email.split('@')[0],
+          lastName: googleLastName || profile.lastName || '',
+          avatarUrl: googleAvatarUrl || profile.avatarUrl || null,
+          patientProfile: (user as any).patientProfile,
+          providerProfile: (user as any).providerProfile,
         },
       })
     );
