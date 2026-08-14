@@ -175,7 +175,7 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
     if (!bodyResult.success) {
       throw new ValidationError(
         'Invalid request body',
-        bodyResult.error.errors as unknown as Record<string, unknown>
+        bodyResult.error.format() as unknown as Record<string, string[]>
       );
     }
 
@@ -234,25 +234,19 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
               }
             }
 
-            // Deduct points from user
-            await tx.user.update({
-              where: { id: userId },
-              data: { rewardPoints: { decrement: reward.pointsCost } },
-            });
-
             // Create redemption transaction
             const transaction = await tx.rewardTransaction.create({
               data: {
                 userId,
                 points: -reward.pointsCost,
-                transactionType: 'DEBIT',
+                type: 'REDEEM',
                 source: 'REDEMPTION',
                 description: `Redeemed: ${reward.name}`,
                 referenceId: null,
                 status: 'PENDING',
                 rewardCatalogId: rewardId,
                 shippingAddress: shippingAddress
-                  ? (shippingAddress as unknown as Record<string, unknown>)
+                  ? JSON.parse(JSON.stringify(shippingAddress))
                   : undefined,
               },
             });

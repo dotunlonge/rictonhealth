@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { UserRole } from '@ricton/db';
 import * as rewardsController from '../controllers/rewards.controller';
 
 const router = Router();
