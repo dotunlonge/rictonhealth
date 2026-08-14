@@ -1,14 +1,8 @@
-import ddTrace from 'dd-trace';
-
-ddTrace.init({
-  service: 'messaging-service',
-  env: process.env.NODE_ENV || 'development',
-});
-
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
+import { redis } from '@ricton/shared';
 import {
   HTTP_STATUS,
   errorResponse,
@@ -20,7 +14,6 @@ import {
   createCors,
   checkDatabase,
   checkRedis,
-  redis,
 } from '@ricton/shared';
 import messagingRoutes from './routes/messaging.routes';
 
@@ -29,23 +22,24 @@ dotenv.config({ path: '../../.env' });
 initSentry('messaging-service');
 
 const app = express();
-const PORT = process.env.PORT_MESSAGING || 3012;
+const PORT = process.env.MESSAGING_PORT || 3012;
 
 app.set('trust proxy', true);
 app.use(helmet());
 app.use(createCors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(httpLogger);
 
 /**
  * @openapi
  * /health:
  *   get:
- *     summary: Health check
- *     tags: [Health]
+ *     summary: Health check endpoint
+ *     tags:
+ *       - System
  *     responses:
  *       200:
- *         description: Service is healthy
+ *         description: OK
  */
 app.get('/health', async (_req: Request, res: Response) => {
   try {
@@ -61,7 +55,7 @@ app.get('/health', async (_req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error('Health check failed', error);
+    logger.error({ err: error }, 'Health check failed');
     res.status(HTTP_STATUS.SERVICE_UNAVAILABLE).json({
       status: 'unhealthy',
       service: 'messaging-service',
@@ -75,18 +69,36 @@ app.get('/health', async (_req: Request, res: Response) => {
 app.use('/api/messages', messagingRoutes);
 
 // 404 handler
-app.use((_req: Request, _res: Response, next: NextFunction) => {
-  next(new AppError('Route not found', 404, 'ROUTE_NOT_FOUND'));
+app.use((_req: Request, res: Response) => {
+  res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse('Route not found', 'NOT_FOUND'));
 });
 
 // Global error handler
-app.use(errorResponse);
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, 'Unhandled error in messaging-service');
+  if (err instanceof AppError) {
+    res.status(err.statusCode).json(errorResponse(err.message, err.code, err.details));
+  } else {
+    res
+      .status(HTTP_STATUS.INTERNAL_SERVER_ERROR)
+      .json(errorResponse('Internal server error', 'INTERNAL_ERROR'));
+  }
+});
 
-// Graceful shutdown
-setupGracefulShutdown(app, redis, prisma);
-
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`💬 Messaging Service running on port ${PORT}`);
+});
+
+server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;
+
+setupGracefulShutdown({
+  app,
+  server,
+  serviceName: 'messaging-service',
+  onShutdown: async () => {
+    await prisma.$disconnect();
+    await redis.quit();
+  },
 });
 
 export default app;

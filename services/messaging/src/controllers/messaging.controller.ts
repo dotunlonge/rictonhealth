@@ -15,6 +15,15 @@ export const listConversations = async (req: Request, res: Response, next: NextF
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
 
+    const userSelect = {
+      id: true,
+      email: true,
+      phone: true,
+      role: true,
+      patientProfile: true,
+      providerProfile: true,
+    };
+
     const conversations = await prisma.chatThread.findMany({
       where: {
         participants: {
@@ -27,13 +36,7 @@ export const listConversations = async (req: Request, res: Response, next: NextF
         participants: {
           include: {
             user: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                avatarUrl: true,
-                role: true,
-              },
+              select: userSelect,
             },
           },
         },
@@ -42,11 +45,7 @@ export const listConversations = async (req: Request, res: Response, next: NextF
           orderBy: { createdAt: 'desc' },
           include: {
             sender: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-              },
+              select: userSelect,
             },
           },
         },
@@ -126,6 +125,15 @@ export const getConversationMessages = async (req: Request, res: Response, next:
     const limit = parseInt(req.query.limit as string) || 50;
     const skip = (page - 1) * limit;
 
+    const userSelect = {
+      id: true,
+      email: true,
+      phone: true,
+      role: true,
+      patientProfile: true,
+      providerProfile: true,
+    };
+
     const conversation = await prisma.chatThread.findUnique({
       where: { id },
       include: {
@@ -147,12 +155,7 @@ export const getConversationMessages = async (req: Request, res: Response, next:
       where: { threadId: id },
       include: {
         sender: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            avatarUrl: true,
-          },
+          select: userSelect,
         },
         receipts: {
           where: { userId: userPayload.userId },
@@ -204,6 +207,15 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
     const { id } = req.params;
     const validatedData = SendMessageSchema.parse(req.body);
 
+    const userSelect = {
+      id: true,
+      email: true,
+      phone: true,
+      role: true,
+      patientProfile: true,
+      providerProfile: true,
+    };
+
     const conversation = await prisma.chatThread.findUnique({
       where: { id },
       include: {
@@ -237,12 +249,7 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
         },
         include: {
           sender: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              avatarUrl: true,
-            },
+            select: userSelect,
           },
         },
       });
@@ -333,7 +340,7 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
       res.status(200).json(successResponse({ success: true, markedCount: 'all' }));
     } else if (validatedData.messageIds && validatedData.messageIds.length > 0) {
       await prisma.$transaction(async (tx) => {
-        const data = validatedData.messageIds.map((messageId) => ({
+        const data = validatedData.messageIds!.map((messageId) => ({
           messageId,
           userId: userPayload.userId,
         }));
@@ -359,6 +366,15 @@ export const createConversation = async (req: Request, res: Response, next: Next
     const userPayload = req.user as JwtPayload;
     const validatedData = CreateConversationSchema.parse(req.body);
 
+    const userSelect = {
+      id: true,
+      email: true,
+      phone: true,
+      role: true,
+      patientProfile: true,
+      providerProfile: true,
+    };
+
     const allParticipantIds = [...new Set([userPayload.userId, ...validatedData.participantIds])];
 
     const conversation = await prisma.$transaction(async (tx) => {
@@ -374,13 +390,7 @@ export const createConversation = async (req: Request, res: Response, next: Next
           participants: {
             include: {
               user: {
-                select: {
-                  id: true,
-                  firstName: true,
-                  lastName: true,
-                  avatarUrl: true,
-                  role: true,
-                },
+                select: userSelect,
               },
             },
           },
