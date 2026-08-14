@@ -167,10 +167,13 @@ export const getRedemptions = async (req: Request, res: Response, next: NextFunc
 export const redeemReward = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.userId;
+    if (!userId) {
+      throw new ForbiddenError('Unauthorized');
+    }
     const bodyResult = RedeemRewardRequestSchema.safeParse(req.body);
 
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors);
+      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
     }
 
     const { rewardId, shippingAddress } = bodyResult.data;
@@ -239,7 +242,7 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
                 referenceId: null,
                 status: 'PENDING',
                 rewardCatalogId: rewardId,
-                shippingAddress: shippingAddress ? JSON.stringify(shippingAddress) : null,
+                shippingAddress: shippingAddress ? (shippingAddress as any) : undefined,
               },
             });
 
