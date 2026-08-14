@@ -156,6 +156,23 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     const premiumPrice = 5000; // NGN
     const billingPeriod = 'monthly';
 
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+
+    // Create active subscription record
+    const subscription = await prisma.subscription.create({
+      data: {
+        userId,
+        plan,
+        status: SubscriptionStatus.ACTIVE,
+        startsAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        autoRenew: true,
+      },
+    });
+
     // Initialize Paystack payment
     if (!PAYSTACK_SECRET_KEY) {
       throw new AppError('Payment gateway not configured', 500, 'SERVICE_NOT_CONFIGURED');
@@ -170,7 +187,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: userPayload.email,
+        email: user.email || 'user@ricton.tech',
         amount: premiumPrice * 100, // Paystack expects kobo
         currency: 'NGN',
         reference: `SUB_${userId}_${Date.now()}`,
@@ -185,7 +202,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
       }),
     });
 
-    const paymentData = await paymentInitRes.json();
+    const paymentData = (await paymentInitRes.json()) as any;
 
     if (!paymentData.status || !paymentData.data) {
       throw new AppError(
@@ -196,18 +213,6 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     }
 
     const { authorization_url, reference } = paymentData.data;
-
-    // Create pending subscription record
-    const subscription = await prisma.subscription.create({
-      data: {
-        userId,
-        plan,
-        status: SubscriptionStatus.ACTIVE,
-        startsAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        autoRenew: true,
-      },
-    });
 
     // Create payment record
     const payment = await prisma.payment.create({
