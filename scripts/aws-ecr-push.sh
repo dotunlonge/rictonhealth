@@ -63,6 +63,10 @@ for SERVICE in "${SERVICES[@]}"; do
   docker push "$IMAGE_TAG"
 
   echo "✅ Successfully pushed ${IMAGE_TAG}"
+
+  # Clean up local image and build cache after push to prevent runner disk space exhaustion
+  docker image rm "$REPO_NAME:latest" "$IMAGE_TAG" || true
+  docker builder prune -f || true
 done
 
 echo "========================================================"

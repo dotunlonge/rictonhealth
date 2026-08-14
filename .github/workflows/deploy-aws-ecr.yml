@@ -35,6 +35,14 @@ jobs:
     needs: typecheck-and-test
     runs-on: ubuntu-latest
     steps:
+      - name: Free Disk Space on Runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          docker system prune -a -f || true
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
