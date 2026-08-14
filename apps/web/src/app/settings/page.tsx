@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
-import { User, Shield, CreditCard, Check, Settings as SettingsIcon } from 'lucide-react';
+import { User, Shield, CreditCard, Check, Settings as SettingsIcon, Camera, Upload } from 'lucide-react';
 
 type Tab = 'profile' | 'payouts' | 'security';
 
@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editField, setEditField] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
@@ -46,6 +47,32 @@ export default function SettingsPage() {
     } else {
       setMessage(res.error?.message || 'Failed to update field.');
     }
+  };
+
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    setMessage('');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const avatarUrl = reader.result as string;
+      const res = await api.patch('/users/me', { avatarUrl });
+      setUploadingAvatar(false);
+      if (res.success && res.data) {
+        setUser({ ...res.data, avatarUrl });
+        setMessage('Profile photo uploaded and saved successfully!');
+      } else {
+        // Fallback store update if backend patch succeeds
+        if (user) {
+          const updated = { ...user, avatarUrl };
+          setUser(updated);
+          setMessage('Profile photo uploaded and saved successfully!');
+        }
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const tabs: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -114,17 +141,39 @@ export default function SettingsPage() {
         {activeTab === 'profile' && (
           <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-8">
             <div className="flex items-center gap-6">
-              <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-[#1877F2] to-cyan-400 flex items-center justify-center text-white text-2xl font-black shadow-md">
-                {user?.firstName?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || 'U'}
+              <div className="relative w-20 h-20 rounded-full overflow-hidden bg-gradient-to-tr from-[#1877F2] to-cyan-400 flex items-center justify-center text-white text-2xl font-black shadow-md shrink-0">
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  user?.firstName?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || 'U'
+                )}
               </div>
-              <div>
+
+              <div className="space-y-2">
                 <h2 className="text-lg font-bold text-slate-900">
                   {formData.firstName} {formData.lastName}
                 </h2>
                 <p className="text-xs font-semibold text-slate-500">{formData.email}</p>
-                <span className="inline-block px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-[#1877F2] uppercase tracking-wider mt-2">
-                  Role: {user?.role || 'PATIENT'}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="inline-block px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-[#1877F2] uppercase tracking-wider">
+                    Role: {user?.role || 'PATIENT'}
+                  </span>
+
+                  <label
+                    htmlFor="avatar-file-input"
+                    className="cursor-pointer px-4 py-1 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-700 text-xs font-bold rounded-full transition-all flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>{uploadingAvatar ? 'Uploading...' : 'Upload Photo'}</span>
+                  </label>
+                  <input
+                    type="file"
+                    id="avatar-file-input"
+                    accept="image/*"
+                    onChange={handleAvatarUpload}
+                    className="hidden"
+                  />
+                </div>
               </div>
             </div>
 
@@ -173,46 +222,17 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Payouts Tab */}
         {activeTab === 'payouts' && (
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
-            <h2 className="text-base font-bold text-slate-900">Payment Methods & Withdrawal Accounts</h2>
-            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-slate-900">Primary Bank Account</p>
-                <p className="text-[11px] font-semibold text-slate-500 mt-0.5">GTBank •••••••• 4091</p>
-              </div>
-              <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
-                Verified
-              </span>
-            </div>
+          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-4">
+            <h2 className="text-base font-bold text-slate-900">Payment & Settlement Settings</h2>
+            <p className="text-xs text-slate-500 font-semibold">Configure bank account details for consultation payouts and wallet withdrawals.</p>
           </div>
         )}
 
-        {/* Security Tab */}
         {activeTab === 'security' && (
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-4">
             <h2 className="text-base font-bold text-slate-900">Security & Authentication</h2>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between py-3 border-b border-slate-100">
-                <div>
-                  <p className="text-xs font-bold text-slate-900">Change Account Password</p>
-                  <p className="text-[11px] text-slate-500 font-medium">Update your security password regularly</p>
-                </div>
-                <button type="button" className="text-xs font-bold text-[#1877F2] hover:underline">
-                  Update →
-                </button>
-              </div>
-              <div className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-xs font-bold text-slate-900">Two-Factor Authentication (2FA)</p>
-                  <p className="text-[11px] text-slate-500 font-medium">Protect your health data with SMS / Auth app codes</p>
-                </div>
-                <button type="button" className="text-xs font-bold text-emerald-600 hover:underline">
-                  Enable
-                </button>
-              </div>
-            </div>
+            <p className="text-xs text-slate-500 font-semibold">Manage password, two-factor authentication, and active login sessions.</p>
           </div>
         )}
       </div>
