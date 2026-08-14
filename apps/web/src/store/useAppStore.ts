@@ -82,6 +82,7 @@ interface AppState {
   fetchPrescriptions: () => Promise<void>;
   fetchNotifications: () => Promise<void>;
   fetchWallet: () => Promise<void>;
+  fetchRewards: () => Promise<void>;
   logout: () => void;
   setUser: (user: UserProfile | null) => void;
 }
@@ -98,81 +99,28 @@ function getInitialCachedUser(): UserProfile | null {
 
 export const useAppStore = create<AppState>((set, get) => ({
   user: getInitialCachedUser(),
-  appointments: [
-    {
-      id: 'APT-1001',
-      patientName: 'Alex Johnson',
-      doctorName: 'Dr. Oluwaseun Davies',
-      scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-      type: 'General Consultation',
-      status: 'CONFIRMED',
-      durationMinutes: 60,
-    },
-    {
-      id: 'APT-1002',
-      patientName: 'Sarah Connor',
-      doctorName: 'Dr. Fatima Abubakar',
-      scheduledAt: new Date(Date.now() + 172800000).toISOString(),
-      type: 'Ophthalmology Review',
-      status: 'PENDING',
-      durationMinutes: 45,
-    },
-  ],
-  prescriptions: [
-    {
-      id: 'RX-101',
-      patientName: 'Helen Olaleye',
-      doctor: 'Dr. Adebayo Ogunlesi',
-      medication: 'Amoxicillin Trihydrate',
-      dosage: '500mg',
-      frequency: '3 times daily (8 hourly)',
-      strength: '500mg',
-      form: 'Capsule',
-      quantity: 21,
-      date: new Date().toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
-      status: 'Delivered',
-    },
-    {
-      id: 'RX-102',
-      patientName: 'James Carter',
-      doctor: 'Dr. Chioma Nnadi',
-      medication: 'Metformin Hydrochloride',
-      dosage: '850mg',
-      frequency: '2 times daily with meals',
-      strength: '850mg',
-      form: 'Tablet',
-      quantity: 60,
-      date: new Date(Date.now() - 86400000).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      }),
-      status: 'Pending',
-    },
-  ],
-  notifications: [
-    {
-      id: 'N-1',
-      title: 'Appointment Reminder',
-      message: 'Your consultation with Dr. Oluwaseun Davies is scheduled for tomorrow.',
-      createdAt: new Date().toISOString(),
-      isRead: false,
-    },
-  ],
+  appointments: [],
+  prescriptions: [],
+  notifications: [],
   walletBalance: 0,
   rewardsPoints: 0,
   isLoading: false,
   error: null,
 
   setUser: (user) => {
-    if (user && typeof window !== 'undefined') {
-      localStorage.setItem('ricton_user', JSON.stringify(user));
+    if (typeof window !== 'undefined') {
+      if (user) {
+        const existing = get().user || {};
+        const merged = { ...existing, ...user };
+        localStorage.setItem('ricton_user', JSON.stringify(merged));
+        set({ user: merged });
+      } else {
+        localStorage.removeItem('ricton_user');
+        set({ user: null });
+      }
+    } else {
+      set({ user });
     }
-    set({ user });
   },
 
   fetchUser: async () => {
@@ -180,8 +128,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await api.get('/users/me');
       if (res.success && res.data) {
         const u = res.data as UserProfile;
-        get().setUser(u);
-        return u;
+        const existing = get().user;
+        const merged: UserProfile = {
+          ...u,
+          avatarUrl:
+            u.avatarUrl ||
+            u.patientProfile?.avatarUrl ||
+            u.providerProfile?.avatarUrl ||
+            existing?.avatarUrl,
+          firstName:
+            u.firstName ||
+            u.patientProfile?.firstName ||
+            u.providerProfile?.firstName ||
+            existing?.firstName,
+          lastName:
+            u.lastName ||
+            u.patientProfile?.lastName ||
+            u.providerProfile?.lastName ||
+            existing?.lastName,
+        };
+        get().setUser(merged);
+        return merged;
       }
     } catch (err: unknown) {
       console.warn('Failed fetching current user profile', err);
@@ -245,11 +212,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   logout: () => {
-    api.setToken(null);
-    api.clearToken();
+    api.logout();
     if (typeof window !== 'undefined') {
       localStorage.removeItem('ricton_user');
+      localStorage.removeItem('ricton_token');
     }
-    set({ user: null });
+    set({
+      user: null,
+      appointments: [],
+      prescriptions: [],
+      notifications: [],
+      walletBalance: 0,
+      rewardsPoints: 0,
+    });
   },
 }));

@@ -91,7 +91,7 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
 };
 
 function resolveUserDisplay(user: any) {
-  if (!user) return { name: 'Member Account', role: 'PATIENT' as UserRole, roleLabel: 'Patient' };
+  if (!user) return { name: 'Account', role: 'PATIENT' as UserRole, roleLabel: 'Patient', avatarUrl: undefined };
   const role: UserRole = user.role || 'PATIENT';
   const roleLabels: Record<UserRole, string> = {
     PATIENT: 'Patient',
@@ -103,11 +103,19 @@ function resolveUserDisplay(user: any) {
   };
 
   const profile = user.patientProfile || user.providerProfile || {};
-  const first = profile.firstName || user.firstName || user.name?.split(' ')[0] || '';
-  const last = profile.lastName || user.lastName || user.name?.split(' ').slice(1).join(' ') || '';
-  const name = [first, last].filter(Boolean).join(' ') || user.email?.split('@')[0] || 'User';
+  const first = user.firstName || profile.firstName || user.name?.split(' ')[0] || '';
+  const last = user.lastName || profile.lastName || user.name?.split(' ').slice(1).join(' ') || '';
+  let name = [first, last].filter(Boolean).join(' ');
 
-  return { name, role, roleLabel: roleLabels[role] || 'Member' };
+  if (!name && user.email) {
+    const raw = user.email.split('@')[0];
+    name = raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+  if (!name) name = 'User Account';
+
+  const avatarUrl = user.avatarUrl || profile.avatarUrl;
+
+  return { name, role, roleLabel: roleLabels[role] || 'Member', avatarUrl };
 }
 
 interface SidebarLayoutProps {
@@ -170,8 +178,8 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
           {/* User Display Header */}
           <div className="px-6 py-4 flex items-center gap-3.5 border-b border-white/10 bg-white/5">
             <div className="w-10 h-10 rounded-full border-2 border-[#1877F2] overflow-hidden bg-slate-800 flex items-center justify-center shrink-0 shadow-inner">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={display.name} className="w-full h-full object-cover" />
+              {display.avatarUrl ? (
+                <img src={display.avatarUrl} alt={display.name} className="w-full h-full object-cover" />
               ) : (
                 <User className="w-5 h-5 text-slate-300" />
               )}
@@ -248,8 +256,8 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
             </button>
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
               <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={display.name} className="w-full h-full object-cover" />
+                {display.avatarUrl ? (
+                  <img src={display.avatarUrl} alt={display.name} className="w-full h-full object-cover" />
                 ) : (
                   <User className="w-4 h-4 text-slate-500" />
                 )}
