@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { Users, Search, Plus, User, FileText, CheckCircle2, ArrowRight } from 'lucide-react';
@@ -19,6 +20,7 @@ interface PatientRecord {
 }
 
 export default function PatientsPage() {
+  const router = useRouter();
   const { user } = useAppStore();
   const [patientsList, setPatientsList] = useState<PatientRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
