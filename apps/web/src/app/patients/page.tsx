@@ -199,8 +199,8 @@ export default function PatientsPage() {
                       <td className="py-4 px-4 text-right">
                         <button
                           type="button"
-                          onClick={() => setSelectedPatient(pt)}
-                          className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-full text-xs transition-all"
+                          onClick={() => router.push(`/patients/${pt.id}`)}
+                          className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
                         >
                           View File →
                         </button>
