@@ -198,7 +198,9 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       return newUser;
     });
 
-    await auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone });
+    auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone }).catch((err) =>
+      logger.error('Failed to record audit log', { error: err })
+    );
 
     res.status(201).json(successResponse({ id: user.id, role: user.role, status: user.status }));
   } catch (error) {
