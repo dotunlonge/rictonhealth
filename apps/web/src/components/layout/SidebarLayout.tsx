@@ -160,7 +160,6 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   }, [user, allowedRoles, router]);
 
   const navItems = roleNavigationMap[display.role] || roleNavigationMap.PATIENT;
-  const avatarUrl = user?.avatarUrl || user?.patientProfile?.avatarUrl || user?.providerProfile?.avatarUrl;
 
   const handleLogout = () => {
     logout();
