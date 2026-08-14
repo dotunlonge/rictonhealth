@@ -193,6 +193,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeNav, setActiveNav] = useState('Home');
   const [monthOffset, setMonthOffset] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<number>(new Date().getDate());
   const [showAllSchedules, setShowAllSchedules] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -577,15 +578,29 @@ export default function DashboardPage() {
                     <button
                       key={date}
                       type="button"
-                      className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                        isCurrentMonth && date === today.getDate()
-                          ? 'bg-[#1877F2] text-white shadow-sm'
+                      onClick={() => setSelectedDate(date)}
+                      className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                        selectedDate === date
+                          ? 'bg-[#1877F2] text-white shadow-md ring-2 ring-blue-300 scale-105'
+                          : isCurrentMonth && date === today.getDate()
+                          ? 'bg-blue-100 text-[#1877F2] font-black'
                           : 'text-slate-700 hover:bg-slate-100'
                       }`}
                     >
                       {date}
                     </button>
                   ))}
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                  <span className="text-slate-500">Selected: <strong className="text-slate-900">{getMonthName(monthOffset)} {selectedDate}</strong></span>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/appointments')}
+                    className="text-[#1877F2] font-bold hover:underline"
+                  >
+                    + Book Session
+                  </button>
                 </div>
               </section>
 
@@ -604,7 +619,11 @@ export default function DashboardPage() {
 
                   <ol className="space-y-2 text-xs font-semibold text-slate-700 flex-1">
                     {profileData.steps.map((step) => (
-                      <li key={step.label} className="flex items-center justify-between">
+                      <li
+                        key={step.label}
+                        onClick={() => router.push('/settings')}
+                        className="flex items-center justify-between cursor-pointer hover:text-[#1877F2] transition-colors"
+                      >
                         <span>{step.label}</span>
                         {step.done ? (
                           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
