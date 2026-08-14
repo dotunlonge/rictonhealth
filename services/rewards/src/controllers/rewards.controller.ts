@@ -173,7 +173,10 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
     const bodyResult = RedeemRewardRequestSchema.safeParse(req.body);
 
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const { rewardId, shippingAddress } = bodyResult.data;
@@ -231,18 +234,26 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
               }
             }
 
+            // Deduct points from user
+            await tx.user.update({
+              where: { id: userId },
+              data: { rewardPoints: { decrement: reward.pointsCost } },
+            });
+
             // Create redemption transaction
             const transaction = await tx.rewardTransaction.create({
               data: {
                 userId,
-                type: 'REDEEM',
                 points: -reward.pointsCost,
+                transactionType: 'DEBIT',
                 source: 'REDEMPTION',
                 description: `Redeemed: ${reward.name}`,
                 referenceId: null,
                 status: 'PENDING',
                 rewardCatalogId: rewardId,
-                shippingAddress: shippingAddress ? (shippingAddress as any) : undefined,
+                shippingAddress: shippingAddress
+                  ? (shippingAddress as unknown as Record<string, unknown>)
+                  : undefined,
               },
             });
 
@@ -281,13 +292,14 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
           })
         );
         return;
-      } catch (error: any) {
-        lastError = error;
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        lastError = error instanceof Error ? error : new Error(String(error));
         // If it's a serialization failure or deadlock, retry
         if (
-          error.code === 'P2034' ||
-          error.message.includes('deadlock') ||
-          error.message.includes('serialization')
+          err.code === 'P2034' ||
+          err.message?.includes('deadlock') ||
+          err.message?.includes('serialization')
         ) {
           if (attempt < maxRetries - 1) {
             continue;
@@ -310,7 +322,7 @@ export const getCatalog = async (req: Request, res: Response, next: NextFunction
     const category = req.query.category as string;
     const skip = (page - 1) * limit;
 
-    const whereClause: any = { isActive: true, stock: { gt: 0 } };
+    const whereClause: Record<string, unknown> = { isActive: true, stock: { gt: 0 } };
     if (category) whereClause.category = category;
 
     const [items, total, categories] = await Promise.all([

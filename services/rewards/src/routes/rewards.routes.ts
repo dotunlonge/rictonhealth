@@ -16,6 +16,10 @@ router.get('/catalog', rewardsController.getCatalog);
 router.get('/tiers', rewardsController.getTiers);
 
 // Internal service endpoint - requires SERVICE role for security
-router.post('/internal/earn', requireRole('SERVICE' as any), rewardsController.earnPoints);
+router.post(
+  '/internal/earn',
+  requireRole('SERVICE' as unknown as UserRole),
+  rewardsController.earnPoints
+);
 
 export default router;

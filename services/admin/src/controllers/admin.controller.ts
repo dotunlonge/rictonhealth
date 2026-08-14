@@ -15,7 +15,10 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
   try {
     const queryResult = AdminUserListQuerySchema.safeParse(req.query);
     if (!queryResult.success) {
-      throw new ValidationError('Invalid query parameters', queryResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid query parameters',
+        queryResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const { page: pageStr, limit: limitStr, role, status, search } = queryResult.data;
@@ -23,7 +26,7 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
     const limit = parseInt(limitStr, 10);
     const skip = (page - 1) * limit;
 
-    const whereClause: any = {};
+    const whereClause: Record<string, unknown> = {};
 
     if (role) whereClause.role = role as UserRole;
     if (status) whereClause.status = status as UserStatus;
@@ -108,7 +111,10 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
     const bodyResult = AdminUpdateUserStatusSchema.safeParse(req.body);
 
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const { status, reason } = bodyResult.data;
@@ -199,10 +205,10 @@ export const getPendingProviders = async (req: Request, res: Response, next: Nex
       licenseNumber: p.licenseNumber || 'N/A',
       submittedAt: p.idVerifiedAt ? p.idVerifiedAt.toISOString() : new Date().toISOString(),
       documents: Array.isArray(p.documents)
-        ? (p.documents as any[]).map((d: any) => ({
-            type: d.type || 'LICENSE',
-            url: d.url || '',
-            status: d.status || 'PENDING',
+        ? (p.documents as unknown as Array<Record<string, unknown>>).map((d) => ({
+            type: (d.type as string) || 'LICENSE',
+            url: (d.url as string) || '',
+            status: (d.status as string) || 'PENDING',
           }))
         : [],
     }));
@@ -224,7 +230,10 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
     const bodyResult = AdminVerifyProviderSchema.safeParse(req.body);
 
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const { verified, notes } = bodyResult.data;
@@ -294,7 +303,10 @@ export const createHospital = async (req: Request, res: Response, next: NextFunc
     const bodyResult = AdminHospitalCreateSchema.safeParse(req.body);
 
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const hospitalData = bodyResult.data;
@@ -348,7 +360,10 @@ export const updateHospital = async (req: Request, res: Response, next: NextFunc
 
     const bodyResult = AdminHospitalUpdateSchema.safeParse(req.body);
     if (!bodyResult.success) {
-      throw new ValidationError('Invalid request body', bodyResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const hospital = await prisma.hospital.update({
@@ -378,7 +393,10 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
   try {
     const queryResult = AdminAuditLogQuerySchema.safeParse(req.query);
     if (!queryResult.success) {
-      throw new ValidationError('Invalid query parameters', queryResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid query parameters',
+        queryResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const { page: pageStr, limit: limitStr, userId, action, startDate, endDate } = queryResult.data;
@@ -386,14 +404,14 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
     const limit = parseInt(limitStr, 10);
     const skip = (page - 1) * limit;
 
-    const whereClause: any = {};
+    const whereClause: Record<string, unknown> = {};
 
     if (userId) whereClause.actorId = userId;
     if (action) whereClause.action = action;
     if (startDate || endDate) {
       whereClause.createdAt = {};
-      if (startDate) whereClause.createdAt.gte = new Date(startDate);
-      if (endDate) whereClause.createdAt.lte = new Date(endDate);
+      if (startDate) (whereClause.createdAt as Record<string, unknown>).gte = new Date(startDate);
+      if (endDate) (whereClause.createdAt as Record<string, unknown>).lte = new Date(endDate);
     }
 
     const [logs, total] = await Promise.all([
@@ -421,7 +439,10 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
   try {
     const queryResult = AdminAnalyticsQuerySchema.safeParse(req.query);
     if (!queryResult.success) {
-      throw new ValidationError('Invalid query parameters', queryResult.error.errors as any);
+      throw new ValidationError(
+        'Invalid query parameters',
+        queryResult.error.errors as unknown as Record<string, unknown>
+      );
     }
 
     const [totalUsers, totalProviders, totalHospitals, totalAppointments, activeSubscriptions] =

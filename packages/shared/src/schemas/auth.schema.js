@@ -36,7 +36,7 @@ exports.VerifyOtpInputSchema = openapi_registry_1.registry.register('VerifyOtpIn
 }));
 exports.OAuthInputSchema = openapi_registry_1.registry.register('OAuthInput', zod_1.z.object({
     token: zod_1.z.string(),
-    role: zod_1.z.enum(['PATIENT', 'CONSULTANT']).optional(),
+    role: zod_1.z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN', 'ADMIN']).or(zod_1.z.literal('')).optional(),
 }));
 exports.RefreshTokenInputSchema = openapi_registry_1.registry.register('RefreshTokenInput', zod_1.z.object({
     refreshToken: zod_1.z.string(),

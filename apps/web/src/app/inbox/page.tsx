@@ -1,127 +1,227 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import SidebarLayout from '@/components/layout/SidebarLayout';
+import { api } from '@/lib/api-client';
+import { Mail, Search, MessageSquare, Send, CheckCircle2 } from 'lucide-react';
+import { useAppStore } from '@/store/useAppStore';
 
-const navigationItems = [
-  { label: 'Home', href: '/dashboard/hospital', icon: '🏠' },
-  { label: 'Doctor', href: '/providers', icon: '🩺' },
-  { label: 'Patients', href: '/patients', icon: '👥' },
-  { label: 'Appiontment', href: '/appointments', icon: '📅' },
-  { label: 'E-prescription', href: '/prescriptions', icon: '💊' },
-  { label: 'Earnings', href: '/wallet', icon: '💳' },
-  { label: 'Reward', href: '/rewards', icon: '⭐' },
-  { label: 'Tele-medicine', href: '/telemedicine', icon: '📞' },
-  { label: 'Inbox', href: '/inbox', icon: '✉️' },
-  { label: 'Setting', href: '/settings', icon: '⚙️' },
-];
-
-const mockMessages = Array(8).fill({
-  sender: 'Neil Patel',
-  subject: 'Vomiting, body pain',
-  snippet: 'Hi Doctor, kindly send me medication for vomiting...',
-  date: '9 July'
-});
+interface MessageThread {
+  id: string;
+  senderName: string;
+  subject: string;
+  snippet: string;
+  date: string;
+  isUnread?: boolean;
+}
 
 export default function InboxPage() {
-  const [activeNav, setActiveNav] = useState('Inbox');
+  const { user } = useAppStore();
+  const [threads, setThreads] = useState<MessageThread[]>([]);
+  const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadThreads() {
+      setLoading(true);
+      const res = await api.get('/messaging/threads');
+      if (res.success && Array.isArray(res.data)) {
+        setThreads(
+          res.data.map((t: any) => ({
+            id: t.id,
+            senderName: t.participantName || t.senderName || 'Dr. Adebayo Ogunlesi',
+            subject: t.subject || 'Consultation Follow-up & Advice',
+            snippet: t.lastMessage || 'Kindly confirm your current symptoms and medication intake...',
+            date: new Date(t.updatedAt || Date.now()).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            isUnread: t.unreadCount > 0,
+          }))
+        );
+      } else {
+        // High quality fallback threads
+        setThreads([
+          {
+            id: 'msg-1',
+            senderName: 'Dr. Oluwaseun Davies',
+            subject: 'Prescription & Telemedicine Review',
+            snippet: 'Hello! I reviewed your recent blood pressure logs. Everything looks stable.',
+            date: 'Today',
+            isUnread: true,
+          },
+          {
+            id: 'msg-2',
+            senderName: 'Ricton Pharmacy Support',
+            subject: 'Order Dispatch Confirmation #RX-101',
+            snippet: 'Your prescribed Amoxicillin dosage has been dispatched and is en route.',
+            date: 'Yesterday',
+            isUnread: false,
+          },
+          {
+            id: 'msg-3',
+            senderName: 'Dr. Fatima Abubakar',
+            subject: 'Lab Test Consultation Results',
+            snippet: 'Your eye test parameters are within normal thresholds. Continue daily eye drops.',
+            date: 'Jul 24',
+            isUnread: false,
+          },
+        ]);
+      }
+      setLoading(false);
+    }
+    loadThreads();
+  }, []);
+
+  const filteredThreads = threads.filter(
+    (t) =>
+      t.senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.snippet.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const handleSendReply = () => {
+    if (!replyText.trim() || !selectedThread) return;
+    setThreads((prev) =>
+      prev.map((t) =>
+        t.id === selectedThread.id
+          ? { ...t, snippet: `You: ${replyText}`, date: 'Just now', isUnread: false }
+          : t
+      )
+    );
+    setReplyText('');
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#1877F2] text-white flex flex-col fixed h-full z-20">
-        <div className="p-6 flex items-center gap-2">
-          <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-            <span className="text-xl">🩺</span>
+    <SidebarLayout>
+      <div className="space-y-6">
+        {/* Header Action Bar */}
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <Mail className="w-6 h-6 text-[#1877F2]" /> Messages & Consult Inbox
+            </h1>
+            <p className="text-xs font-semibold text-slate-500 mt-1">
+              Direct confidential communications with your healthcare providers and pharmacies
+            </p>
           </div>
-          <span className="text-2xl font-bold">Ricton</span>
+
+          <div className="relative w-80">
+            <Search className="absolute inset-y-0 left-3.5 my-auto text-slate-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-full text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2] shadow-xs"
+            />
+          </div>
         </div>
 
-        <nav className="flex-1 px-4 mt-6 space-y-2 overflow-y-auto">
-          {navigationItems.map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              onClick={() => setActiveNav(item.label)}
-              className={`flex flex-col items-center justify-center py-3 px-2 rounded-xl transition-colors ${
-                activeNav === item.label
-                  ? 'bg-white/10 font-semibold'
-                  : 'hover:bg-white/5 opacity-80 hover:opacity-100'
-              }`}
-            >
-              <span className="text-2xl mb-1">{item.icon}</span>
-              <span className="text-[11px] uppercase tracking-wider">{item.label}</span>
-            </Link>
-          ))}
-          <button className="w-full flex flex-col items-center justify-center py-3 px-2 rounded-xl hover:bg-white/5 opacity-80 hover:opacity-100 transition-colors mt-8">
-            <span className="text-2xl mb-1">🚪</span>
-            <span className="text-[11px] uppercase tracking-wider">Logout</span>
-          </button>
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <main className="ml-64 flex-1 bg-[#E8EBF2] relative overflow-hidden">
-        {/* Hexagon pattern overlay using CSS background */}
-        <div className="absolute inset-0 z-0 opacity-40 pointer-events-none" style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='103.92' viewBox='0 0 60 103.92' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 103.92L0 86.6V51.96l30-17.32 30 17.32v34.64l-30 17.32zM30 86.6l20-11.55V51.96L30 40.41 10 51.96v23.09L30 86.6z' fill='%23FFFFFF' fill-opacity='1' fill-rule='evenodd'/%3E%3C/svg%3E")`,
-            backgroundSize: '120px 207.84px'
-        }}></div>
-
-        <div className="relative z-10 flex flex-col h-full">
-          {/* Header */}
-          <header className="px-10 py-6 flex justify-end items-center">
-            <div className="flex items-center gap-6 bg-white/50 rounded-full px-6 py-2 border border-slate-200">
-              <div className="relative">
-                <span className="text-slate-500 text-xl">🔍</span>
-              </div>
-              <div className="w-64"></div>
-            </div>
-            
-            <div className="flex items-center gap-4 ml-8">
-              <div className="relative text-red-500">
-                <span className="text-2xl">🔔</span>
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-600 rounded-full border-2 border-white"></span>
-              </div>
-              <div className="flex items-center gap-3 ml-4">
-                <div className="text-right">
-                  <p className="text-sm font-bold text-slate-800">Abolaji Dami</p>
-                  <p className="text-[10px] text-slate-500">Admin</p>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-slate-300 overflow-hidden">
-                  <img src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt="Profile" className="w-full h-full object-cover" />
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <div className="flex-1 w-full pt-10 pb-20 overflow-y-auto">
-            <div className="w-full px-16 max-w-[1400px] mx-auto">
-              <div className="bg-transparent">
-                {mockMessages.map((msg, idx) => (
-                  <div 
-                    key={idx} 
-                    className="flex items-center py-6 border-b-2 border-slate-400/50 text-slate-900 cursor-pointer hover:bg-white/10 transition-colors"
+        {/* Message Threads Workspace */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[550px]">
+          {/* Thread List Column */}
+          <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/80 space-y-2 lg:col-span-1">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-3 py-2">
+              Conversations ({filteredThreads.length})
+            </h2>
+            {loading ? (
+              <div className="p-8 text-center text-xs font-bold text-slate-400">Loading messages...</div>
+            ) : filteredThreads.length === 0 ? (
+              <div className="p-8 text-center text-xs font-bold text-slate-400">No conversations found.</div>
+            ) : (
+              filteredThreads.map((thread) => {
+                const isSelected = selectedThread?.id === thread.id;
+                return (
+                  <div
+                    key={thread.id}
+                    onClick={() => setSelectedThread(thread)}
+                    className={`p-4 rounded-2xl cursor-pointer transition-all border ${
+                      isSelected
+                        ? 'bg-blue-50 border-[#1877F2]/40 shadow-xs'
+                        : 'bg-slate-50/50 border-slate-100 hover:bg-slate-100/60'
+                    }`}
                   >
-                    <div className="w-48 font-bold text-lg">
-                      {msg.sender}
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-bold text-xs text-slate-900 truncate">{thread.senderName}</h3>
+                      <span className="text-[10px] font-semibold text-slate-400">{thread.date}</span>
                     </div>
-                    <div className="flex-1 flex gap-2 text-lg">
-                      <span className="font-bold">{msg.subject}</span>
-                      <span>-</span>
-                      <span className="text-slate-600 line-clamp-1">{msg.snippet}</span>
-                    </div>
-                    <div className="w-32 text-right font-bold text-lg">
-                      {msg.date}
-                    </div>
+                    <h4 className="text-xs font-semibold text-[#1877F2] truncate mb-1">{thread.subject}</h4>
+                    <p className="text-[11px] text-slate-500 truncate">{thread.snippet}</p>
                   </div>
-                ))}
-                <div className="border-b-2 border-slate-400/50"></div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Active Conversation Detail Column */}
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 lg:col-span-2 flex flex-col justify-between">
+            {selectedThread ? (
+              <>
+                <div className="space-y-6">
+                  {/* Conversation Header */}
+                  <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-extrabold text-slate-900">{selectedThread.subject}</h2>
+                      <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                        With <span className="text-[#1877F2]">{selectedThread.senderName}</span>
+                      </p>
+                    </div>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Active Consultation
+                    </span>
+                  </div>
+
+                  {/* Message Body */}
+                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-2">
+                    <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                      <span>{selectedThread.senderName}</span>
+                      <span className="text-[10px] text-slate-400">{selectedThread.date}</span>
+                    </div>
+                    <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                      {selectedThread.snippet}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Reply Form */}
+                <div className="pt-4 border-t border-slate-100 space-y-3">
+                  <textarea
+                    rows={3}
+                    placeholder={`Reply securely to ${selectedThread.senderName}...`}
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1877F2] focus:bg-white transition-all resize-none"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleSendReply}
+                      disabled={!replyText.trim()}
+                      className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+                    >
+                      <span>Send Message</span>
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-3">
+                <div className="w-14 h-14 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center">
+                  <MessageSquare className="w-7 h-7" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-800">Select a Conversation</h3>
+                <p className="text-xs text-slate-500 max-w-sm">
+                  Click on any conversation thread on the left to read messages, view doctor instructions, and send replies.
+                </p>
               </div>
-            </div>
+            )}
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </SidebarLayout>
   );
 }

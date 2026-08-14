@@ -78,13 +78,13 @@ export declare const VerifyOtpInputSchema: z.ZodObject<{
 }>;
 export declare const OAuthInputSchema: z.ZodObject<{
     token: z.ZodString;
-    role: z.ZodOptional<z.ZodEnum<["PATIENT", "CONSULTANT"]>>;
+    role: z.ZodOptional<z.ZodUnion<[z.ZodEnum<["PATIENT", "CONSULTANT", "PHARMACIST", "HOSPITAL_ADMIN", "SUPER_ADMIN", "ADMIN"]>, z.ZodLiteral<"">]>>;
 }, "strip", z.ZodTypeAny, {
     token: string;
-    role?: "PATIENT" | "CONSULTANT" | undefined;
+    role?: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN" | "ADMIN" | "" | undefined;
 }, {
     token: string;
-    role?: "PATIENT" | "CONSULTANT" | undefined;
+    role?: "PATIENT" | "CONSULTANT" | "PHARMACIST" | "HOSPITAL_ADMIN" | "SUPER_ADMIN" | "ADMIN" | "" | undefined;
 }>;
 export declare const RefreshTokenInputSchema: z.ZodObject<{
     refreshToken: z.ZodString;
