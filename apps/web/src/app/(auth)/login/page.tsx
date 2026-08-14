@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import { loginWithGoogleToken, loginWithAppleToken } from '@/lib/oauth';
+import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
 
 export default function LogInPage() {
   const router = useRouter();
@@ -47,15 +47,8 @@ export default function LogInPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      // Direct Google OAuth token prompt or mock callback token for integration testing
-      const googleToken = prompt('Enter Google OAuth ID Token (or test token):', 'google-test-id-token');
-      if (!googleToken) {
-        setIsLoading(false);
-        return;
-      }
-      const res = await loginWithGoogleToken(googleToken, 'PATIENT');
+      const res = await triggerGoogleAuth('PATIENT');
       setIsLoading(false);
-
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -63,11 +56,12 @@ export default function LogInPage() {
         }
         router.push('/dashboard');
       } else {
-        setErrorMsg(res.error?.message || 'Google Sign-In failed. Please try again.');
+        setErrorMsg(res.error?.message || 'Google Sign-In failed.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setErrorMsg(err.message || 'Google Sign-In failed');
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message || 'Google Sign-In failed.');
     }
   };
 
@@ -75,14 +69,8 @@ export default function LogInPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const appleToken = prompt('Enter Apple Sign-In ID Token (or test token):', 'apple-test-id-token');
-      if (!appleToken) {
-        setIsLoading(false);
-        return;
-      }
-      const res = await loginWithAppleToken(appleToken, 'PATIENT');
+      const res = await triggerAppleAuth('PATIENT');
       setIsLoading(false);
-
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -90,11 +78,12 @@ export default function LogInPage() {
         }
         router.push('/dashboard');
       } else {
-        setErrorMsg(res.error?.message || 'Apple Sign-In failed. Please try again.');
+        setErrorMsg(res.error?.message || 'Apple Sign-In failed.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setErrorMsg(err.message || 'Apple Sign-In failed');
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message || 'Apple Sign-In failed.');
     }
   };
 

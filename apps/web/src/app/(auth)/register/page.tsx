@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import { loginWithGoogleToken, loginWithAppleToken } from '@/lib/oauth';
+import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -56,14 +56,8 @@ export default function RegisterPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const googleToken = prompt('Enter Google OAuth ID Token (or test token):', 'google-test-id-token');
-      if (!googleToken) {
-        setIsLoading(false);
-        return;
-      }
-      const res = await loginWithGoogleToken(googleToken, role);
+      const res = await triggerGoogleAuth(role);
       setIsLoading(false);
-
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -71,11 +65,12 @@ export default function RegisterPage() {
         }
         router.push('/dashboard');
       } else {
-        setErrorMsg(res.error?.message || 'Google Sign-Up failed. Please try again.');
+        setErrorMsg(res.error?.message || 'Google Sign-Up failed.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setErrorMsg(err.message || 'Google Sign-Up failed');
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message || 'Google Sign-Up failed.');
     }
   };
 
@@ -83,14 +78,8 @@ export default function RegisterPage() {
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const appleToken = prompt('Enter Apple Sign-In ID Token (or test token):', 'apple-test-id-token');
-      if (!appleToken) {
-        setIsLoading(false);
-        return;
-      }
-      const res = await loginWithAppleToken(appleToken, role);
+      const res = await triggerAppleAuth(role);
       setIsLoading(false);
-
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
@@ -98,11 +87,12 @@ export default function RegisterPage() {
         }
         router.push('/dashboard');
       } else {
-        setErrorMsg(res.error?.message || 'Apple Sign-Up failed. Please try again.');
+        setErrorMsg(res.error?.message || 'Apple Sign-Up failed.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsLoading(false);
-      setErrorMsg(err.message || 'Apple Sign-Up failed');
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message || 'Apple Sign-Up failed.');
     }
   };
 
