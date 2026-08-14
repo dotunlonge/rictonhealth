@@ -180,7 +180,7 @@ export default function WalletPage() {
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <History className="w-4 h-4 text-[#1877F2]" /> Recent Activity
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
               {loading ? (
                 <div className="p-4 text-center text-xs text-slate-400 font-bold">Loading transactions...</div>
               ) : transactions.length === 0 ? (
