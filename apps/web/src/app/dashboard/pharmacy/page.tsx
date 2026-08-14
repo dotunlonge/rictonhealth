@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
-import { Pill, Package, ShoppingBag, DollarSign, TrendingUp, Clock, CheckCircle2 } from 'lucide-react';
+import { Pill, Package, ShoppingBag, Clock } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 
 export default function PharmacyDashboard() {
   const { user } = useAppStore();
-  const [stats, setStats] = useState({ totalSales: 24, totalProducts: 142, pendingOrders: 3, totalEarnings: 185000 });
+  const [stats, setStats] = useState({ totalSales: 0, totalProducts: 0, pendingOrders: 0, totalEarnings: 0 });
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,15 +23,13 @@ export default function PharmacyDashboard() {
       const products = productsRes.success ? (Array.isArray(productsRes.data) ? productsRes.data : productsRes.data?.products || []) : [];
       const sales = salesRes.success ? (Array.isArray(salesRes.data) ? salesRes.data : salesRes.data?.orders || []) : [];
 
-      if (products.length > 0 || sales.length > 0) {
-        setStats({
-          totalProducts: products.length || 142,
-          totalSales: sales.length || 24,
-          pendingOrders: sales.filter((s: any) => s.status === 'PENDING').length || 3,
-          totalEarnings: sales.reduce((sum: number, s: any) => sum + (s.totalAmount || 0), 0) || 185000,
-        });
-        setRecentOrders(sales.slice(0, 5));
-      }
+      setStats({
+        totalProducts: products.length,
+        totalSales: sales.length,
+        pendingOrders: sales.filter((s: any) => s.status === 'PENDING').length,
+        totalEarnings: sales.reduce((sum: number, s: any) => sum + (s.totalAmount || 0), 0),
+      });
+      setRecentOrders(sales.slice(0, 5));
       setLoading(false);
     }
     load();
@@ -97,28 +95,21 @@ export default function PharmacyDashboard() {
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
           <h2 className="text-base font-bold text-slate-900">Recent Prescription Orders</h2>
           <div className="space-y-3">
-            {[1, 2, 3].map((idx) => (
-              <div key={idx} className="p-4 rounded-2xl bg-slate-50/70 border border-slate-100 flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
-                    <Pill className="w-5 h-5" />
-                  </div>
+            {loading ? (
+              <p className="text-xs font-bold text-slate-400 py-4 text-center">Loading orders...</p>
+            ) : recentOrders.length === 0 ? (
+              <p className="text-xs font-bold text-slate-400 py-4 text-center">No active prescription orders found.</p>
+            ) : (
+              recentOrders.map((order, idx) => (
+                <div key={order.id || idx} className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs">
                   <div>
-                    <p className="text-xs font-bold text-slate-900">Amoxicillin Capsule Refill #{idx}</p>
-                    <p className="text-[10px] font-semibold text-slate-400">Patient: Helen Olaleye • Dr. Adebayo Ogunlesi</p>
+                    <p className="font-bold text-slate-900">{order.medicationName || order.patientName || `Order #${order.id || idx + 1}`}</p>
+                    <p className="text-[10px] font-semibold text-slate-400">Rx Refill Request</p>
                   </div>
+                  <span className="font-extrabold text-[#1877F2]">₦{(order.totalAmount || 4500).toLocaleString()}</span>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase">
-                    Ready for Pickup
-                  </span>
-                  <button type="button" className="px-4 py-1.5 bg-[#1877F2] text-white text-xs font-bold rounded-full hover:bg-[#1565C0]">
-                    Dispatch
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

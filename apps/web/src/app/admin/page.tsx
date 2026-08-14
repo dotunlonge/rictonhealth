@@ -18,12 +18,12 @@ type OverviewData = {
 export default function AdminDashboard() {
   const { user } = useAppStore();
   const [overview, setOverview] = useState<OverviewData>({
-    totalUsers: 1420,
-    totalHospitals: 38,
-    totalProviders: 184,
-    totalAppointments: 3200,
-    totalRevenue: 12500000,
-    pendingVerifications: 4,
+    totalUsers: 0,
+    totalHospitals: 0,
+    totalProviders: 0,
+    totalAppointments: 0,
+    totalRevenue: 0,
+    pendingVerifications: 0,
   });
   const [pendingProviders, setPendingProviders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,8 +36,14 @@ export default function AdminDashboard() {
         api.get('/admin/providers/pending'),
       ]);
 
-      if (overviewRes.success && overviewRes.data) setOverview((prev) => ({ ...prev, ...overviewRes.data }));
-      if (providersRes.success && providersRes.data) setPendingProviders(Array.isArray(providersRes.data) ? providersRes.data : providersRes.data.providers || []);
+      if (overviewRes.success && overviewRes.data) {
+        setOverview((prev) => ({ ...prev, ...overviewRes.data }));
+      }
+      if (providersRes.success && providersRes.data) {
+        const list = Array.isArray(providersRes.data) ? providersRes.data : providersRes.data.providers || [];
+        setPendingProviders(list);
+        setOverview((prev) => ({ ...prev, pendingVerifications: list.length }));
+      }
       setLoading(false);
     }
     load();
@@ -58,19 +64,19 @@ export default function AdminDashboard() {
         {/* Header Title */}
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <ShieldAlert className="w-6 h-6 text-[#1877F2]" /> System Admin Command Center
+            <ShieldAlert className="w-6 h-6 text-[#1877F2]" /> System Super Admin Control Panel
           </h1>
           <p className="text-xs font-semibold text-slate-500 mt-1">
-            Restricted Platform Administration: Provider verifications, platform statistics, and hospital governance
+            Global Platform Governance: Credential verification, hospital onboarding, and system metrics
           </p>
         </div>
 
-        {/* Overview Stats Grid */}
+        {/* Overview Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-2">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Registered Users</span>
             <div className="flex items-center justify-between">
-              <span className="text-3xl font-black text-slate-900">{(overview.totalUsers || 1420).toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900">{overview.totalUsers ?? 0}</span>
               <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
                 <Users className="w-5 h-5" />
               </div>
@@ -78,68 +84,66 @@ export default function AdminDashboard() {
           </div>
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Verified Providers</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Licensed Hospitals</span>
             <div className="flex items-center justify-between">
-              <span className="text-3xl font-black text-slate-900">{overview.totalProviders || 184}</span>
+              <span className="text-3xl font-black text-slate-900">{overview.totalHospitals ?? 0}</span>
+              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                <Building2 className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Verified Specialists</span>
+            <div className="flex items-center justify-between">
+              <span className="text-3xl font-black text-slate-900">{overview.totalProviders ?? 0}</span>
               <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
                 <Stethoscope className="w-5 h-5" />
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Partner Hospitals</span>
-            <div className="flex items-center justify-between">
-              <span className="text-3xl font-black text-slate-900">{overview.totalHospitals || 38}</span>
-              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                <Building2 className="w-5 h-5" />
-              </div>
-            </div>
-          </div>
-
           <div className="bg-gradient-to-br from-[#0A192F] to-[#1E3A8A] text-white rounded-3xl p-6 shadow-xl space-y-2 border border-slate-800">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Platform GMV Revenue</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Gross Platform Revenue</span>
             <div className="flex items-baseline gap-1">
               <span className="text-xs font-bold text-blue-300">₦</span>
-              <span className="text-3xl font-black">{(overview.totalRevenue || 12500000).toLocaleString()}</span>
+              <span className="text-3xl font-black">{(overview.totalRevenue ?? 0).toLocaleString()}</span>
             </div>
           </div>
         </div>
 
-        {/* Pending Provider Approvals */}
+        {/* Pending Credential Verification Approvals */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <h2 className="text-base font-bold text-slate-900">Pending Provider Verification Applications</h2>
-          {pendingProviders.length === 0 ? (
-            <div className="p-8 text-center text-xs font-bold text-slate-400">
-              No pending provider verification requests at this time.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pendingProviders.map((prov) => (
-                <div key={prov.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                      <Stethoscope className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-900">{prov.name || prov.email}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">MD License Verification</p>
-                    </div>
+          <h2 className="text-base font-bold text-slate-900">Pending Specialist License Verifications</h2>
+          <div className="space-y-3">
+            {loading ? (
+              <p className="text-xs font-bold text-slate-400 py-4 text-center">Loading pending verifications...</p>
+            ) : pendingProviders.length === 0 ? (
+              <div className="p-6 bg-slate-50 border border-slate-200/60 rounded-2xl text-center space-y-1">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 mx-auto" />
+                <p className="text-xs font-bold text-slate-700">All specialist applications verified</p>
+                <p className="text-[10px] text-slate-400 font-semibold">No pending medical license verification requests</p>
+              </div>
+            ) : (
+              pendingProviders.map((prov) => (
+                <div key={prov.id} className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-bold text-slate-900">Dr. {prov.firstName} {prov.lastName}</p>
+                    <p className="text-[10px] font-semibold text-slate-400">{prov.specialty || 'General Practitioner'} • MDCN #{prov.licenseNumber || '94038'}</p>
                   </div>
-
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => handleVerifyProvider(prov.id)}
-                      className="px-4 py-1.5 bg-emerald-600 text-white font-bold rounded-full text-xs hover:bg-emerald-700 transition-all flex items-center gap-1"
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-full text-xs transition-all shadow-xs"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Approve License
+                      Approve & Verify
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </div>
       </div>
     </SidebarLayout>
