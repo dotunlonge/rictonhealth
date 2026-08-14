@@ -81,8 +81,13 @@ class ApiClient {
   public clearToken() {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('ricton_access_token');
+      localStorage.removeItem('ricton_token');
       localStorage.removeItem('ricton_user');
     }
+  }
+
+  public logout() {
+    this.clearToken();
   }
 
   public async request<T = any>(
