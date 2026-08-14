@@ -199,7 +199,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     });
 
     auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone }).catch((err) =>
-      logger.error('Failed to record audit log', { error: err })
+      console.warn('Failed to record audit log', err)
     );
 
     res.status(201).json(successResponse({ id: user.id, role: user.role, status: user.status }));
@@ -550,7 +550,10 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
           phone: user.phone,
           role: user.role,
           status: user.status,
-          firstName: googleFirstName || profile.firstName || user.email.split('@')[0],
+          firstName:
+            googleFirstName ||
+            profile.firstName ||
+            (user.email ? user.email.split('@')[0] : 'User'),
           lastName: googleLastName || profile.lastName || '',
           avatarUrl: googleAvatarUrl || profile.avatarUrl || null,
           patientProfile: (user as any).patientProfile,
