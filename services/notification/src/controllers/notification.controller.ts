@@ -43,6 +43,28 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
 };
 
 /**
+ * Get notification by ID
+ */
+export const getNotificationById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+
+    const notification = await prisma.notification.findUnique({
+      where: { id },
+    });
+
+    if (!notification || notification.userId !== userPayload.userId) {
+      throw new NotFoundError('Notification not found');
+    }
+
+    res.status(200).json(successResponse(notification));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Mark notification as read
  */
 export const markAsRead = async (req: Request, res: Response, next: NextFunction) => {
