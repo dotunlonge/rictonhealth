@@ -5,7 +5,7 @@ import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
-import { Calendar, Plus, Clock, CheckCircle2, XCircle, Search, User, Stethoscope } from 'lucide-react';
+import { Calendar, Plus, Clock, CheckCircle2, XCircle, Search, User } from 'lucide-react';
 
 interface AppointmentRecord {
   id: string;
@@ -30,7 +30,6 @@ export default function AppointmentsPage() {
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
   const [consultType, setConsultType] = useState('General Consultation');
   const [apptDate, setApptDate] = useState('');
-  const [apptTime, setApptTime] = useState('10:00 AM');
   const [bookingMsg, setBookingMsg] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
 
@@ -42,50 +41,43 @@ export default function AppointmentsPage() {
         api.get('/users/providers'),
       ]);
 
-      if (docRes.success && Array.isArray(docRes.data)) {
-        setDoctorsList(docRes.data);
+      if (docRes.success) {
+        const docs = Array.isArray(docRes.data) ? docRes.data : docRes.data?.providers || [];
+        setDoctorsList(docs);
       }
 
-      if (apptRes.success && Array.isArray(apptRes.data) && apptRes.data.length > 0) {
-        setAppointmentsList(
-          apptRes.data.map((a: any, idx: number) => ({
-            id: a.id || `APT-100${idx}`,
-            patientName: a.patientName || a.patient?.email?.split('@')[0] || 'Kolawole Samson',
-            doctorName: a.providerName || (a.provider ? `Dr. ${a.provider.firstName || ''} ${a.provider.lastName || ''}`.trim() : 'Dr. Oluwaseun Davies'),
-            scheduledAt: new Date(a.scheduledAt || Date.now() + idx * 86400000).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            }),
-            type: a.type || 'General Consultation',
-            status: a.status || (idx % 2 === 0 ? 'CONFIRMED' : 'PENDING'),
-          }))
-        );
-      } else {
-        // High quality fallbacks
-        setAppointmentsList([
-          {
-            id: 'APT-1001',
-            patientName: 'Kolawole Samson',
-            doctorName: 'Dr. Oluwaseun Davies',
-            scheduledAt: 'Aug 15, 2026',
-            type: 'General Consultation',
-            status: 'CONFIRMED',
-          },
-          {
-            id: 'APT-1002',
-            patientName: 'Helen Olaleye',
-            doctorName: 'Dr. Fatima Abubakar',
-            scheduledAt: 'Aug 18, 2026',
-            type: 'Ophthalmology Eye Examination',
-            status: 'PENDING',
-          },
-        ]);
-      }
+      const rawAppts = apptRes.success
+        ? Array.isArray(apptRes.data)
+          ? apptRes.data
+          : apptRes.data?.appointments || []
+        : [];
+
+      setAppointmentsList(
+        rawAppts.map((a: any, idx: number) => ({
+          id: a.id || `APT-100${idx}`,
+          patientName:
+            a.patientName ||
+            (a.patient
+              ? `${a.patient.firstName || ''} ${a.patient.lastName || ''}`.trim() || a.patient.email
+              : user?.firstName
+              ? `${user.firstName} ${user.lastName || ''}`.trim()
+              : 'Patient Record'),
+          doctorName:
+            a.providerName ||
+            (a.provider
+              ? `Dr. ${a.provider.firstName || ''} ${a.provider.lastName || ''}`.trim()
+              : 'Medical Specialist'),
+          scheduledAt: a.scheduledAt
+            ? new Date(a.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+            : 'Scheduled Date',
+          type: a.type || 'General Consultation',
+          status: a.status || 'CONFIRMED',
+        }))
+      );
       setLoading(false);
     }
     loadData();
-  }, []);
+  }, [user]);
 
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +85,7 @@ export default function AppointmentsPage() {
     const selectedDoc = doctorsList.find((d) => d.id === selectedDoctorId);
     const doctorName = selectedDoc
       ? `Dr. ${selectedDoc.firstName || ''} ${selectedDoc.lastName || ''}`.trim()
-      : 'Dr. Oluwaseun Davies';
+      : 'Medical Specialist';
 
     const res = await api.post('/appointments', {
       providerId: selectedDoctorId,
@@ -103,10 +95,12 @@ export default function AppointmentsPage() {
 
     setBooking(false);
     const newAppt: AppointmentRecord = {
-      id: `APT-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientName: user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Kolawole Samson',
+      id: res.data?.id || `APT-${Math.floor(1000 + Math.random() * 9000)}`,
+      patientName: user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'Patient Record',
       doctorName,
-      scheduledAt: apptDate ? new Date(apptDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Aug 16, 2026',
+      scheduledAt: apptDate
+        ? new Date(apptDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       type: consultType,
       status: 'CONFIRMED',
     };
@@ -251,8 +245,16 @@ export default function AppointmentsPage() {
                   </tr>
                 ) : filteredAppts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-xs font-bold text-slate-400">
-                      No matching appointments found.
+                    <td colSpan={6} className="py-12 text-center space-y-3">
+                      <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
+                      <p className="text-xs font-bold text-slate-600">No scheduled appointments found</p>
+                      <button
+                        type="button"
+                        onClick={() => setShowBookModal(true)}
+                        className="text-xs text-[#1877F2] font-bold hover:underline"
+                      >
+                        + Book Your First Consultation
+                      </button>
                     </td>
                   </tr>
                 ) : (
@@ -289,7 +291,7 @@ export default function AppointmentsPage() {
                         <button
                           type="button"
                           onClick={() => router.push('/telemedicine')}
-                          className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-full text-xs transition-all"
+                          className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
                         >
                           Join Call →
                         </button>
