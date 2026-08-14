@@ -10,10 +10,7 @@ import authRoutes from '../src/routes/auth.routes';
 import { prisma, UserRole, UserStatus } from '@ricton/db';
 import { errorResponse, redis, hashOtp } from '@ricton/shared';
 import bcrypt from 'bcrypt';
-import {
-  createRedisMock,
-  clearRedisStore,
-} from '../../../packages/shared/src/__tests__/helpers/redis-mock';
+import { clearRedisStore } from '../../../packages/shared/src/__tests__/helpers/redis-mock';
 import {
   createUser,
   createRefreshToken,
@@ -22,10 +19,12 @@ import {
 
 jest.mock('@ricton/shared', () => {
   const actual = jest.requireActual('@ricton/shared');
-  const redisMock = createRedisMock();
+  const { createRedisMock } = jest.requireActual(
+    '../../../packages/shared/src/__tests__/helpers/redis-mock'
+  );
   return {
     ...actual,
-    redis: redisMock,
+    redis: createRedisMock(),
   };
 });
 
@@ -426,9 +425,8 @@ describe('Auth Controller Integration', () => {
     beforeEach(async () => {
       const user = await createUser({ email: 'refresh@example.com', role: UserRole.PATIENT });
       userId = user.id;
-      const { refreshToken, tokenId: tid } = await createRefreshToken(user);
+      const { refreshToken } = await createRefreshToken(user);
       validRefreshToken = refreshToken;
-      _tokenId = tid;
     });
 
     it('should refresh token successfully using valid refresh token', async () => {
