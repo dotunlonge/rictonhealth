@@ -1,3 +1,8 @@
 infra/helm/**/*.yaml
 **/*.d.ts
 .github/workflows/*.yml
+node_modules
+.next
+dist
+build
+coverage
