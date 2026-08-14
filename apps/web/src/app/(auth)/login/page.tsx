@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
-import Navbar from '@/components/Navbar';
+import { useAppStore } from '@/store/useAppStore';
 
 export default function LogInPage() {
   const router = useRouter();
+  const { setUser } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -36,7 +37,7 @@ export default function LogInPage() {
     if (res.success && accessToken) {
       api.setToken(accessToken);
       if (res.data.user) {
-        localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
+        setUser(res.data.user);
       }
       router.push('/dashboard');
     } else {
@@ -63,7 +64,7 @@ export default function LogInPage() {
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
-          localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
+          setUser(res.data.user);
         }
         router.push('/dashboard');
       } else {
@@ -95,7 +96,7 @@ export default function LogInPage() {
       if (res.success && res.data?.token) {
         api.setToken(res.data.token);
         if (res.data.user) {
-          localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
+          setUser(res.data.user);
         }
         router.push('/dashboard');
       } else {

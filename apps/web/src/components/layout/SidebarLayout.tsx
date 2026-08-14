@@ -91,8 +91,18 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
 };
 
 function resolveUserDisplay(user: any) {
-  if (!user) return { name: 'Account', role: 'PATIENT' as UserRole, roleLabel: 'Patient', avatarUrl: undefined };
-  const role: UserRole = user.role || 'PATIENT';
+  let targetUser = user;
+  if (!targetUser && typeof window !== 'undefined') {
+    try {
+      const cached = localStorage.getItem('ricton_user');
+      if (cached) targetUser = JSON.parse(cached);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!targetUser) return { name: 'Account', role: 'PATIENT' as UserRole, roleLabel: 'Patient', avatarUrl: undefined };
+  const role: UserRole = targetUser.role || 'PATIENT';
   const roleLabels: Record<UserRole, string> = {
     PATIENT: 'Patient',
     CONSULTANT: 'Doctor Specialist',
@@ -102,18 +112,18 @@ function resolveUserDisplay(user: any) {
     ADMIN: 'System Admin',
   };
 
-  const profile = user.patientProfile || user.providerProfile || {};
-  const first = user.firstName || profile.firstName || user.name?.split(' ')[0] || '';
-  const last = user.lastName || profile.lastName || user.name?.split(' ').slice(1).join(' ') || '';
+  const profile = targetUser.patientProfile || targetUser.providerProfile || {};
+  const first = targetUser.firstName || profile.firstName || targetUser.name?.split(' ')[0] || '';
+  const last = targetUser.lastName || profile.lastName || targetUser.name?.split(' ').slice(1).join(' ') || '';
   let name = [first, last].filter(Boolean).join(' ');
 
-  if (!name && user.email) {
-    const raw = user.email.split('@')[0];
+  if (!name && targetUser.email) {
+    const raw = targetUser.email.split('@')[0];
     name = raw.charAt(0).toUpperCase() + raw.slice(1);
   }
   if (!name) name = 'User Account';
 
-  const avatarUrl = user.avatarUrl || profile.avatarUrl;
+  const avatarUrl = targetUser.avatarUrl || profile.avatarUrl;
 
   return { name, role, roleLabel: roleLabels[role] || 'Member', avatarUrl };
 }
