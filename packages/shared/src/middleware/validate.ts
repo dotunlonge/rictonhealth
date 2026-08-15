@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodTypeAny, ZodError } from 'zod';
-import { errorResponse } from '../response';
+import { errorResponse, ErrorDetails } from '../response';
 
 export const validateRequest = (schema: ZodTypeAny) => {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -19,7 +19,7 @@ export const validateRequest = (schema: ZodTypeAny) => {
             return acc;
           },
           {} as Record<string, string[]>
-        );
+        ) as ErrorDetails;
 
         return res.status(400).json(errorResponse('Validation error', 'VALIDATION_ERROR', details));
       }
@@ -45,7 +45,7 @@ export const validateQuery = (schema: ZodTypeAny) => {
             return acc;
           },
           {} as Record<string, string[]>
-        );
+        ) as ErrorDetails;
 
         return res.status(400).json(errorResponse('Validation error', 'VALIDATION_ERROR', details));
       }
@@ -71,7 +71,7 @@ export const validateParams = (schema: ZodTypeAny) => {
             return acc;
           },
           {} as Record<string, string[]>
-        );
+        ) as ErrorDetails;
 
         return res.status(400).json(errorResponse('Validation error', 'VALIDATION_ERROR', details));
       }

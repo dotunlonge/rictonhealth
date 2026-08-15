@@ -57,74 +57,22 @@ export default function PatientDetailPage() {
         const p = res.data;
         setPatient({
           id: p.id || patientId,
-          name: `${p.firstName || 'Akala'} ${p.lastName || 'Juwon'}`.trim(),
-          badge: 'Premium',
-          dob: p.patientProfile?.dateOfBirth || 'January 1, 2025',
-          gender: p.patientProfile?.gender || 'Female',
-          email: p.email || 'awele@gmail.com',
-          serialNumber: `#09${patientId.replace(/[^0-9]/g, '').slice(-2) || '54'}`,
-          phone: p.phone || '08128360270',
-          address: p.address || '19 Ehi street',
-          medicalHistory: [
-            { id: 'mh-1', condition: 'Persistent chest pain for 3 days, worsens with exertion', date: '17 July 2025' },
-            { id: 'mh-2', condition: 'Severe headache and blurred vision for 2 days', date: '17 July 2025' },
-            { id: 'diff-breathing', condition: 'Difficulty breathing at night', date: '17 July 2025' },
-            { id: 'mh-4', condition: 'Persistent cough for 3 weeks', date: '17 July 2025' },
-            { id: 'mh-5', condition: 'Difficulty urinating', date: '17 July 2025' },
-            { id: 'mh-6', condition: 'Severe abdominal pain and vomiting', date: '17 July 2025' },
-          ],
-          prescriptions: [
-            { id: 'rx-1', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-            { id: 'rx-2', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-            { id: 'rx-3', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-          ],
-          appointments: [
-            { id: 'apt-1', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Oluwaseun Davies' },
-            { id: 'apt-2', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Fatima Abubakar' },
-            { id: 'apt-3', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Adebayo Ogunlesi' },
-          ],
-          telemedicine: [
-            { id: 'tm-1', name: 'Abee Bee', day: 'Sunday' },
-            { id: 'tm-2', name: 'Abee Bee', day: 'Sunday' },
-            { id: 'tm-3', name: 'Abee Bee', day: 'Sunday' },
-          ],
+          name: p.name || `${p.firstName || 'Patient'} ${p.lastName || ''}`.trim(),
+          badge: p.badge || 'Active Patient',
+          avatarUrl: p.avatarUrl,
+          dob: p.dob || p.patientProfile?.dateOfBirth || 'N/A',
+          gender: p.gender || p.patientProfile?.gender || 'Unspecified',
+          email: p.email || 'N/A',
+          serialNumber: p.serialNumber || `#09${patientId.slice(-4)}`,
+          phone: p.phone || 'N/A',
+          address: p.address || 'Clinical Ward',
+          medicalHistory: p.medicalHistory || [],
+          prescriptions: p.prescriptions || [],
+          appointments: p.appointments || [],
+          telemedicine: p.telemedicine || [],
         });
       } else {
-        // High fidelity Patient Page 8 H fallback
-        setPatient({
-          id: patientId,
-          name: 'Akala Juwon',
-          badge: 'Premium',
-          dob: 'January 1, 2025',
-          gender: 'Female',
-          email: 'awele@gmail.com',
-          serialNumber: '#0954',
-          phone: '08128360270',
-          address: '19 Ehi street',
-          medicalHistory: [
-            { id: 'mh-1', condition: 'Persistent chest pain for 3 days, worsens with exertion', date: '17 July 2025' },
-            { id: 'mh-2', condition: 'Severe headache and blurred vision for 2 days', date: '17 July 2025' },
-            { id: 'diff-breathing', condition: 'Difficulty breathing at night', date: '17 July 2025' },
-            { id: 'mh-4', condition: 'Persistent cough for 3 weeks', date: '17 July 2025' },
-            { id: 'mh-5', condition: 'Difficulty urinating', date: '17 July 2025' },
-            { id: 'mh-6', condition: 'Severe abdominal pain and vomiting', date: '17 July 2025' },
-          ],
-          prescriptions: [
-            { id: 'rx-1', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-            { id: 'rx-2', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-            { id: 'rx-3', date: '06/07/2025 9:02am', medication: 'Amoxicillin 500mg', dose: '1 Capsule Every 12hrs', form: 'Capsule', quantity: '20 Capsules' },
-          ],
-          appointments: [
-            { id: 'apt-1', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Oluwaseun Davies' },
-            { id: 'apt-2', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Fatima Abubakar' },
-            { id: 'apt-3', date: '06/07/2025 9:02am', type: 'Follow up', doctor: 'Dr. Adebayo Ogunlesi' },
-          ],
-          telemedicine: [
-            { id: 'tm-1', name: 'Abee Bee', day: 'Sunday' },
-            { id: 'tm-2', name: 'Abee Bee', day: 'Sunday' },
-            { id: 'tm-3', name: 'Abee Bee', day: 'Sunday' },
-          ],
-        });
+        setPatient(null);
       }
       setLoading(false);
     }

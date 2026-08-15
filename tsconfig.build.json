@@ -4,10 +4,22 @@
     { "path": "./packages/db" },
     { "path": "./packages/shared" },
     { "path": "./packages/auth-middleware" },
+    { "path": "./services/address" },
+    { "path": "./services/admin" },
+    { "path": "./services/analytics" },
+    { "path": "./services/appointment" },
     { "path": "./services/auth" },
-    { "path": "./services/user" },
+    { "path": "./services/docs" },
+    { "path": "./services/messaging" },
+    { "path": "./services/notification" },
     { "path": "./services/payment" },
-    { "path": "./services/wallet" },
-    { "path": "./services/smartguard" }
+    { "path": "./services/pharmacy" },
+    { "path": "./services/prescription" },
+    { "path": "./services/rewards" },
+    { "path": "./services/smartguard" },
+    { "path": "./services/subscription" },
+    { "path": "./services/telemedicine" },
+    { "path": "./services/user" },
+    { "path": "./services/wallet" }
   ]
 }

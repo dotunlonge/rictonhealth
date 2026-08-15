@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma, UserRole, UserStatus } from '@ricton/db';
-import { successResponse, NotFoundError, ValidationError } from '@ricton/shared';
+import { successResponse, NotFoundError, ValidationError, ErrorDetails } from '@ricton/shared';
 import {
   AdminUserListQuerySchema,
   AdminUpdateUserStatusSchema,
@@ -17,7 +17,7 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
     if (!queryResult.success) {
       throw new ValidationError(
         'Invalid query parameters',
-        queryResult.error.errors as unknown as Record<string, unknown>
+        queryResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -113,7 +113,7 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
     if (!bodyResult.success) {
       throw new ValidationError(
         'Invalid request body',
-        bodyResult.error.errors as unknown as Record<string, unknown>
+        bodyResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -232,7 +232,7 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
     if (!bodyResult.success) {
       throw new ValidationError(
         'Invalid request body',
-        bodyResult.error.errors as unknown as Record<string, unknown>
+        bodyResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -305,7 +305,7 @@ export const createHospital = async (req: Request, res: Response, next: NextFunc
     if (!bodyResult.success) {
       throw new ValidationError(
         'Invalid request body',
-        bodyResult.error.errors as unknown as Record<string, unknown>
+        bodyResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -362,7 +362,7 @@ export const updateHospital = async (req: Request, res: Response, next: NextFunc
     if (!bodyResult.success) {
       throw new ValidationError(
         'Invalid request body',
-        bodyResult.error.errors as unknown as Record<string, unknown>
+        bodyResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -395,7 +395,7 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
     if (!queryResult.success) {
       throw new ValidationError(
         'Invalid query parameters',
-        queryResult.error.errors as unknown as Record<string, unknown>
+        queryResult.error.errors as unknown as ErrorDetails
       );
     }
 
@@ -441,7 +441,7 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
     if (!queryResult.success) {
       throw new ValidationError(
         'Invalid query parameters',
-        queryResult.error.errors as unknown as Record<string, unknown>
+        queryResult.error.errors as unknown as ErrorDetails
       );
     }
 

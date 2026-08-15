@@ -32,62 +32,25 @@ export default function PatientsPage() {
     async function loadData() {
       setLoading(true);
       const res = await api.get('/users/patients');
-      if (res.success && Array.isArray(res.data)) {
-        setPatientsList(
-          res.data.map((p: any, idx: number) => ({
-            id: p.id || `PT-${1000 + idx}`,
-            name: `${p.firstName || 'Patient'} ${p.lastName || ''}`.trim() || p.email,
-            age: p.patientProfile?.dateOfBirth ? 30 : 35 + idx,
-            gender: p.patientProfile?.gender || (idx % 2 === 0 ? 'Male' : 'Female'),
-            ward: `Ward ${((idx % 3) + 1)}`,
-            bed: `Bed ${(idx + 1)}`,
-            doctor: 'Dr. Oluwaseun Davies',
-            status: idx % 4 === 0 ? 'Discharged' : 'Admitted',
-            dateAdmitted: new Date(Date.now() - idx * 86400000 * 3).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            }),
-          }))
-        );
-      } else {
-        // High quality fallback patient records
-        setPatientsList([
-          {
-            id: 'PT-1001',
-            name: 'Akala Juwon',
-            age: 34,
-            gender: 'Male',
-            ward: 'Cardiology Ward 1',
-            bed: 'Bed 04',
-            doctor: 'Dr. Tope Olaniyi',
-            status: 'Admitted',
-            dateAdmitted: 'Aug 5, 2026',
-          },
-          {
-            id: 'PT-1002',
-            name: 'Sarah Connor',
-            age: 29,
-            gender: 'Female',
-            ward: 'Ophthalmology Clinic',
-            bed: 'Outpatient',
-            doctor: 'Dr. Fatima Abubakar',
-            status: 'Outpatient',
-            dateAdmitted: 'Aug 10, 2026',
-          },
-          {
-            id: 'PT-1003',
-            name: 'Kolawole Samson',
-            age: 41,
-            gender: 'Male',
-            ward: 'General Medicine Ward',
-            bed: 'Bed 12',
-            doctor: 'Dr. Oluwaseun Davies',
-            status: 'Discharged',
-            dateAdmitted: 'Jul 28, 2026',
-          },
-        ]);
-      }
+      const patientData = res.success ? (Array.isArray(res.data) ? res.data : res.data?.patients || []) : [];
+      
+      setPatientsList(
+        patientData.map((p: any, idx: number) => ({
+          id: p.id,
+          name: `${p.firstName || p.patientProfile?.firstName || 'Patient'} ${p.lastName || p.patientProfile?.lastName || ''}`.trim() || p.email,
+          age: p.age || 30,
+          gender: p.gender || p.patientProfile?.gender || 'Unspecified',
+          ward: p.ward || `Ward ${((idx % 3) + 1)}`,
+          bed: p.bed || `Bed ${(idx + 1)}`,
+          doctor: p.doctor || 'Dr. Oluwaseun Davies',
+          status: p.status || (idx % 4 === 0 ? 'Discharged' : 'Admitted'),
+          dateAdmitted: new Date(p.createdAt || Date.now()).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          }),
+        }))
+      );
       setLoading(false);
     }
     loadData();

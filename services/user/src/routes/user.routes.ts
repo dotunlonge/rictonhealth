@@ -38,6 +38,9 @@ router.get('/providers', validateQuery(GetProvidersQuerySchema), userController.
 router.get('/providers/:id', userController.getProviderById);
 
 // Dashboards require specific roles
+router.get('/patients', userController.getPatients);
+router.get('/patients/:id', userController.getPatientById);
+
 router.get(
   '/dashboard/hospital',
   requireRole('HOSPITAL_ADMIN'),
