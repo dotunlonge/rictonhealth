@@ -13,149 +13,27 @@ const router = Router();
 
 const messagingRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'messaging' });
 
-// All messaging routes require authentication
 router.use(requireAuth);
 router.use(messagingRateLimit);
 
-/**
- * @openapi
- * /api/messages/conversations:
- *   get:
- *     summary: List user's conversations
- *     tags: [Messaging]
- *     parameters:
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 20
- *       - in: query
- *         name: cursor
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: List of conversations
- */
+// Conversations & Threads list
 router.get('/conversations', listConversations);
+router.get('/threads', listConversations);
 
-/**
- * @openapi
- * /api/messages/conversations:
- *   post:
- *     summary: Create a new conversation
- *     tags: [Messaging]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               participantIds:
- *                 type: array
- *                 items:
- *                   type: string
- *               threadType:
- *                 type: string
- *                 enum: [DIRECT, GROUP, APPOINTMENT, MDT]
- *               title:
- *                 type: string
- *     responses:
- *       201:
- *         description: Conversation created
- */
+// Create conversation / thread
 router.post('/conversations', createConversation);
+router.post('/threads', createConversation);
 
-/**
- * @openapi
- * /api/messages/conversations/{id}:
- *   get:
- *     summary: Get conversation messages
- *     tags: [Messaging]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 50
- *       - in: query
- *         name: cursor
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Message history
- */
+// Get conversation messages
 router.get('/conversations/:id', getConversationMessages);
+router.get('/threads/:id', getConversationMessages);
 
-/**
- * @openapi
- * /api/messages/conversations/{id}/messages:
- *   post:
- *     summary: Send a message
- *     tags: [Messaging]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               body:
- *                 type: string
- *               fileUrl:
- *                 type: string
- *               fileName:
- *                 type: string
- *               fileSize:
- *                 type: integer
- *     responses:
- *       201:
- *         description: Message sent
- */
+// Send message (accepts body or content)
 router.post('/conversations/:id/messages', sendMessage);
+router.post('/threads/:id/messages', sendMessage);
 
-/**
- * @openapi
- * /api/messages/conversations/{id}/read:
- *   patch:
- *     summary: Mark messages as read
- *     tags: [Messaging]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               messageIds:
- *                 type: array
- *                 items:
- *                   type: string
- *               markAll:
- *                 type: boolean
- *     responses:
- *       200:
- *         description: Messages marked as read
- */
+// Mark read
 router.patch('/conversations/:id/read', markAsRead);
+router.patch('/threads/:id/read', markAsRead);
 
 export default router;

@@ -4,7 +4,7 @@ import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import { triggerGoogleAuth, triggerAppleAuth } from '@/lib/oauth';
+import { triggerGoogleAuth, triggerAppleAuth, loginWithGoogleToken, loginWithAppleToken } from '@/lib/oauth';
 import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -16,12 +16,66 @@ export default function LogInPage() {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [requires2FA, setRequires2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
+  const [oauthProvider, setOauthProvider] = useState<'GOOGLE' | 'APPLE' | null>(null);
+  const [oauthToken, setOauthToken] = useState('');
 
-  const canContinue = email.trim().length > 0 && password.length > 0;
+  const canContinue = requires2FA ? totpCode.length === 6 : (email.trim().length > 0 && password.length > 0);
+
+  const redirectAfterAuth = (u: any) => {
+    if (u?.role === 'HOSPITAL_ADMIN') {
+      router.push('/onboarding/hospital');
+    } else if (u?.role === 'CONSULTANT') {
+      router.push('/onboarding/doctor');
+    } else if (u?.role === 'PHARMACIST') {
+      router.push('/onboarding/pharmacy');
+    } else {
+      router.push('/dashboard');
+    }
+  };
+
+  const executeLoginWithCode = async (codeStr: string) => {
+    if (codeStr.length !== 6 || isLoading) return;
+    setIsLoading(true);
+    setErrorMsg('');
+
+    let res: any;
+    if (oauthProvider === 'GOOGLE' && oauthToken) {
+      res = await loginWithGoogleToken(oauthToken, 'PATIENT', codeStr);
+    } else if (oauthProvider === 'APPLE' && oauthToken) {
+      res = await loginWithAppleToken(oauthToken, 'PATIENT', codeStr);
+    } else {
+      res = await api.post('/auth/login', {
+        email: email.includes('@') ? email : undefined,
+        phone: !email.includes('@') ? email : undefined,
+        password,
+        totpCode: codeStr,
+      });
+    }
+
+    setIsLoading(false);
+
+    const accessToken = res.data?.token || res.data?.accessToken;
+    if (res.success && accessToken) {
+      api.setToken(accessToken);
+      if (res.data.user) {
+        setUser(res.data.user);
+      }
+      redirectAfterAuth(res.data.user);
+    } else {
+      setErrorMsg(res.error?.message || '2FA verification failed. Please enter valid code.');
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canContinue || isLoading) return;
+
+    if (requires2FA) {
+      await executeLoginWithCode(totpCode);
+      return;
+    }
 
     setIsLoading(true);
     setErrorMsg('');
@@ -34,13 +88,21 @@ export default function LogInPage() {
 
     setIsLoading(false);
 
+    if (res.data?.requires2FA) {
+      setRequires2FA(true);
+      setOauthProvider(null);
+      setOauthToken('');
+      setErrorMsg('Two-Factor Authentication (2FA) is enabled for your account. Enter the 6-digit code from your Authenticator app below.');
+      return;
+    }
+
     const accessToken = res.data?.token || res.data?.accessToken;
     if (res.success && accessToken) {
       api.setToken(accessToken);
       if (res.data.user) {
         setUser(res.data.user);
       }
-      router.push('/dashboard');
+      redirectAfterAuth(res.data.user);
     } else {
       setErrorMsg(res.error?.message || 'Login failed. Please check your credentials.');
     }
@@ -53,10 +115,21 @@ export default function LogInPage() {
       const res = await triggerGoogleAuth('');
       setIsLoading(false);
 
-      if (res.success && res.data?.requiresRoleSelection) {
+      if (res.data?.requires2FA) {
+        if (res.data.email) setEmail(res.data.email);
+        setRequires2FA(true);
+        setOauthProvider('GOOGLE');
+        if (res.data.token) setOauthToken(res.data.token);
+        setErrorMsg('Two-Factor Authentication (2FA) is enabled for your Google account. Enter the 6-digit code from your Authenticator app below.');
+        return;
+      }
+
+      if (res.data?.requiresRoleSelection || res.data?.needsRoleSelection) {
         router.push(
-          `/oauth/select-role?email=${encodeURIComponent(res.data.email)}&token=${encodeURIComponent(
-            res.data.token
+          `/oauth/select-role?email=${encodeURIComponent(
+            res.data.email || ''
+          )}&token=${encodeURIComponent(
+            res.data.token || res.data.oauthToken || ''
           )}&provider=google`
         );
         return;
@@ -67,7 +140,7 @@ export default function LogInPage() {
         if (res.data.user) {
           setUser(res.data.user);
         }
-        router.push('/dashboard');
+        redirectAfterAuth(res.data.user);
       } else {
         setErrorMsg(res.error?.message || 'Google Sign-In failed.');
       }
@@ -84,6 +157,15 @@ export default function LogInPage() {
     try {
       const res = await triggerAppleAuth('');
       setIsLoading(false);
+
+      if (res.data?.requires2FA) {
+        if (res.data.email) setEmail(res.data.email);
+        setRequires2FA(true);
+        setOauthProvider('APPLE');
+        if (res.data.token) setOauthToken(res.data.token);
+        setErrorMsg('Two-Factor Authentication (2FA) is enabled for your Apple account. Enter the 6-digit code from your Authenticator app below.');
+        return;
+      }
 
       if (res.success && res.data?.requiresRoleSelection) {
         router.push(
@@ -156,7 +238,7 @@ export default function LogInPage() {
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                required
+                required={!requires2FA}
               />
               <button
                 className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
@@ -183,6 +265,32 @@ export default function LogInPage() {
                 </svg>
               </button>
             </div>
+            {/* 2FA Challenge Field */}
+            {requires2FA && (
+              <div className="p-6 bg-blue-50/70 border border-blue-200 rounded-3xl space-y-3 animate-in fade-in zoom-in-95">
+                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider text-center">
+                  2FA Authentication Code
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  autoFocus
+                  placeholder="123456"
+                  value={totpCode}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    setTotpCode(val);
+                    if (val.length === 6 && !isLoading) {
+                      executeLoginWithCode(val);
+                    }
+                  }}
+                  className="w-full text-center tracking-widest font-mono text-xl font-extrabold h-14 px-4 bg-white border border-blue-300 rounded-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1c7bcf]"
+                />
+                <p className="text-[11px] text-slate-500 font-semibold text-center">
+                  Open Google Authenticator or Authy to view your 6-digit code.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end">
@@ -204,14 +312,18 @@ export default function LogInPage() {
             type="submit"
             disabled={!canContinue || isLoading}
           >
-            {isLoading ? 'Signing In...' : 'Log In'}
+            {isLoading
+              ? 'Verifying 2FA...'
+              : requires2FA
+                ? 'Verify 2FA & Log In'
+                : 'Log In'}
           </button>
         </form>
 
-        {/* Divider */}
+        {/* Divider
         <div className="text-center pt-2">
           <p className="text-slate-400 text-base font-medium">Or Login With</p>
-        </div>
+        </div> */}
 
         {/* Social Buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

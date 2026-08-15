@@ -13,6 +13,7 @@ router.get('/balance', rewardsController.getBalance);
 router.get('/earnings', rewardsController.getEarnings);
 router.get('/redemptions', rewardsController.getRedemptions);
 router.post('/redeem', rewardsController.redeemReward);
+router.post('/claim', rewardsController.redeemReward);
 router.get('/catalog', rewardsController.getCatalog);
 router.get('/tiers', rewardsController.getTiers);
 

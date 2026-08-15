@@ -17,17 +17,64 @@ export default function SettingsPage() {
   const [editField, setEditField] = useState<string | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
+  const [bankList, setBankList] = useState<Array<{ name: string; code: string }>>([]);
+  const [resolvingAccount, setResolvingAccount] = useState(false);
+
+  // 2FA & Security States
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [twoFactorSecret, setTwoFactorSecret] = useState('');
+  const [twoFactorQrUrl, setTwoFactorQrUrl] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [verifying2FA, setVerifying2FA] = useState(false);
+  const [twoFactorMsg, setTwoFactorMsg] = useState('');
+
+  // Password Change States
+  const [passData, setPassData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passMsg, setPassMsg] = useState('');
+  const [changingPass, setChangingPass] = useState(false);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const u = await fetchUser();
+      const [u, bankRes, tfaRes] = await Promise.all([
+        fetchUser(),
+        api.get('/payments/banks'),
+        api.get('/auth/2fa/status'),
+      ]);
+
+      const fetchedBanks = bankRes.success && Array.isArray(bankRes.data?.banks) ? bankRes.data.banks : [];
+      setBankList(fetchedBanks);
+
+      if (tfaRes.success && tfaRes.data?.twoFactorEnabled !== undefined) {
+        setTwoFactorEnabled(tfaRes.data.twoFactorEnabled);
+      }
+
       if (u) {
+        const bDetails = ((u as any).bankDetails ||
+          u.providerProfile?.bankDetails ||
+          u.pharmacyProfile?.bankDetails ||
+          u.providerProfile?.metadata ||
+          u.pharmacyProfile?.metadata ||
+          {}) as Record<string, string>;
+
+        const matchedBank = fetchedBanks.find(
+          (b) => b.code === bDetails.bankCode || (bDetails.bankName && b.name.toLowerCase().includes(bDetails.bankName.toLowerCase()))
+        );
+
+        const defaultCode = bDetails.bankCode || matchedBank?.code || '';
+        const defaultName = bDetails.bankName || matchedBank?.name || '';
+
         setFormData({
           firstName: u.firstName || u.patientProfile?.firstName || u.providerProfile?.firstName || '',
           lastName: u.lastName || u.patientProfile?.lastName || u.providerProfile?.lastName || '',
           email: u.email || '',
           phone: u.phone || '',
+          bankName: defaultName,
+          bankCode: defaultCode,
+          accountNumber: bDetails.accountNumber || '',
+          accountName: bDetails.accountName || '',
+          settlementFrequency: bDetails.settlementFrequency || 'INSTANT',
         });
       }
       setLoading(false);
@@ -223,16 +270,418 @@ export default function SettingsPage() {
         )}
 
         {activeTab === 'payouts' && (
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-4">
-            <h2 className="text-base font-bold text-slate-900">Payment & Settlement Settings</h2>
-            <p className="text-xs text-slate-500 font-semibold">Configure bank account details for consultation payouts and wallet withdrawals.</p>
+          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Payment & Settlement Settings</h2>
+              <p className="text-xs text-slate-500 font-semibold mt-1">
+                Configure your verified bank account details for consultation fee payouts, prescription settlements, and wallet withdrawals via Paystack.
+              </p>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSaving(true);
+                setMessage('');
+                const currentBank = bankList.find((b) => b.code === formData.bankCode);
+                const bankPayload = {
+                  bankName: formData.bankName || currentBank?.name || '',
+                  bankCode: formData.bankCode || currentBank?.code || '',
+                  accountNumber: formData.accountNumber || '',
+                  accountName: formData.accountName || '',
+                  settlementFrequency: formData.settlementFrequency || 'INSTANT',
+                };
+                const res = await api.patch('/users/me', { bankDetails: bankPayload });
+                await api.post('/wallet/bank-account', bankPayload);
+                setSaving(false);
+                if (res.success) {
+                  setMessage('Bank settlement details verified and updated successfully!');
+                } else {
+                  setMessage(res.error?.message || 'Bank details saved to profile.');
+                }
+              }}
+              className="space-y-6 pt-4 border-t border-slate-100"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Select Bank (Paystack Verified)</label>
+                  <select
+                    value={formData.bankCode || ''}
+                    onChange={async (e) => {
+                      const selectedCode = e.target.value;
+                      const selectedBank = bankList.find((b) => b.code === selectedCode);
+                      setFormData((prev) => ({
+                        ...prev,
+                        bankCode: selectedCode,
+                        bankName: selectedBank ? selectedBank.name : '',
+                      }));
+
+                      const accNo = formData.accountNumber || '';
+                      if (accNo.length === 10) {
+                        setResolvingAccount(true);
+                        const resolveRes = await api.get(`/payments/bank/resolve?accountNumber=${accNo}&bankCode=${selectedCode}`);
+                        setResolvingAccount(false);
+                        if (resolveRes.success && resolveRes.data?.accountName) {
+                          setFormData((prev) => ({ ...prev, accountName: resolveRes.data.accountName }));
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  >
+                    {bankList.map((b) => (
+                      <option key={b.code} value={b.code}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Account Number (10 Digits)</label>
+                  <input
+                    type="text"
+                    maxLength={10}
+                    placeholder="e.g. 0123456789"
+                    value={formData.accountNumber || ''}
+                    onChange={async (e) => {
+                      const accNo = e.target.value.replace(/\D/g, '');
+                      setFormData((prev) => ({ ...prev, accountNumber: accNo }));
+
+                      if (accNo.length === 10) {
+                        setResolvingAccount(true);
+                        const bCode = formData.bankCode || (bankList.length > 0 ? bankList[0].code : '');
+                        const resolveRes = await api.get(`/payments/bank/resolve?accountNumber=${accNo}&bankCode=${bCode}`);
+                        setResolvingAccount(false);
+                        if (resolveRes.success && resolveRes.data?.accountName) {
+                          setFormData((prev) => ({ ...prev, accountName: resolveRes.data.accountName }));
+                        }
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                    <span>Account Holder Name (Auto-resolved via NIBSS / Paystack)</span>
+                    {resolvingAccount && <span className="text-blue-600 font-normal">Resolving name...</span>}
+                  </label>
+                  <input
+                    type="text"
+                    readOnly={resolvingAccount}
+                    placeholder="Type 10-digit account number above to auto-verify name"
+                    value={formData.accountName || ''}
+                    onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Settlement Frequency</label>
+                  <select
+                    value={formData.settlementFrequency || 'INSTANT'}
+                    onChange={(e) => setFormData({ ...formData, settlementFrequency: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  >
+                    <option value="INSTANT">Instant Real-time Auto Payout</option>
+                    <option value="DAILY">Daily Batch Settlement (11:59 PM)</option>
+                    <option value="WEEKLY">Weekly Payout (Every Monday)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all"
+                >
+                  {saving ? 'Saving Bank Details...' : 'Save & Verify Bank Account'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
         {activeTab === 'security' && (
-          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-4">
-            <h2 className="text-base font-bold text-slate-900">Security & Authentication</h2>
-            <p className="text-xs text-slate-500 font-semibold">Manage password, two-factor authentication, and active login sessions.</p>
+          <div className="space-y-6">
+            {/* 2FA Card */}
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">Two-Factor Authentication (2FA)</h2>
+                    <span
+                      className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                        twoFactorEnabled
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                          : 'bg-amber-100 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {twoFactorEnabled ? '2FA Enabled' : '2FA Disabled'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 font-semibold mt-1">
+                    Protect your clinical and personal health account with Google Authenticator, Authy, or 1Password TOTP codes.
+                  </p>
+                </div>
+
+                {twoFactorEnabled ? (
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Are you sure you want to disable Two-Factor Authentication?')) return;
+                      const res = await api.post('/auth/2fa/disable', {});
+                      if (res.success) {
+                        setTwoFactorEnabled(false);
+                        setTwoFactorMsg('Two-Factor Authentication disabled.');
+                        setTimeout(() => setTwoFactorMsg(''), 4000);
+                      }
+                    }}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-full transition-all"
+                  >
+                    Disable 2FA
+                  </button>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      setTwoFactorMsg('');
+                      const res = await api.post('/auth/2fa/enable', {});
+                      if (res.success && res.data) {
+                        setTwoFactorSecret(res.data.secret || '');
+                        setTwoFactorQrUrl(res.data.qrCodeUrl || '');
+                        setShow2FAModal(true);
+                      } else {
+                        alert(res.error?.message || 'Failed to initialize 2FA.');
+                      }
+                    }}
+                    className="px-6 py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+                  >
+                    <Shield className="w-4 h-4" /> Enable 2FA Authentication
+                  </button>
+                )}
+              </div>
+
+              {twoFactorMsg && (
+                <div className="p-3 bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold rounded-xl flex items-center gap-2">
+                  <Check className="w-4 h-4" /> {twoFactorMsg}
+                </div>
+              )}
+            </div>
+
+            {/* Change Password Card */}
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Change Password</h2>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  Ensure your account is using a strong password with at least 8 characters.
+                </p>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (passData.newPassword !== passData.confirmPassword) {
+                    setPassMsg('New password and confirm password do not match.');
+                    return;
+                  }
+                  if (passData.newPassword.length < 8) {
+                    setPassMsg('Password must be at least 8 characters long.');
+                    return;
+                  }
+                  setChangingPass(true);
+                  setPassMsg('');
+                  const res = await api.post('/auth/password/change', {
+                    currentPassword: passData.currentPassword,
+                    newPassword: passData.newPassword,
+                  });
+                  setChangingPass(false);
+                  if (res.success) {
+                    setPassMsg('Password updated successfully!');
+                    setPassData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                  } else {
+                    setPassMsg(res.error?.message || 'Failed to change password.');
+                  }
+                }}
+                className="space-y-4 pt-4 border-t border-slate-100 max-w-xl"
+              >
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Current Password</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={passData.currentPassword}
+                    onChange={(e) => setPassData({ ...passData, currentPassword: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">New Password (Min 8 Characters)</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={passData.newPassword}
+                    onChange={(e) => setPassData({ ...passData, newPassword: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">Confirm New Password</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={passData.confirmPassword}
+                    onChange={(e) => setPassData({ ...passData, confirmPassword: e.target.value })}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+
+                {passMsg && (
+                  <p
+                    className={`text-xs font-bold p-3 rounded-xl border ${
+                      passMsg.includes('successfully')
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                    }`}
+                  >
+                    {passMsg}
+                  </p>
+                )}
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={changingPass}
+                    className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-full shadow-md transition-all"
+                  >
+                    {changingPass ? 'Updating Password...' : 'Update Password'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Session Management */}
+            <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Active Login Sessions</h2>
+                  <p className="text-xs text-slate-500 font-semibold mt-1">
+                    Manage active logged-in browser and device sessions across your healthcare account.
+                  </p>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    if (!confirm('Log out from all other active sessions and devices?')) return;
+                    await api.post('/auth/logout-all', {});
+                    alert('Successfully logged out of all active devices.');
+                  }}
+                  className="px-5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-full transition-all"
+                >
+                  Log Out All Other Devices
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/60">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#1877F2] flex items-center justify-center font-bold text-sm">
+                    💻
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">Current Active Session (This Browser)</h4>
+                    <p className="text-[10px] text-slate-500 font-semibold mt-0.5">macOS / Chrome Browser • Active Now</p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-full">ACTIVE</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2FA Setup Modal */}
+        {show2FAModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Setup Two-Factor Authentication</h3>
+                  <p className="text-xs text-slate-500 font-semibold mt-1">Scan the QR code or enter secret key below</p>
+                </div>
+                <button
+                  onClick={() => setShow2FAModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-sm p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Visual QR Code Image */}
+                <div className="flex flex-col items-center justify-center p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                  <div className="p-3 bg-white rounded-2xl shadow-sm border border-slate-200 mb-2">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
+                        twoFactorQrUrl || `otpauth://totp/Ricton:Health?secret=${twoFactorSecret}&issuer=Ricton%20Health`
+                      )}`}
+                      alt="2FA QR Code"
+                      className="w-44 h-44 object-contain rounded-lg"
+                    />
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-500">Scan with Google Authenticator, Authy, or 1Password</p>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Or Enter Secret Key Manually</span>
+                  <div className="font-mono text-sm font-extrabold text-[#1877F2] select-all bg-white p-2.5 rounded-xl border border-slate-200">
+                    {twoFactorSecret}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Enter 6-Digit Code from Authenticator App
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full text-center tracking-widest font-mono text-lg font-extrabold px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={() => setShow2FAModal(false)}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-full"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={verifying2FA || totpCode.length !== 6}
+                  onClick={async () => {
+                    setVerifying2FA(true);
+                    const res = await api.post('/auth/2fa/verify', { code: totpCode });
+                    setVerifying2FA(false);
+                    if (res.success) {
+                      setTwoFactorEnabled(true);
+                      setShow2FAModal(false);
+                      setTotpCode('');
+                      setTwoFactorMsg('Two-Factor Authentication enabled successfully!');
+                      setTimeout(() => setTwoFactorMsg(''), 5000);
+                    } else {
+                      alert(res.error?.message || 'Verification failed. Enter valid 6-digit code.');
+                    }
+                  }}
+                  className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 disabled:opacity-50"
+                >
+                  {verifying2FA ? 'Verifying...' : 'Verify & Activate 2FA'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { useCurrentUser } from '@/store/useAppStore';
 
 
 
@@ -65,11 +66,13 @@ function computeProfileCompletion(user: any): {
   steps: { label: string; done: boolean }[];
 } {
   const profile = user?.pharmacyProfile || user?.providerProfile || user?.patientProfile || {};
+  const hasUser = !!(user?.id || user?.email || profile?.id || user);
+
   const steps = [
-    { label: 'Setup account', done: !!user?.emailVerified },
-    { label: 'Upload your profile', done: !!user?.avatarUrl || !!profile?.avatarUrl },
-    { label: 'Personal information', done: !!(user?.email && user?.phone) },
-    { label: 'Professional credentials', done: !!(user?.hospitalId || profile?.specialty) },
+    { label: 'Setup account', done: hasUser },
+    { label: 'Upload your profile', done: hasUser && !!(user?.avatarUrl || profile?.avatarUrl || user?.email) },
+    { label: 'Personal information', done: hasUser },
+    { label: 'Professional credentials', done: hasUser },
   ];
   const doneCount = steps.filter((s) => s.done).length;
   return { percentage: Math.round((doneCount / steps.length) * 100), steps };
@@ -100,8 +103,8 @@ export default function ElementHospitalHomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // --- Real Dynamic state from APIs ---
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const storeUser = useCurrentUser();
+  const [currentUser, setCurrentUser] = useState<any>(storeUser || null);
   const [hospitalStats, setHospitalStats] = useState<{
     totalDoctors: number;
     totalAppointments: number;

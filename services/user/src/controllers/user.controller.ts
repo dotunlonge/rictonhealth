@@ -35,6 +35,7 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
         status: true,
         emailVerified: true,
         phoneVerified: true,
+        bankDetails: true,
         createdAt: true,
         ...profileInclude,
       },
@@ -224,6 +225,48 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
       await prisma.pharmacyProfile.update({
         where: { userId },
         data,
+      });
+    }
+
+    // Sync bank details & set active status on onboarding completion
+    const incomingBank =
+      updateData.bankDetails ||
+      (updateData.bankName
+        ? {
+            bankName: updateData.bankName,
+            bankCode: updateData.bankCode,
+            accountNumber: updateData.accountNumber,
+            accountName: updateData.accountName,
+            settlementFrequency: updateData.settlementFrequency || 'INSTANT',
+          }
+        : null) ||
+      (updateData.hospitalAdminProfile?.metadata?.bankName
+        ? {
+            bankName: updateData.hospitalAdminProfile.metadata.bankName,
+            accountNumber: updateData.hospitalAdminProfile.metadata.accountNumber,
+            accountName: updateData.hospitalAdminProfile.metadata.accountName,
+          }
+        : updateData.providerProfile?.metadata?.bankName
+          ? {
+              bankName: updateData.providerProfile.metadata.bankName,
+              accountNumber: updateData.providerProfile.metadata.accountNumber,
+              accountName: updateData.providerProfile.metadata.accountName,
+            }
+          : updateData.pharmacyProfile?.metadata?.bankName
+            ? {
+                bankName: updateData.pharmacyProfile.metadata.bankName,
+                accountNumber: updateData.pharmacyProfile.metadata.accountNumber,
+                accountName: updateData.pharmacyProfile.metadata.accountName,
+              }
+            : null);
+
+    if (incomingBank) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          bankDetails: incomingBank,
+          status: UserStatus.ACTIVE,
+        },
       });
     }
 

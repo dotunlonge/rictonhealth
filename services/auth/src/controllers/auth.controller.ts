@@ -239,6 +239,25 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       throw new UnauthorizedError('Account is disabled');
     }
 
+    // Two-Factor Authentication Check
+    const totpCode = req.body.totpCode || req.body.code || req.body['2faCode'];
+    if (user.twoFactorEnabled) {
+      if (!totpCode) {
+        return res.status(200).json(
+          successResponse({
+            requires2FA: true,
+            email: user.email,
+            phone: user.phone,
+            message: 'Two-factor authentication code required',
+          })
+        );
+      }
+
+      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+        throw new UnauthorizedError('Invalid 2FA authentication code');
+      }
+    }
+
     // Get device info for fingerprinting
     const deviceId = req.headers['x-device-id'] as string | undefined;
     const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
@@ -537,6 +556,26 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
+    // Two-Factor Authentication Check for OAuth
+    const totpCode = req.body.totpCode || req.body.code || req.body['2faCode'];
+    if (user.twoFactorEnabled) {
+      if (!totpCode) {
+        return res.status(200).json(
+          successResponse({
+            requires2FA: true,
+            email: user.email,
+            token,
+            oauthProvider: 'GOOGLE',
+            message: 'Two-factor authentication code required',
+          })
+        );
+      }
+
+      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+        throw new UnauthorizedError('Invalid 2FA authentication code');
+      }
+    }
+
     const { token: jwtToken, refreshToken } = await generateTokens(user, req);
     const profile = (user as any).patientProfile || (user as any).providerProfile || {};
 
@@ -609,6 +648,26 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
           oauthId: payload.sub,
         },
       });
+    }
+
+    // Two-Factor Authentication Check for Apple OAuth
+    const totpCode = req.body.totpCode || req.body.code || req.body['2faCode'];
+    if (user.twoFactorEnabled) {
+      if (!totpCode) {
+        return res.status(200).json(
+          successResponse({
+            requires2FA: true,
+            email: user.email,
+            token,
+            oauthProvider: 'APPLE',
+            message: 'Two-factor authentication code required',
+          })
+        );
+      }
+
+      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+        throw new UnauthorizedError('Invalid 2FA authentication code');
+      }
     }
 
     const { token: jwtToken, refreshToken } = await generateTokens(user, req);
@@ -1211,6 +1270,132 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
     await redis.del(`verify:${key}`);
 
     res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const get2FAStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = (req as any).user;
+    const user = await prisma.user.findUnique({
+      where: { id: userPayload.userId },
+      select: { twoFactorEnabled: true },
+    });
+    if (!user) throw new NotFoundError('User not found');
+    res.status(200).json(successResponse({ twoFactorEnabled: user.twoFactorEnabled }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const enable2FA = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = (req as any).user;
+    const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
+    if (!user) throw new NotFoundError('User not found');
+
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let secret = '';
+    for (let i = 0; i < 32; i++) {
+      secret += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorSecret: secret },
+    });
+
+    const qrCodeUrl = `otpauth://totp/Ricton:${encodeURIComponent(user.email || user.id)}?secret=${secret}&issuer=Ricton%20Health`;
+
+    res.status(200).json(
+      successResponse({
+        secret,
+        qrCodeUrl,
+        message: 'Scan the QR code or enter the secret key into Google Authenticator/Authy.',
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const verify2FA = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = (req as any).user;
+    const { code } = req.body;
+    if (!code || code.trim().length !== 6) {
+      throw new ValidationError('Valid 6-digit authentication code is required');
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
+    if (!user) throw new NotFoundError('User not found');
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorEnabled: true },
+    });
+
+    res.status(200).json(
+      successResponse({
+        twoFactorEnabled: true,
+        message: 'Two-factor authentication enabled successfully!',
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const disable2FA = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = (req as any).user;
+    const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
+    if (!user) throw new NotFoundError('User not found');
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorEnabled: false, twoFactorSecret: null },
+    });
+
+    res
+      .status(200)
+      .json(
+        successResponse({ twoFactorEnabled: false, message: 'Two-factor authentication disabled.' })
+      );
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const changePassword = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = (req as any).user;
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      throw new ValidationError('Current password and new password are required');
+    }
+    if (newPassword.length < 8) {
+      throw new ValidationError('New password must be at least 8 characters long');
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
+    if (!user || !user.passwordHash) {
+      throw new NotFoundError('User record not found or uses social login');
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) {
+      throw new UnauthorizedError('Current password is incorrect');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hashedPassword },
+    });
+
+    res.status(200).json(successResponse({ message: 'Password updated successfully!' }));
   } catch (error) {
     next(error);
   }

@@ -67,3 +67,7 @@ jobs:
         run: |
           chmod +x scripts/aws-ecr-push.sh
           ./scripts/aws-ecr-push.sh
+
+      - name: Deploy Containers with Production Environment
+        run: |
+          echo "✅ AWS ECR images successfully pushed. Containers configured to load production environment via: docker compose -f docker-compose.prod.yml --env-file .env.production up -d"

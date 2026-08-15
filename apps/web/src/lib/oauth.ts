@@ -24,8 +24,8 @@ declare global {
   }
 }
 
-export async function loginWithGoogleToken(token: string, role?: string) {
-  const res = await api.post('/auth/oauth/google', { token, role });
+export async function loginWithGoogleToken(token: string, role?: string, totpCode?: string) {
+  const res = await api.post('/auth/oauth/google', { token, role, totpCode });
   if (res.success && res.data) {
     if (res.data.token) {
       localStorage.setItem('ricton_token', res.data.token as string);
@@ -37,8 +37,8 @@ export async function loginWithGoogleToken(token: string, role?: string) {
   return res;
 }
 
-export async function loginWithAppleToken(token: string, role?: string) {
-  const res = await api.post('/auth/oauth/apple', { token, role });
+export async function loginWithAppleToken(token: string, role?: string, totpCode?: string) {
+  const res = await api.post('/auth/oauth/apple', { token, role, totpCode });
   if (res.success && res.data) {
     if (res.data.token) {
       localStorage.setItem('ricton_token', res.data.token as string);
@@ -65,7 +65,7 @@ export function loadScript(src: string): Promise<void> {
   });
 }
 
-export async function triggerGoogleAuth(role: string = 'PATIENT'): Promise<any> {
+export async function triggerGoogleAuth(role?: string, totpCode?: string): Promise<any> {
   await loadScript('https://accounts.google.com/gsi/client');
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
   if (!clientId) {
@@ -86,7 +86,7 @@ export async function triggerGoogleAuth(role: string = 'PATIENT'): Promise<any> 
           const token = tokenResponse.id_token || tokenResponse.access_token;
           if (token) {
             try {
-              const res = await loginWithGoogleToken(token, role);
+              const res = await loginWithGoogleToken(token, role || undefined, totpCode);
               resolve(res);
             } catch (err) {
               reject(err);
@@ -104,7 +104,11 @@ export async function triggerGoogleAuth(role: string = 'PATIENT'): Promise<any> 
         callback: async (response: { credential?: string }) => {
           if (response.credential) {
             try {
-              const res = await loginWithGoogleToken(response.credential, role);
+              const res = await loginWithGoogleToken(
+                response.credential,
+                role || undefined,
+                totpCode
+              );
               resolve(res);
             } catch (err) {
               reject(err);
@@ -119,7 +123,7 @@ export async function triggerGoogleAuth(role: string = 'PATIENT'): Promise<any> 
   });
 }
 
-export async function triggerAppleAuth(role: string = 'PATIENT'): Promise<any> {
+export async function triggerAppleAuth(role: string = 'PATIENT', totpCode?: string): Promise<any> {
   await loadScript(
     'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js'
   );
@@ -145,5 +149,5 @@ export async function triggerAppleAuth(role: string = 'PATIENT'): Promise<any> {
     throw new Error('No Apple ID token returned');
   }
 
-  return await loginWithAppleToken(idToken, role);
+  return await loginWithAppleToken(idToken, role, totpCode);
 }

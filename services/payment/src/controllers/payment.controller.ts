@@ -424,3 +424,84 @@ export const getPaymentById = async (req: Request, res: Response, next: NextFunc
     next(error);
   }
 };
+
+export const getBanks = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const fallbackBanks = [
+      { name: 'Guaranty Trust Bank (GTBank)', code: '058' },
+      { name: 'Access Bank Plc', code: '044' },
+      { name: 'Zenith Bank Plc', code: '057' },
+      { name: 'First Bank of Nigeria', code: '011' },
+      { name: 'United Bank for Africa (UBA)', code: '033' },
+      { name: 'Kuda Microfinance Bank', code: '50211' },
+      { name: 'Moniepoint MFB', code: '50515' },
+      { name: 'OPay Digital Services', code: '999992' },
+      { name: 'Stanbic IBTC Bank', code: '221' },
+      { name: 'Fidelity Bank', code: '070' },
+      { name: 'Sterling Bank', code: '232' },
+      { name: 'Wema Bank', code: '035' },
+    ];
+
+    if (!PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY.includes('replace_me')) {
+      return res.status(200).json(successResponse({ banks: fallbackBanks }));
+    }
+
+    try {
+      const response = await fetch(`${PAYSTACK_API_URL}/bank?country=nigeria`, {
+        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
+      });
+      const data = (await response.json()) as any;
+      if (data.status && Array.isArray(data.data)) {
+        const banks = data.data.map((b: any) => ({ name: b.name, code: b.code }));
+        return res.status(200).json(successResponse({ banks }));
+      }
+    } catch {
+      // Fallback
+    }
+
+    res.status(200).json(successResponse({ banks: fallbackBanks }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resolveAccount = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { accountNumber, bankCode } = req.query;
+    if (!accountNumber || !bankCode) {
+      throw new ValidationError('accountNumber and bankCode are required');
+    }
+
+    if (!PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY.includes('replace_me')) {
+      return res.status(200).json(
+        successResponse({
+          accountNumber: String(accountNumber),
+          accountName: 'VERIFIED ACCOUNT HOLDER',
+          bankCode: String(bankCode),
+        })
+      );
+    }
+
+    const response = await fetch(
+      `${PAYSTACK_API_URL}/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
+      {
+        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
+      }
+    );
+    const data = (await response.json()) as any;
+
+    if (!data.status) {
+      throw new ValidationError(data.message || 'Could not resolve bank account name');
+    }
+
+    res.status(200).json(
+      successResponse({
+        accountNumber: data.data.account_number,
+        accountName: data.data.account_name,
+        bankCode: String(bankCode),
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};

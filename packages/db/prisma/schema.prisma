@@ -42,7 +42,9 @@ model User {
   consentAt          DateTime?           @db.Timestamptz(6)
   lastLoginAt        DateTime?           @db.Timestamptz(6)
   twoFactorEnabled   Boolean             @default(false)
+  twoFactorSecret    String?
   tokenVersion       Int                 @default(0)
+  bankDetails        Json?
   deletedAt          DateTime?           @db.Timestamptz(6)
   hospitalId         String?             @db.Uuid
   hospital           Hospital?           @relation("UserHospital", fields: [hospitalId], references: [id])

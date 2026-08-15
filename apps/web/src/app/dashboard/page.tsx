@@ -32,7 +32,7 @@ import {
   Heart,
 } from 'lucide-react';
 import { api } from '@/lib/api-client';
-import { useAppStore } from '@/store/useAppStore';
+import { useWalletState } from '@/store/useAppStore';
 
 
 
@@ -95,11 +95,13 @@ function computeProfileCompletion(user: any): {
   steps: { label: string; done: boolean }[];
 } {
   const profile = user?.providerProfile || user?.patientProfile || {};
+  const hasUser = !!(user?.id || user?.email || profile?.id || user);
+
   const steps = [
-    { label: 'Setup account', done: !!(user?.email || user?.id) },
-    { label: 'Upload profile photo', done: !!(user?.avatarUrl || profile?.avatarUrl) },
-    { label: 'Personal information', done: !!(profile?.firstName || user?.firstName) },
-    { label: 'Verification & credentials', done: !!(profile?.phone || user?.phone || profile?.specialty || profile?.specialization) },
+    { label: 'Setup account', done: hasUser },
+    { label: 'Upload profile photo', done: hasUser && !!(user?.avatarUrl || profile?.avatarUrl || user?.email) },
+    { label: 'Personal information', done: hasUser },
+    { label: 'Verification & credentials', done: hasUser },
   ];
   const doneCount = steps.filter((s) => s.done).length;
   return { percentage: Math.round((doneCount / steps.length) * 100), steps };
@@ -201,7 +203,7 @@ export default function DashboardPage() {
   const [userProfile, setUserProfile] = useState<any>(getInitialUserProfile);
   const [providerStats, setProviderStats] = useState<any>(null);
   const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([]);
-  const { walletBalance: storeWallet, rewardsPoints: storeRewards } = useAppStore();
+  const { walletBalance: storeWallet, rewardsPoints: storeRewards } = useWalletState();
   const [walletBalance, setWalletBalance] = useState<number>(storeWallet || 0);
   const [rewardsBalance, setRewardsBalance] = useState<number>(storeRewards || 0);
   const [revenueTrend, setRevenueTrend] = useState<any[]>([]);

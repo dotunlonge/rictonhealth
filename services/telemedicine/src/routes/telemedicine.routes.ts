@@ -6,98 +6,24 @@ const router = Router();
 
 router.use(requireAuth);
 
-/**
- * @openapi
- * /api/telemedicine/rooms:
- *   post:
- *     summary: Initialize a telemedicine video room
- *     tags:
- *       - Telemedicine
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               appointmentId:
- *                 type: string
- *                 format: uuid
- *               roomType:
- *                 type: string
- *                 enum: [ONE_ON_ONE, MDT]
- *     responses:
- *       201:
- *         description: Telemedicine room initialized
- *       400:
- *         description: Bad Request
- */
+// List telemedicine rooms/meetings
+router.get('/rooms', controller.listRooms);
+router.get('/meetings', controller.listRooms);
+
+// Create telemedicine room/meeting
 router.post('/rooms', controller.createRoom);
+router.post('/meetings', controller.createRoom);
 
-/**
- * @openapi
- * /api/telemedicine/rooms/{id}/token:
- *   post:
- *     summary: Retrieve Twilio Video participant join token
- *     tags:
- *       - Telemedicine
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Token successfully generated
- *       403:
- *         description: Forbidden
- */
+// Get token
 router.post('/rooms/:id/token', controller.getRoomToken);
+router.post('/meetings/:id/token', controller.getRoomToken);
 
-/**
- * @openapi
- * /api/telemedicine/rooms/{id}/end:
- *   post:
- *     summary: End telemedicine consultation room sessions
- *     tags:
- *       - Telemedicine
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Room session ended
- */
+// End room session
 router.post('/rooms/:id/end', controller.endRoom);
+router.post('/meetings/:id/end', controller.endRoom);
 
-/**
- * @openapi
- * /api/telemedicine/rooms/{id}/participants:
- *   get:
- *     summary: Get participants in a telemedicine room
- *     tags:
- *       - Telemedicine
- *     parameters:
- *       - name: id
- *         in: path
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Participants retrieved successfully
- *       403:
- *         description: Forbidden
- *       404:
- *         description: Room not found
- */
+// Get participants
 router.get('/rooms/:id/participants', controller.getParticipants);
+router.get('/meetings/:id/participants', controller.getParticipants);
 
 export default router;

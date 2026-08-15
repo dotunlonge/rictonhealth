@@ -163,4 +163,13 @@ router.post(
   authController.verifyContact
 );
 
+// 2FA Endpoints
+router.get('/2fa/status', requireAuth, authController.get2FAStatus);
+router.post('/2fa/enable', requireAuth, authController.enable2FA);
+router.post('/2fa/verify', requireAuth, authController.verify2FA);
+router.post('/2fa/disable', requireAuth, authController.disable2FA);
+
+// Password Change
+router.post('/password/change', requireAuth, authController.changePassword);
+
 export default router;

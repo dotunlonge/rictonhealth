@@ -51,11 +51,27 @@ export default function RewardsPage() {
   const [redeemedMsg, setRedeemedMsg] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
 
+  const [vouchers, setVouchers] = useState<VoucherGift[]>(availableVouchers);
+
   useEffect(() => {
     async function loadRewards() {
-      const res = await api.get('/rewards/balance');
-      if (res.success && res.data?.points !== undefined) {
-        setBalance(res.data.points);
+      const [balRes, catRes] = await Promise.all([
+        api.get('/rewards/balance'),
+        api.get('/rewards/catalog'),
+      ]);
+      if (balRes.success && balRes.data?.points !== undefined) {
+        setBalance(balRes.data.points);
+      }
+      if (catRes.success && Array.isArray(catRes.data?.catalog)) {
+        setVouchers(
+          catRes.data.catalog.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            category: c.category || 'Voucher & Gift',
+            points: c.pointsCost || 500,
+            image: c.imageUrl || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&q=80&w=800',
+          }))
+        );
       }
     }
     loadRewards();
@@ -143,7 +159,7 @@ export default function RewardsPage() {
 
           {/* Gifts Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {availableVouchers.map((gift) => {
+            {vouchers.map((gift) => {
               const canAfford = balance >= gift.points;
               const isRedeeming = redeemingId === gift.id;
               return (

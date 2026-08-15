@@ -31,6 +31,8 @@ export const LoginInputSchema = registry.register(
     email: z.string().email().optional(),
     phone: z.string().optional(),
     password: z.string(),
+    totpCode: z.string().optional(),
+    rememberMe: z.boolean().optional(),
   })
 );
 

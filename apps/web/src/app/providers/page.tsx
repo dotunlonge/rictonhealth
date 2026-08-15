@@ -68,20 +68,29 @@ export default function ProvidersPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500">Specialty:</span>
-            <select
-              value={selectedSpecialty}
-              onChange={(e) => setSelectedSpecialty(e.target.value)}
-              className="px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500">Specialty:</span>
+              <select
+                value={selectedSpecialty}
+                onChange={(e) => setSelectedSpecialty(e.target.value)}
+                className="px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+              >
+                <option value="All">All Specialties</option>
+                <option value="Cardiology">Cardiology</option>
+                <option value="Telemedicine">Telemedicine & Internal Medicine</option>
+                <option value="Ophthalmology">Ophthalmology & Eye Care</option>
+                <option value="Endocrinology">Endocrinology & Diabetes</option>
+                <option value="General">General Practice</option>
+              </select>
+            </div>
+
+            <button
+              onClick={() => router.push('/onboarding/doctor')}
+              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5 shrink-0"
             >
-              <option value="All">All Specialties</option>
-              <option value="Cardiology">Cardiology</option>
-              <option value="Telemedicine">Telemedicine & Internal Medicine</option>
-              <option value="Ophthalmology">Ophthalmology & Eye Care</option>
-              <option value="Endocrinology">Endocrinology & Diabetes</option>
-              <option value="General">General Practice</option>
-            </select>
+              + Add / Register Doctor
+            </button>
           </div>
         </div>
 
@@ -147,6 +156,13 @@ export default function ProvidersPage() {
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
+                    onClick={() => router.push(`/providers/${doc.id}`)}
+                    className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
+                  >
+                    View Doctor Profile
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => router.push('/telemedicine')}
                     className="flex-1 py-2.5 bg-white hover:bg-slate-50 border border-blue-200 text-[#1877F2] font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
                   >
@@ -157,7 +173,7 @@ export default function ProvidersPage() {
                     onClick={() => router.push('/appointments')}
                     className="flex-1 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
                   >
-                    Book Appointment
+                    Book Slot
                   </button>
                 </div>
               </div>

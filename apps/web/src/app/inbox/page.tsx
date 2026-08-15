@@ -33,23 +33,29 @@ export default function InboxPage() {
   useEffect(() => {
     async function loadThreads() {
       setLoading(true);
-      const res = await api.get('/messaging/threads');
+      const res = await api.get('/messaging/conversations');
       const rawList = res.success
         ? Array.isArray(res.data)
           ? res.data
-          : res.data?.threads || []
+          : res.data?.conversations || res.data?.threads || []
         : [];
 
-      const formatted = rawList.map((t: any) => ({
-        id: t.id,
-        senderName: t.participantName || t.senderName || 'Healthcare Provider',
-        subject: t.subject || 'Consultation Message',
-        snippet: t.lastMessage || t.snippet || 'Message content...',
-        date: t.updatedAt
-          ? new Date(t.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-          : 'Recent',
-        isUnread: t.unreadCount > 0,
-      }));
+      const formatted = rawList.map((t: any) => {
+        const lastMsg = typeof t.lastMessage === 'string' ? t.lastMessage : t.lastMessage?.body || t.snippet || 'Message content...';
+        const otherUser = t.participants?.find((p: any) => p.userId !== user?.id)?.user;
+        const name = otherUser ? `${otherUser.firstName} ${otherUser.lastName}` : t.title || t.participantName || 'Healthcare Provider';
+
+        return {
+          id: t.id,
+          senderName: name,
+          subject: t.title || 'Consultation Message',
+          snippet: lastMsg,
+          date: t.updatedAt
+            ? new Date(t.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : 'Recent',
+          isUnread: (t.unreadCount || 0) > 0,
+        };
+      });
 
       setThreads(formatted);
       if (formatted.length > 0) {
@@ -58,12 +64,12 @@ export default function InboxPage() {
       setLoading(false);
     }
     loadThreads();
-  }, []);
+  }, [user]);
 
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedThread) return;
-    const res = await api.post(`/messaging/threads/${selectedThread.id}/messages`, {
-      content: replyText,
+    const res = await api.post(`/messaging/conversations/${selectedThread.id}/messages`, {
+      body: replyText,
     });
 
     const newSnippet = `You: ${replyText}`;
@@ -81,10 +87,9 @@ export default function InboxPage() {
   const handleCreateThread = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
-    const res = await api.post('/messaging/threads', {
-      recipientName,
-      subject: subjectText,
-      message: bodyText,
+    const res = await api.post('/messaging/conversations', {
+      title: subjectText || 'Clinical Consultation Inquiry',
+      body: bodyText,
     });
 
     const newThread: MessageThread = {

@@ -97,6 +97,45 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
         const { token, room: roomData } = tokenRes.data;
         setRoomInfo(roomData);
 
+        if (token.startsWith('simulated_token')) {
+          // Development/demo fallback session mode
+          setLoading(false);
+          setConnecting(false);
+          setRoom({
+            sid: roomData?.id || id,
+            name: roomData?.externalRoomId || id,
+            state: 'connected',
+            disconnect: () => {},
+            localParticipant: { identity: 'user', sid: 'p-local', tracks: new Map(), on: () => {}, off: () => {} },
+            participants: new Map(),
+            on: () => {},
+            off: () => {},
+          });
+
+          if (typeof window !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+            try {
+              const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+              if (localVideoRef.current) {
+                const videoEl = document.createElement('video');
+                videoEl.srcObject = mediaStream;
+                videoEl.autoplay = true;
+                videoEl.playsInline = true;
+                videoEl.muted = true;
+                videoEl.style.width = '100%';
+                videoEl.style.height = '100%';
+                videoEl.style.objectFit = 'cover';
+                localVideoRef.current.innerHTML = '';
+                localVideoRef.current.appendChild(videoEl);
+              }
+            } catch (mediaErr) {
+              console.warn('Webcam preview restricted or unavailable:', mediaErr);
+            }
+          }
+
+          timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+          return;
+        }
+
         // Dynamically import Twilio Video (client-side only)
         const TwilioVideo = await import('twilio-video');
         

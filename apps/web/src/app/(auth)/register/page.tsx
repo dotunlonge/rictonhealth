@@ -48,7 +48,7 @@ export default function RegisterPage() {
     if (res.success) {
       // Send verification OTP automatically
       await api.post('/auth/otp/send', { email, type: 'EMAIL_VERIFICATION' });
-      router.push(`/verify-otp?email=${encodeURIComponent(email)}`);
+      router.push(`/verify-otp?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role)}`);
     } else {
       setErrorMsg(res.error?.message || 'Registration failed. Please try again.');
     }
@@ -65,7 +65,15 @@ export default function RegisterPage() {
         if (res.data.user) {
           localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
         }
-        router.push('/dashboard');
+        if (role === 'HOSPITAL_ADMIN') {
+          router.push('/onboarding/hospital');
+        } else if (role === 'CONSULTANT') {
+          router.push('/onboarding/doctor');
+        } else if (role === 'PHARMACIST') {
+          router.push('/onboarding/pharmacy');
+        } else {
+          router.push('/dashboard');
+        }
       } else {
         setErrorMsg(res.error?.message || 'Google Sign-Up failed.');
       }

@@ -15,8 +15,10 @@ interface SystemNotification {
   date: string;
 }
 
+import { useNotificationsState } from '@/store/useAppStore';
+
 export default function NotificationsPage() {
-  const { notifications: storeNotifications, fetchNotifications } = useAppStore();
+  const { notifications: storeNotifications, fetchNotifications, markNotificationRead } = useNotificationsState();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [filterType, setFilterType] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
@@ -25,7 +27,10 @@ export default function NotificationsPage() {
     async function loadNotifications() {
       setLoading(true);
       await fetchNotifications();
-      const res = await api.get('/notifications');
+      setLoading(false);
+    }
+    loadNotifications();
+  }, [fetchNotifications]);
       if (res.success && Array.isArray(res.data)) {
         setNotifications(
           res.data.map((n: any, idx: number) => ({
@@ -86,16 +91,17 @@ export default function NotificationsPage() {
 
   const handleMarkAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    await api.post('/notifications/mark-read', { all: true });
+    await api.patch('/notifications/read-all');
   };
 
   const handleMarkSingleRead = async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
-    await api.patch(`/notifications/${id}`, { isRead: true });
+    await api.patch(`/notifications/${id}/read`);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    await api.delete(`/notifications/${id}`);
   };
 
   const filteredNotifications = notifications.filter(

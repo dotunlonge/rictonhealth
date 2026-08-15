@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d && npm run docs:generate && npm run services:dev",
+    "prod:up": "docker compose -f docker-compose.prod.yml --env-file .env.production up -d",
     "services:dev": "concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
     "worker": "JWT_SECRET=worker-secret npx ts-node -O '{\"module\":\"commonjs\"}' -e \"import('./packages/shared/src/jobs/processors').then(m => m.startJobProcessors())\"",
     "build": "npm run build --workspaces --if-present",

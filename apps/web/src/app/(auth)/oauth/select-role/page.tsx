@@ -42,7 +42,15 @@ function SelectRoleContent() {
         if (res.data.user) {
           localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
         }
-        router.push('/dashboard');
+        if (selectedRole === 'HOSPITAL_ADMIN') {
+          router.push('/onboarding/hospital');
+        } else if (selectedRole === 'CONSULTANT') {
+          router.push('/onboarding/doctor');
+        } else if (selectedRole === 'PHARMACIST') {
+          router.push('/onboarding/pharmacy');
+        } else {
+          router.push('/dashboard');
+        }
       } else {
         setErrorMsg(res.error?.message || 'Role selection failed. Please try again.');
       }

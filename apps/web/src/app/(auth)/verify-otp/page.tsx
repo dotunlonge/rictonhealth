@@ -27,10 +27,20 @@ function VerifyOtpContent() {
 
     setIsLoading(false);
 
+    const role = searchParams.get('role') || '';
+
     if (res.success) {
-      setSuccessMsg('Account verified successfully! Redirecting to sign in...');
+      setSuccessMsg('Account verified successfully! Redirecting to setup...');
       setTimeout(() => {
-        router.push('/login');
+        if (role === 'HOSPITAL_ADMIN') {
+          router.push('/onboarding/hospital');
+        } else if (role === 'CONSULTANT') {
+          router.push('/onboarding/doctor');
+        } else if (role === 'PHARMACIST') {
+          router.push('/onboarding/pharmacy');
+        } else {
+          router.push('/login');
+        }
       }, 1500);
     } else {
       setErrorMsg(res.error?.message || 'Invalid verification code. Please try again.');

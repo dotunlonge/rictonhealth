@@ -22,9 +22,11 @@ const paymentRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'p
  */
 router.post('/webhook', paymentController.paystackWebhook);
 
-// All other payment routes require authentication
 router.use(requireAuth);
 router.use(paymentRateLimit);
+
+router.get('/banks', paymentController.getBanks);
+router.get('/bank/resolve', paymentController.resolveAccount);
 
 /**
  * @openapi

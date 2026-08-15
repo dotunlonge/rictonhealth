@@ -328,6 +328,119 @@ export default function PrescriptionsPage() {
             </form>
           </div>
         )}
+
+        {/* Prescription Detail Modal (E-Prescription page 1-14 H.pdf) */}
+        {selectedPrescription && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setSelectedPrescription(null)} />
+            <div className="relative bg-white rounded-3xl p-8 shadow-2xl max-w-xl w-full z-10 space-y-6 animate-in fade-in zoom-in-95 border border-slate-100">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-[#1877F2] flex items-center justify-center font-bold">
+                    <Pill className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Official Electronic Prescription</span>
+                    <h2 className="text-lg font-black text-slate-900">{selectedPrescription.id}</h2>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedPrescription(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-xs hover:bg-slate-200"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Digital Prescription Header Info */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient</span>
+                  <h4 className="font-extrabold text-slate-900">{selectedPrescription.patientName}</h4>
+                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5">ID: P-90218 • Age 32</p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Attending Prescriber</span>
+                  <h4 className="font-extrabold text-[#1877F2]">{selectedPrescription.doctor}</h4>
+                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5">MDCN Lic #78192-CAR</p>
+                </div>
+              </div>
+
+              {/* Prescribed Drugs Detail Box */}
+              <div className="space-y-3 pt-2">
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Prescribed Medication & Directions</h3>
+                <div className="p-4 bg-blue-50/50 border border-blue-200/80 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-black text-slate-900">{selectedPrescription.medication}</h4>
+                    <span className="px-2.5 py-0.5 bg-blue-100 text-[#1877F2] text-[10px] font-extrabold rounded-full">
+                      {selectedPrescription.form}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-blue-100 font-semibold text-slate-700">
+                    <div>
+                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Strength</span>
+                      {selectedPrescription.strength}
+                    </div>
+                    <div>
+                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Frequency</span>
+                      {selectedPrescription.frequency}
+                    </div>
+                    <div>
+                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Quantity</span>
+                      {selectedPrescription.quantity}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Refills & Delivery Status */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/60 text-xs">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#1877F2]" />
+                  <div>
+                    <h5 className="font-bold text-slate-900">Authorized Refills: 2 Remaining</h5>
+                    <p className="text-[10px] text-slate-500 font-semibold">Valid until Nov 2026</p>
+                  </div>
+                </div>
+
+                <span
+                  className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
+                    selectedPrescription.status === 'Delivered'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {selectedPrescription.status}
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => alert(`Downloading official PDF copy of E-Prescription ${selectedPrescription.id}...`)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-2xl text-xs transition-all text-center"
+                >
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    alert(`Prescription ${selectedPrescription.id} submitted for pharmacy delivery!`);
+                    setSelectedPrescription(null);
+                  }}
+                  className="flex-1 py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-md shadow-blue-500/20 text-center"
+                >
+                  Order Pharmacy Delivery
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </SidebarLayout>
   );

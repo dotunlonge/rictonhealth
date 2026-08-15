@@ -128,6 +128,8 @@ function resolveUserDisplay(user: any) {
   return { name, role, roleLabel: roleLabels[role] || 'Member', avatarUrl };
 }
 
+import { useCurrentUser, useNotificationsState, useAuthActions } from '@/store/useAppStore';
+
 interface SidebarLayoutProps {
   children: React.ReactNode;
   allowedRoles?: UserRole[];
@@ -136,7 +138,9 @@ interface SidebarLayoutProps {
 export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, fetchUser, notifications, fetchNotifications, logout } = useAppStore();
+  const user = useCurrentUser();
+  const { fetchUser, logout } = useAuthActions();
+  const { notifications, fetchNotifications } = useNotificationsState();
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {

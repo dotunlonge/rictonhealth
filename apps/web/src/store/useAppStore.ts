@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import { api } from '@/lib/api-client';
 
 export type UserRole =
@@ -9,6 +11,14 @@ export type UserRole =
   | 'SUPER_ADMIN'
   | 'ADMIN';
 
+export interface BankDetails {
+  bankName?: string;
+  bankCode?: string;
+  accountNumber?: string;
+  accountName?: string;
+  settlementFrequency?: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -17,6 +27,8 @@ export interface UserProfile {
   firstName?: string;
   lastName?: string;
   avatarUrl?: string;
+  twoFactorEnabled?: boolean;
+  bankDetails?: BankDetails;
   patientProfile?: {
     id?: string;
     firstName?: string;
@@ -31,6 +43,7 @@ export interface UserProfile {
     lastName?: string;
     avatarUrl?: string;
     specialization?: string;
+    bankDetails?: BankDetails;
   };
 }
 
@@ -78,152 +91,223 @@ interface AppState {
 
   // Actions
   fetchUser: () => Promise<UserProfile | null>;
+  updateUserOptimistic: (patch: Partial<UserProfile>) => void;
   fetchAppointments: () => Promise<void>;
+  addAppointmentOptimistic: (appt: Appointment) => void;
   fetchPrescriptions: () => Promise<void>;
+  addPrescriptionOptimistic: (rx: Prescription) => void;
   fetchNotifications: () => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
   fetchWallet: () => Promise<void>;
   fetchRewards: () => Promise<void>;
   logout: () => void;
   setUser: (user: UserProfile | null) => void;
 }
 
-function getInitialCachedUser(): UserProfile | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const cached = localStorage.getItem('ricton_user');
-    return cached ? JSON.parse(cached) : null;
-  } catch {
-    return null;
-  }
-}
-
-export const useAppStore = create<AppState>((set, get) => ({
-  user: getInitialCachedUser(),
-  appointments: [],
-  prescriptions: [],
-  notifications: [],
-  walletBalance: 0,
-  rewardsPoints: 0,
-  isLoading: false,
-  error: null,
-
-  setUser: (user) => {
-    if (typeof window !== 'undefined') {
-      if (user) {
-        const existing = get().user || {};
-        const merged = { ...existing, ...user };
-        localStorage.setItem('ricton_user', JSON.stringify(merged));
-        set({ user: merged });
-      } else {
-        localStorage.removeItem('ricton_user');
-        set({ user: null });
-      }
-    } else {
-      set({ user });
-    }
-  },
-
-  fetchUser: async () => {
-    try {
-      const res = await api.get('/users/me');
-      if (res.success && res.data) {
-        const u = res.data as UserProfile;
-        const existing = get().user;
-        const merged: UserProfile = {
-          ...u,
-          avatarUrl:
-            u.avatarUrl ||
-            u.patientProfile?.avatarUrl ||
-            u.providerProfile?.avatarUrl ||
-            existing?.avatarUrl,
-          firstName:
-            u.firstName ||
-            u.patientProfile?.firstName ||
-            u.providerProfile?.firstName ||
-            existing?.firstName,
-          lastName:
-            u.lastName ||
-            u.patientProfile?.lastName ||
-            u.providerProfile?.lastName ||
-            existing?.lastName,
-        };
-        get().setUser(merged);
-        return merged;
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching current user profile', err);
-    }
-    return get().user;
-  },
-
-  fetchAppointments: async () => {
-    try {
-      const res = await api.get('/appointments/me');
-      if (res.success && Array.isArray(res.data)) {
-        set({ appointments: res.data });
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching appointments', err);
-    }
-  },
-
-  fetchPrescriptions: async () => {
-    try {
-      const res = await api.get('/pharmacy/prescriptions');
-      if (res.success && Array.isArray(res.data)) {
-        set({ prescriptions: res.data });
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching prescriptions', err);
-    }
-  },
-
-  fetchNotifications: async () => {
-    try {
-      const res = await api.get('/notifications');
-      if (res.success && Array.isArray(res.data?.notifications)) {
-        set({ notifications: res.data.notifications });
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching notifications', err);
-    }
-  },
-
-  fetchWallet: async () => {
-    try {
-      const res = await api.get('/wallet/balance');
-      if (res.success && res.data?.balance !== undefined) {
-        set({ walletBalance: res.data.balance });
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching wallet balance', err);
-    }
-  },
-
-  fetchRewards: async () => {
-    try {
-      const res = await api.get('/rewards/balance');
-      if (res.success && res.data?.balance !== undefined) {
-        set({ rewardsPoints: res.data.balance });
-      }
-    } catch (err: unknown) {
-      console.warn('Failed fetching rewards balance', err);
-    }
-  },
-
-  logout: () => {
-    api.logout();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('ricton_user');
-      localStorage.removeItem('ricton_token');
-    }
-    set({
+export const useAppStore = create<AppState>()(
+  persist(
+    (set, get) => ({
       user: null,
       appointments: [],
       prescriptions: [],
       notifications: [],
       walletBalance: 0,
       rewardsPoints: 0,
-    });
-  },
-}));
+      isLoading: false,
+      error: null,
+
+      setUser: (user) => {
+        if (user) {
+          const existing = get().user || ({} as UserProfile);
+          set({ user: { ...existing, ...user } });
+        } else {
+          set({ user: null });
+        }
+      },
+
+      updateUserOptimistic: (patch) => {
+        const current = get().user;
+        if (current) {
+          set({ user: { ...current, ...patch } });
+        }
+      },
+
+      fetchUser: async () => {
+        try {
+          const res = await api.get('/users/me');
+          if (res.success && res.data) {
+            const u = res.data as UserProfile;
+            const existing = get().user;
+            const merged: UserProfile = {
+              ...u,
+              avatarUrl:
+                u.avatarUrl ||
+                u.patientProfile?.avatarUrl ||
+                u.providerProfile?.avatarUrl ||
+                existing?.avatarUrl,
+              firstName:
+                u.firstName ||
+                u.patientProfile?.firstName ||
+                u.providerProfile?.firstName ||
+                existing?.firstName,
+              lastName:
+                u.lastName ||
+                u.patientProfile?.lastName ||
+                u.providerProfile?.lastName ||
+                existing?.lastName,
+            };
+            set({ user: merged });
+            return merged;
+          }
+        } catch (err: unknown) {
+          console.warn('Failed fetching current user profile', err);
+        }
+        return get().user;
+      },
+
+      fetchAppointments: async () => {
+        try {
+          const res = await api.get('/appointments/me');
+          if (res.success && Array.isArray(res.data)) {
+            set({ appointments: res.data });
+          }
+        } catch (err: unknown) {
+          console.warn('Failed fetching appointments', err);
+        }
+      },
+
+      addAppointmentOptimistic: (appt) => {
+        set({ appointments: [appt, ...get().appointments] });
+      },
+
+      fetchPrescriptions: async () => {
+        try {
+          const res = await api.get('/pharmacy/prescriptions');
+          const raw = res.success
+            ? Array.isArray(res.data)
+              ? res.data
+              : res.data?.prescriptions || []
+            : [];
+          set({ prescriptions: raw });
+        } catch (err: unknown) {
+          console.warn('Failed fetching prescriptions', err);
+        }
+      },
+
+      addPrescriptionOptimistic: (rx) => {
+        set({ prescriptions: [rx, ...get().prescriptions] });
+      },
+
+      fetchNotifications: async () => {
+        try {
+          const res = await api.get('/notifications');
+          if (res.success && Array.isArray(res.data?.notifications)) {
+            set({ notifications: res.data.notifications });
+          }
+        } catch (err: unknown) {
+          console.warn('Failed fetching notifications', err);
+        }
+      },
+
+      markNotificationRead: async (id: string) => {
+        // Optimistic UI update
+        const currentList = get().notifications;
+        set({
+          notifications: currentList.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+        });
+        try {
+          await api.patch(`/notifications/${id}/read`, {});
+        } catch (err) {
+          console.warn('Failed to mark notification read', err);
+        }
+      },
+
+      fetchWallet: async () => {
+        try {
+          const res = await api.get('/wallet/balance');
+          if (res.success && res.data?.balance !== undefined) {
+            set({ walletBalance: res.data.balance });
+          }
+        } catch (err: unknown) {
+          console.warn('Failed fetching wallet balance', err);
+        }
+      },
+
+      fetchRewards: async () => {
+        try {
+          const res = await api.get('/rewards/balance');
+          if (res.success && res.data?.balance !== undefined) {
+            set({ rewardsPoints: res.data.balance });
+          }
+        } catch (err: unknown) {
+          console.warn('Failed fetching rewards balance', err);
+        }
+      },
+
+      logout: () => {
+        api.logout();
+        set({
+          user: null,
+          appointments: [],
+          prescriptions: [],
+          notifications: [],
+          walletBalance: 0,
+          rewardsPoints: 0,
+        });
+      },
+    }),
+    {
+      name: 'ricton_user_storage',
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        user: state.user,
+      }),
+    }
+  )
+);
+
+// Granular Atomic Selectors (Re-render Optimization Custom Hooks)
+export const useCurrentUser = () => useAppStore((state) => state.user);
+export const useWalletState = () =>
+  useAppStore(
+    useShallow((state) => ({
+      walletBalance: state.walletBalance,
+      rewardsPoints: state.rewardsPoints,
+      fetchWallet: state.fetchWallet,
+      fetchRewards: state.fetchRewards,
+    }))
+  );
+export const useNotificationsState = () =>
+  useAppStore(
+    useShallow((state) => ({
+      notifications: state.notifications,
+      unreadCount: state.notifications.filter((n) => !n.isRead).length,
+      fetchNotifications: state.fetchNotifications,
+      markNotificationRead: state.markNotificationRead,
+    }))
+  );
+export const useAppointmentsState = () =>
+  useAppStore(
+    useShallow((state) => ({
+      appointments: state.appointments,
+      fetchAppointments: state.fetchAppointments,
+      addAppointmentOptimistic: state.addAppointmentOptimistic,
+    }))
+  );
+export const usePrescriptionsState = () =>
+  useAppStore(
+    useShallow((state) => ({
+      prescriptions: state.prescriptions,
+      fetchPrescriptions: state.fetchPrescriptions,
+      addPrescriptionOptimistic: state.addPrescriptionOptimistic,
+    }))
+  );
+export const useAuthActions = () =>
+  useAppStore(
+    useShallow((state) => ({
+      setUser: state.setUser,
+      fetchUser: state.fetchUser,
+      updateUserOptimistic: state.updateUserOptimistic,
+      logout: state.logout,
+    }))
+  );
