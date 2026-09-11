@@ -19,7 +19,7 @@ dotenv.config({ path: '../../.env' });
 initSentry('pharmacy-service');
 
 const app = express();
-const PORT = process.env.PHARMACY_PORT || 3008;
+const PORT = process.env.PHARMACY_PORT || 3014;
 
 app.set('trust proxy', true);
 app.use(helmet());

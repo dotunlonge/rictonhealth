@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Telemedicine - 06-remote-ends
+---
+- clearState
+- launchApp
+# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.

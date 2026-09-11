@@ -26,7 +26,7 @@ dotenv.config({ path: '../../.env' });
 initSentry('subscription-service');
 
 const app = express();
-const PORT = process.env.PORT_SUBSCRIPTION || 3010;
+const PORT = process.env.PORT_SUBSCRIPTION || 3009;
 
 app.set('trust proxy', true);
 app.use(helmet());

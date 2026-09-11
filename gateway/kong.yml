@@ -12,11 +12,23 @@ plugins:
     config:
       minute: 60
       policy: redis
-      redis_host: ricton-redis
+      redis_host: redis
       redis_port: 6379
+      redis_password: ${REDIS_PASSWORD}
 services:
   - name: auth-service
     url: http://auth-service:3001
+    plugins:
+      # Edge abuse containment for the credential-stuffing target. App-level
+      # limiters remain authoritative; this sheds bot floods before they do.
+      - name: rate-limiting
+        config:
+          minute: 30
+          policy: redis
+          redis_host: redis
+          redis_port: 6379
+          redis_password: ${REDIS_PASSWORD}
+          fault_tolerant: false
     routes:
       - name: auth-routes
         paths:
@@ -147,4 +159,12 @@ services:
       - name: admin-routes
         paths:
           - /api/admin
+        strip_path: false
+
+  - name: smartguard-service
+    url: http://smartguard-service:3017
+    routes:
+      - name: smartguard-routes
+        paths:
+          - /api/smartguard
         strip_path: false

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
@@ -23,13 +23,48 @@ import {
 } from 'lucide-react';
 
 const STEPS = [
-  { id: 1, title: 'Basic Information', description: 'Hospital name, CAC reg & facility tier', icon: Building2 },
-  { id: 2, title: 'Contact & Location', description: 'Physical address & emergency lines', icon: MapPin },
-  { id: 3, title: 'Capacity & Infrastructure', description: 'Bed count, ICU, Operating theatres', icon: Bed },
-  { id: 4, title: 'Clinical Departments', description: 'Specialties offered by your facility', icon: Stethoscope },
-  { id: 5, title: 'Medical Director', description: 'MD credentials & administrative lead', icon: UserCheck },
-  { id: 6, title: 'Settlement & Billing', description: 'Bank details for payouts & claims', icon: CreditCard },
-  { id: 7, title: 'Permit & CAC Upload', description: 'State operating license & CAC cert', icon: FileCheck2 },
+  {
+    id: 1,
+    title: 'Basic Information',
+    description: 'Hospital name, CAC reg & facility tier',
+    icon: Building2,
+  },
+  {
+    id: 2,
+    title: 'Contact & Location',
+    description: 'Physical address & emergency lines',
+    icon: MapPin,
+  },
+  {
+    id: 3,
+    title: 'Capacity & Infrastructure',
+    description: 'Bed count, ICU, Operating theatres',
+    icon: Bed,
+  },
+  {
+    id: 4,
+    title: 'Clinical Departments',
+    description: 'Specialties offered by your facility',
+    icon: Stethoscope,
+  },
+  {
+    id: 5,
+    title: 'Medical Director',
+    description: 'MD credentials & administrative lead',
+    icon: UserCheck,
+  },
+  {
+    id: 6,
+    title: 'Settlement & Billing',
+    description: 'Bank details for payouts & claims',
+    icon: CreditCard,
+  },
+  {
+    id: 7,
+    title: 'Permit & CAC Upload',
+    description: 'State operating license & CAC cert',
+    icon: FileCheck2,
+  },
   { id: 8, title: 'Facility Review', description: 'Verification & submission', icon: ShieldCheck },
 ];
 
@@ -64,33 +99,22 @@ export default function HospitalOnboardingPage() {
     // Step 4: Clinical Departments
     departments: ['General Medicine', 'Cardiology', 'Emergency Care', 'Pediatrics', 'Surgery'],
     // Step 5: Medical Director
-    directorName: currentUser ? `Dr. ${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() : '',
+    directorName: currentUser
+      ? `Dr. ${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim()
+      : '',
     directorLicense: '',
     directorPhone: currentUser?.phone || '',
     directorEmail: currentUser?.email || '',
     // Step 6: Settlement Bank Info
     bankName: '',
     accountNumber: '',
-    accountName: currentUser ? `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() : '',
+    accountName: currentUser
+      ? `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim()
+      : '',
     // Step 7: Uploads
     licenseFileUploaded: false,
     cacFileUploaded: false,
   });
-
-  useEffect(() => {
-    if (currentUser) {
-      const fullName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim();
-      setFormData((prev) => ({
-        ...prev,
-        supportEmail: prev.supportEmail || currentUser.email || '',
-        emergencyPhone: prev.emergencyPhone || currentUser.phone || '',
-        directorName: prev.directorName || (fullName ? `Dr. ${fullName}` : ''),
-        directorEmail: prev.directorEmail || currentUser.email || '',
-        directorPhone: prev.directorPhone || currentUser.phone || '',
-        accountName: prev.accountName || fullName || '',
-      }));
-    }
-  }, [currentUser]);
 
   const fillDevData = () => {
     setFormData({
@@ -109,7 +133,14 @@ export default function HospitalOnboardingPage() {
       icuBeds: '12',
       operatingRooms: '4',
       ambulances: '3',
-      departments: ['General Medicine', 'Cardiology', 'Emergency Care', 'Pediatrics', 'Surgery', 'Radiology & CT Scan'],
+      departments: [
+        'General Medicine',
+        'Cardiology',
+        'Emergency Care',
+        'Pediatrics',
+        'Surgery',
+        'Radiology & CT Scan',
+      ],
       directorName: 'Dr. Babatunde Williams',
       directorLicense: 'MDCN-90812-DIR',
       directorPhone: '+2348031112233',
@@ -187,21 +218,41 @@ export default function HospitalOnboardingPage() {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    try {
-      const res = await api.put('/users/me', {
-        hospitalAdminProfile: {
-          hospitalName: formData.hospitalName,
-          address: formData.address,
-          license: formData.registrationNumber,
-          metadata: formData,
-        },
-      });
+    setFormError('');
+    // Send full hospital onboarding details to sync facility and bank details
+    const res = await api.put('/users/me', {
+      hospitalName: formData.hospitalName,
+      registrationNumber: formData.registrationNumber,
+      cacNumber: formData.cacNumber,
+      facilityTier: formData.facilityTier,
+      ownershipType: formData.ownershipType,
+      address: {
+        street: formData.address,
+        city: formData.city,
+        state: formData.state,
+      },
+      emergencyPhone: formData.emergencyPhone,
+      supportEmail: formData.supportEmail,
+      website: formData.website,
+      totalBeds: Number(formData.totalBeds) || 0,
+      icuBeds: Number(formData.icuBeds) || 0,
+      operatingRooms: Number(formData.operatingRooms) || 0,
+      ambulances: Number(formData.ambulances) || 0,
+      departments: formData.departments,
+      documents: {
+        licenseFileUploaded: formData.licenseFileUploaded,
+        cacFileUploaded: formData.cacFileUploaded,
+      },
+      bankName: formData.bankName,
+      accountNumber: formData.accountNumber,
+      accountName: formData.accountName,
+    });
+    setSubmitting(false);
 
-      setSubmitting(false);
+    if (res.success && res.data) {
       router.push('/dashboard');
-    } catch (err) {
-      console.warn('Hospital onboarding error', err);
-      router.push('/dashboard');
+    } else {
+      setFormError(res.error?.message || 'Could not save your hospital profile. Please try again.');
     }
   };
 
@@ -226,12 +277,16 @@ export default function HospitalOnboardingPage() {
           </div>
           <div>
             <span className="text-lg font-black tracking-tight text-slate-900">Ricton Health</span>
-            <span className="block text-[10px] font-bold text-[#1877F2] uppercase tracking-wider">Hospital Facility Portal</span>
+            <span className="block text-[10px] font-bold text-[#1877F2] uppercase tracking-wider">
+              Hospital Facility Portal
+            </span>
           </div>
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-          <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Facility Onboarding Progress</h2>
+          <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+            Facility Onboarding Progress
+          </h2>
           <div className="space-y-4">
             {STEPS.map((s) => {
               const isActive = step === s.id;
@@ -245,8 +300,8 @@ export default function HospitalOnboardingPage() {
                     isActive
                       ? 'bg-blue-50 border border-blue-200/80 text-[#1877F2]'
                       : isPast
-                      ? 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                      : 'opacity-50 text-slate-400'
+                        ? 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                        : 'opacity-50 text-slate-400'
                   }`}
                 >
                   <div
@@ -254,15 +309,21 @@ export default function HospitalOnboardingPage() {
                       isActive
                         ? 'bg-[#1877F2] text-white shadow-md'
                         : isPast
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-slate-200 text-slate-500'
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-500'
                     }`}
                   >
                     {isPast ? '✓' : s.id}
                   </div>
                   <div>
-                    <h3 className={`text-xs font-bold ${isActive ? 'text-slate-900' : 'text-slate-700'}`}>{s.title}</h3>
-                    <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">{s.description}</p>
+                    <h3
+                      className={`text-xs font-bold ${isActive ? 'text-slate-900' : 'text-slate-700'}`}
+                    >
+                      {s.title}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">
+                      {s.description}
+                    </p>
                   </div>
                 </div>
               );
@@ -271,8 +332,13 @@ export default function HospitalOnboardingPage() {
         </div>
 
         <div className="pt-6 border-t border-slate-100 text-center">
-          <p className="text-[11px] font-semibold text-slate-400">Need support during registration?</p>
-          <a href="mailto:support@ricton.com" className="text-xs font-bold text-[#1877F2] hover:underline mt-1 block">
+          <p className="text-[11px] font-semibold text-slate-400">
+            Need support during registration?
+          </p>
+          <a
+            href="mailto:support@ricton.com"
+            className="text-xs font-bold text-[#1877F2] hover:underline mt-1 block"
+          >
             Contact Facility Support
           </a>
         </div>
@@ -289,7 +355,9 @@ export default function HospitalOnboardingPage() {
                   Step {step} of 8
                 </span>
                 <h1 className="text-2xl font-black text-slate-900 mt-2">{STEPS[step - 1].title}</h1>
-                <p className="text-xs text-slate-500 font-semibold mt-1">{STEPS[step - 1].description}</p>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  {STEPS[step - 1].description}
+                </p>
               </div>
 
               <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1877F2] flex items-center justify-center shrink-0">
@@ -327,7 +395,8 @@ export default function HospitalOnboardingPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Ministry of Health Operating Permit (HEFAMAA) <span className="text-rose-500">*</span>
+                      Ministry of Health Operating Permit (HEFAMAA){' '}
+                      <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -339,7 +408,9 @@ export default function HospitalOnboardingPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">CAC Registration Number (RC/BN)</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      CAC Registration Number (RC/BN)
+                    </label>
                     <input
                       type="text"
                       value={formData.cacNumber}
@@ -409,7 +480,9 @@ export default function HospitalOnboardingPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Hospital Official Email</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Hospital Official Email
+                    </label>
                     <input
                       type="email"
                       value={formData.supportEmail}
@@ -427,7 +500,9 @@ export default function HospitalOnboardingPage() {
               <div className="space-y-5">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">Total Inpatient Beds</label>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">
+                      Total Inpatient Beds
+                    </label>
                     <input
                       type="number"
                       value={formData.totalBeds}
@@ -437,7 +512,9 @@ export default function HospitalOnboardingPage() {
                   </div>
 
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">ICU Beds</label>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">
+                      ICU Beds
+                    </label>
                     <input
                       type="number"
                       value={formData.icuBeds}
@@ -447,7 +524,9 @@ export default function HospitalOnboardingPage() {
                   </div>
 
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">Operating Theatres</label>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">
+                      Operating Theatres
+                    </label>
                     <input
                       type="number"
                       value={formData.operatingRooms}
@@ -457,7 +536,9 @@ export default function HospitalOnboardingPage() {
                   </div>
 
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-center">
-                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">Active Ambulances</label>
+                    <label className="block text-[10px] font-extrabold uppercase text-slate-400">
+                      Active Ambulances
+                    </label>
                     <input
                       type="number"
                       value={formData.ambulances}
@@ -472,7 +553,9 @@ export default function HospitalOnboardingPage() {
             {/* Step 4: Clinical Departments */}
             {step === 4 && (
               <div className="space-y-4">
-                <label className="block text-xs font-bold text-slate-700">Select active departments & clinical specialties</label>
+                <label className="block text-xs font-bold text-slate-700">
+                  Select active departments & clinical specialties
+                </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
                     'General Medicine',
@@ -555,7 +638,10 @@ export default function HospitalOnboardingPage() {
                         const selectedBank = banks.find((b) => b.name === bankName);
                         if (selectedBank) {
                           setVerifyingAccount(true);
-                          const name = await resolveAccount(formData.accountNumber, selectedBank.code);
+                          const name = await resolveAccount(
+                            formData.accountNumber,
+                            selectedBank.code
+                          );
                           setVerifyingAccount(false);
                           if (name) updateForm('accountName', name);
                         }
@@ -601,7 +687,10 @@ export default function HospitalOnboardingPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Account Beneficiary Name {verifyingAccount && <span className="text-blue-500 font-normal">(Verifying...)</span>}
+                      Account Beneficiary Name{' '}
+                      {verifyingAccount && (
+                        <span className="text-blue-500 font-normal">(Verifying...)</span>
+                      )}
                     </label>
                     <input
                       type="text"
@@ -629,7 +718,9 @@ export default function HospitalOnboardingPage() {
                   >
                     <Upload className="w-8 h-8 text-[#1877F2] mx-auto mb-2" />
                     <h4 className="text-xs font-extrabold text-slate-900">
-                      {formData.licenseFileUploaded ? 'HEFAMAA License Uploaded ✓' : 'Upload HEFAMAA License'}
+                      {formData.licenseFileUploaded
+                        ? 'HEFAMAA License Uploaded ✓'
+                        : 'Upload HEFAMAA License'}
                     </h4>
                   </div>
 
@@ -643,7 +734,9 @@ export default function HospitalOnboardingPage() {
                   >
                     <Upload className="w-8 h-8 text-[#1877F2] mx-auto mb-2" />
                     <h4 className="text-xs font-extrabold text-slate-900">
-                      {formData.cacFileUploaded ? 'CAC Certificate Uploaded ✓' : 'Upload CAC Certificate'}
+                      {formData.cacFileUploaded
+                        ? 'CAC Certificate Uploaded ✓'
+                        : 'Upload CAC Certificate'}
                     </h4>
                   </div>
                 </div>
@@ -667,7 +760,9 @@ export default function HospitalOnboardingPage() {
                 onClick={handlePrev}
                 disabled={step === 1 || submitting}
                 className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
-                  step === 1 ? 'opacity-0 pointer-events-none' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  step === 1
+                    ? 'opacity-0 pointer-events-none'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                 }`}
               >
                 <ChevronLeft className="w-4 h-4" /> Back

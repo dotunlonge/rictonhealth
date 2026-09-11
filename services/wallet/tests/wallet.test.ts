@@ -7,13 +7,22 @@ import crypto from 'crypto';
 
 import walletRoutes from '../src/routes/wallet.routes';
 import { prisma, UserRole, WalletTransactionType } from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
+import { errorResponse, redis } from '@ricton/shared';
+
+jest.mock('@ricton/shared', () => {
+  const actual = jest.requireActual('@ricton/shared');
+  const { createRedisMock } = jest.requireActual(
+    '../../../packages/shared/src/__tests__/helpers/redis-mock'
+  );
+  return { __esModule: true, ...actual, redis: createRedisMock() };
+});
 import {
   createUser,
   createAuthToken,
   createWallet,
   createWalletTransaction,
   createPatientProfile,
+  cleanDatabase,
 } from '../../../packages/shared/src/__tests__/factories';
 
 const app = express();
@@ -31,10 +40,19 @@ app.use(
 );
 
 describe('Wallet Controller Integration', () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+    redis.disconnect();
+  });
+
   beforeEach(async () => {
-    await prisma.walletTransaction.deleteMany();
-    await prisma.wallet.deleteMany();
-    await prisma.user.deleteMany();
+    await cleanDatabase();
+    // Node ships native fetch: install a per-test mock for Paystack calls.
+    (global.fetch as unknown as jest.Mock) = jest.fn();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   const mockCustomerCreation = () => ({
@@ -115,7 +133,11 @@ describe('Wallet Controller Integration', () => {
 
     it('should return existing virtual account if already assigned', async () => {
       const user = await createUser({ role: UserRole.PATIENT });
-      await createWallet(user);
+      const wallet = await createWallet(user);
+      await prisma.wallet.update({
+        where: { id: wallet.id },
+        data: { virtualAccountNumber: '9988776655', virtualBankName: 'Wema Bank' },
+      });
       const token = createAuthToken(user);
 
       const res = await request(app)
@@ -124,6 +146,7 @@ describe('Wallet Controller Integration', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      expect(res.body.data.virtualAccountNumber).toBe('9988776655');
     });
   });
 

@@ -15,13 +15,23 @@ interface MessageThread {
   isUnread?: boolean;
 }
 
+interface ThreadMessage {
+  id: string;
+  body: string | null;
+  senderId: string;
+  createdAt: string;
+}
+
 export default function InboxPage() {
   const { user } = useAppStore();
   const [threads, setThreads] = useState<MessageThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // New Message Modal State
   const [showNewMsgModal, setShowNewMsgModal] = useState(false);
@@ -33,17 +43,22 @@ export default function InboxPage() {
   useEffect(() => {
     async function loadThreads() {
       setLoading(true);
-      const res = await api.get('/messaging/conversations');
-      const rawList = res.success
-        ? Array.isArray(res.data)
-          ? res.data
-          : res.data?.conversations || res.data?.threads || []
-        : [];
+      const res = await api.get<{ conversations: any[] }>('/messages/conversations');
+      const rawList =
+        res.success && Array.isArray(res.data?.conversations) ? res.data.conversations : [];
 
       const formatted = rawList.map((t: any) => {
-        const lastMsg = typeof t.lastMessage === 'string' ? t.lastMessage : t.lastMessage?.body || t.snippet || 'Message content...';
-        const otherUser = t.participants?.find((p: any) => p.userId !== user?.id)?.user;
-        const name = otherUser ? `${otherUser.firstName} ${otherUser.lastName}` : t.title || t.participantName || 'Healthcare Provider';
+        const lastMsg =
+          typeof t.lastMessage === 'string'
+            ? t.lastMessage
+            : t.lastMessage?.body || 'No messages yet';
+        const otherParticipant = t.participants?.find((p: any) => p.userId !== user?.id);
+        const otherUser = otherParticipant?.user;
+        const profile = otherUser?.patientProfile || otherUser?.providerProfile || {};
+        const name =
+          profile.firstName || profile.lastName
+            ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
+            : t.title || 'Healthcare Provider';
 
         return {
           id: t.id,
@@ -66,12 +81,43 @@ export default function InboxPage() {
     loadThreads();
   }, [user]);
 
+  // Load the complete conversation (server-authoritative messages) on selection.
+  useEffect(() => {
+    async function loadMessages() {
+      if (!selectedThread) {
+        setMessages([]);
+        return;
+      }
+      setMessagesLoading(true);
+      const res = await api.get<{ messages: ThreadMessage[] }>(
+        `/messages/conversations/${selectedThread.id}`
+      );
+      if (res.success && Array.isArray(res.data?.messages)) {
+        setMessages(res.data.messages);
+      } else {
+        setMessages([]);
+      }
+      setMessagesLoading(false);
+    }
+    loadMessages();
+  }, [selectedThread]);
+
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedThread) return;
-    const res = await api.post(`/messaging/conversations/${selectedThread.id}/messages`, {
+    setActionError(null);
+    const res = await api.post(`/messages/conversations/${selectedThread.id}/messages`, {
       body: replyText,
     });
 
+    if (!res.success) {
+      setActionError(res.error?.message || 'Could not send message. Please try again.');
+      return;
+    }
+
+    const sent = res.data as ThreadMessage | undefined;
+    if (sent?.id) {
+      setMessages((prev) => [...prev, sent]);
+    }
     const newSnippet = `You: ${replyText}`;
     setThreads((prev) =>
       prev.map((t) =>
@@ -87,16 +133,57 @@ export default function InboxPage() {
   const handleCreateThread = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
-    const res = await api.post('/messaging/conversations', {
+    setActionError(null);
+
+    // Resolve the recipient name to a verified provider user ID (backend requires
+    // participant IDs, never free-text names).
+    const lookup = await api.get<{ providers: Array<{ userId: string }> }>(
+      `/users/providers?name=${encodeURIComponent(recipientName)}&limit=5`
+    );
+    const participantIds =
+      (lookup.success ? lookup.data?.providers : [])?.map((p) => p.userId) ?? [];
+    if (participantIds.length === 0) {
+      setActionError('No verified provider found with that name. Please check the spelling.');
+      setSending(false);
+      return;
+    }
+
+    const res = await api.post('/messages/conversations', {
       title: subjectText || 'Clinical Consultation Inquiry',
-      body: bodyText,
+      threadType: 'DIRECT',
+      participantIds,
     });
 
+    if (!res.success) {
+      setActionError(res.error?.message || 'Could not start conversation. Please try again.');
+      setSending(false);
+      return;
+    }
+
+    const created = res.data as { id: string; title?: string | null } | undefined;
+    if (!created?.id) {
+      setActionError('Server did not return the new conversation. Please reload.');
+      setSending(false);
+      return;
+    }
+
+    // Send the first message into the created thread (server-authoritative).
+    if (bodyText.trim()) {
+      const first = await api.post(`/messages/conversations/${created.id}/messages`, {
+        body: bodyText,
+      });
+      if (!first.success) {
+        setActionError(
+          first.error?.message || 'Conversation created, but the first message failed to send.'
+        );
+      }
+    }
+
     const newThread: MessageThread = {
-      id: res.data?.id || `thread-${Date.now()}`,
-      senderName: recipientName || 'Healthcare Specialist',
-      subject: subjectText || 'Clinical Consultation Inquiry',
-      snippet: `You: ${bodyText}`,
+      id: created.id,
+      senderName: recipientName,
+      subject: subjectText || created.title || 'Clinical Consultation Inquiry',
+      snippet: bodyText ? `You: ${bodyText}` : 'No messages yet',
       date: 'Just now',
       isUnread: false,
     };
@@ -162,7 +249,9 @@ export default function InboxPage() {
               Conversations ({filteredThreads.length})
             </h2>
             {loading ? (
-              <div className="p-8 text-center text-xs font-bold text-slate-400">Loading messages...</div>
+              <div className="p-8 text-center text-xs font-bold text-slate-400">
+                Loading messages...
+              </div>
             ) : filteredThreads.length === 0 ? (
               <div className="p-8 text-center space-y-3">
                 <MessageSquare className="w-8 h-8 text-slate-300 mx-auto" />
@@ -189,10 +278,16 @@ export default function InboxPage() {
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-bold text-xs text-slate-900 truncate">{thread.senderName}</h3>
-                      <span className="text-[10px] font-semibold text-slate-400">{thread.date}</span>
+                      <h3 className="font-bold text-xs text-slate-900 truncate">
+                        {thread.senderName}
+                      </h3>
+                      <span className="text-[10px] font-semibold text-slate-400">
+                        {thread.date}
+                      </span>
                     </div>
-                    <h4 className="text-xs font-semibold text-[#1877F2] truncate mb-1">{thread.subject}</h4>
+                    <h4 className="text-xs font-semibold text-[#1877F2] truncate mb-1">
+                      {thread.subject}
+                    </h4>
                     <p className="text-[11px] text-slate-500 truncate">{thread.snippet}</p>
                   </div>
                 );
@@ -208,7 +303,9 @@ export default function InboxPage() {
                   {/* Conversation Header */}
                   <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
                     <div>
-                      <h2 className="text-base font-extrabold text-slate-900">{selectedThread.subject}</h2>
+                      <h2 className="text-base font-extrabold text-slate-900">
+                        {selectedThread.subject}
+                      </h2>
                       <p className="text-xs font-semibold text-slate-500 mt-0.5">
                         With <span className="text-[#1877F2]">{selectedThread.senderName}</span>
                       </p>
@@ -218,16 +315,40 @@ export default function InboxPage() {
                     </span>
                   </div>
 
-                  {/* Message Body */}
-                  <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-2">
-                    <div className="flex justify-between items-center text-xs font-bold text-slate-800">
-                      <span>{selectedThread.senderName}</span>
-                      <span className="text-[10px] text-slate-400">{selectedThread.date}</span>
-                    </div>
-                    <p className="text-xs text-slate-700 leading-relaxed font-medium">
-                      {selectedThread.snippet}
-                    </p>
+                  {/* Message Body (server-authoritative thread) */}
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {messagesLoading ? (
+                      <div className="p-4 text-center text-xs font-bold text-slate-400">
+                        Loading conversation...
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                        <p className="text-xs text-slate-500 font-medium">
+                          {selectedThread.snippet}
+                        </p>
+                      </div>
+                    ) : (
+                      messages.map((m) => (
+                        <div
+                          key={m.id}
+                          className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-1"
+                        >
+                          <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                            <span>
+                              {m.senderId === user?.id ? 'You' : selectedThread.senderName}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(m.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                            {m.body || '(attachment)'}
+                          </p>
+                        </div>
+                      ))
+                    )}
                   </div>
+                  {actionError && <p className="text-xs font-bold text-rose-600">{actionError}</p>}
                 </div>
 
                 {/* Reply Form */}
@@ -259,7 +380,8 @@ export default function InboxPage() {
                 </div>
                 <h3 className="text-sm font-bold text-slate-800">Select a Conversation</h3>
                 <p className="text-xs text-slate-500 max-w-sm">
-                  Click on any conversation thread on the left to read messages, view doctor instructions, and send replies.
+                  Click on any conversation thread on the left to read messages, view doctor
+                  instructions, and send replies.
                 </p>
               </div>
             )}
@@ -269,8 +391,14 @@ export default function InboxPage() {
         {/* Compose New Message Modal */}
         {showNewMsgModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs" onClick={() => setShowNewMsgModal(false)} />
-            <form onSubmit={handleCreateThread} className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4">
+            <div
+              className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs"
+              onClick={() => setShowNewMsgModal(false)}
+            />
+            <form
+              onSubmit={handleCreateThread}
+              className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4"
+            >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h2 className="text-base font-extrabold text-slate-900">New Clinical Message</h2>
                 <button
@@ -284,7 +412,9 @@ export default function InboxPage() {
 
               <div className="space-y-3 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Recipient Doctor / Specialist</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Recipient Doctor / Specialist
+                  </label>
                   <input
                     type="text"
                     required
@@ -319,6 +449,8 @@ export default function InboxPage() {
                   />
                 </div>
               </div>
+
+              {actionError && <p className="text-xs font-bold text-rose-600">{actionError}</p>}
 
               <button
                 type="submit"

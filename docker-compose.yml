@@ -1,3 +1,7 @@
+# NOTE: in-network dependencies (postgres/redis hostnames) are hardcoded so an
+# ambient .env can never poison containers with localhost/RDS URLs again.
+# Override a single service for debugging with e.g.:
+#   docker compose run -e DATABASE_URL=... <service> <cmd>
 services:
   postgres:
     image: postgis/postgis:16-3.4-alpine
@@ -7,7 +11,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ricton-secure-pg-prod-2026}
       POSTGRES_DB: ricton
     ports:
-      - '5432:5432'
+      # Overridable (POSTGRES_HOST_PORT=5433) for machines already running a
+      # local postgres on 5432. Container port stays 5432 for in-network URLs.
+      - '${POSTGRES_HOST_PORT:-5432}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +29,10 @@ services:
     container_name: ricton-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-ricton-secure-redis-2026}
     ports:
-      - '127.0.0.1:6379:6379'
+      # Host port is overridable (REDIS_HOST_PORT=6380) for machines already
+      # running a local redis (e.g. Homebrew). Container port stays 6379 so
+      # in-network REDIS_URL values keep working unchanged.
+      - '127.0.0.1:${REDIS_HOST_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
     healthcheck:
@@ -69,8 +78,9 @@ services:
     ports:
       - '3001:3001'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       REFRESH_SECRET: ${REFRESH_SECRET:-dev-refresh-secret}
       OTP_SECRET: ${OTP_SECRET:-${JWT_SECRET:-dev-secret}}
@@ -81,7 +91,7 @@ services:
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
-      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL:-noreply@example.com}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
     volumes:
@@ -109,8 +119,9 @@ services:
     ports:
       - '3002:3002'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_USER: 3002
@@ -144,8 +155,9 @@ services:
     ports:
       - '3007:3007'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       NODE_ENV: ${NODE_ENV:-development}
@@ -176,8 +188,9 @@ services:
     ports:
       - '3008:3008'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       NODE_ENV: ${NODE_ENV:-development}
@@ -209,8 +222,13 @@ services:
     ports:
       - '3003:3003'
     environment:
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3003
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      OTP_SECRET: ${OTP_SECRET:-dev-otp-secret}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
     volumes:
       - ./packages:/app/packages
@@ -238,8 +256,9 @@ services:
     ports:
       - '3015:3015'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_ADDRESS: 3015
@@ -269,8 +288,9 @@ services:
     ports:
       - '3010:3010'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_ADMIN: 3010
@@ -301,8 +321,9 @@ services:
     ports:
       - '3006:3006'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_ANALYTICS: 3006
@@ -332,8 +353,9 @@ services:
     ports:
       - '3005:3005'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_APPOINTMENT: 3005
@@ -363,8 +385,9 @@ services:
     ports:
       - '3012:3012'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_MESSAGING: 3012
@@ -394,8 +417,9 @@ services:
     ports:
       - '3016:3016'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       NOTIFICATION_PORT: 3016
@@ -425,8 +449,9 @@ services:
     ports:
       - '3014:3014'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PHARMACY_PORT: 3014
@@ -456,8 +481,9 @@ services:
     ports:
       - '3004:3004'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_PRESCRIPTION: 3004
@@ -487,8 +513,9 @@ services:
     ports:
       - '3011:3011'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_REWARDS: 3011
@@ -518,8 +545,9 @@ services:
     ports:
       - '3009:3009'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_SUBSCRIPTION: 3009
@@ -551,15 +579,17 @@ services:
     ports:
       - '3013:3013'
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_TELEMEDICINE: 3013
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
-      TWILIO_API_KEY: ${TWILIO_API_KEY:-}
-      TWILIO_API_SECRET: ${TWILIO_API_SECRET:-}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      TELEMEDICINE_CALLBACK_URL: ${TELEMEDICINE_CALLBACK_URL:-http://localhost:3013/callback}
     volumes:
       - ./packages:/app/packages
       - ./services/telemedicine:/app/services/telemedicine
@@ -583,7 +613,7 @@ services:
       dockerfile: packages/db/Dockerfile
     container_name: ricton-db-migrate
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
     depends_on:
       postgres:
         condition: service_healthy
@@ -596,8 +626,9 @@ services:
       context: .
       dockerfile: services/auth/Dockerfile
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://ricton:ricton-secure-pg-prod-2026@postgres:5432/ricton?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-}

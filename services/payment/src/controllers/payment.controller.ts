@@ -9,10 +9,12 @@ import {
   ForbiddenError,
   AppError,
   timingSafeEqual,
-  webhookQueue,
   paystackBreaker,
+  getInternalApiSecret,
 } from '@ricton/shared';
+import { webhookQueue } from '@ricton/shared/jobs';
 import crypto from 'crypto';
+import { assertPaystackPaymentMatches } from '../payment-reconciliation';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
@@ -34,6 +36,8 @@ interface PaystackVerifyResponse {
     status: string;
     id: number;
     reference: string;
+    amount?: number;
+    currency?: string;
   };
 }
 
@@ -88,9 +92,11 @@ const resolvePaymentAmount = async (
     }
     return Number(order.totalAmount);
   } else if (type === PaymentType.SUBSCRIPTION) {
-    return 19.99;
+    return 5000;
   } else if (type === PaymentType.WALLET_TOPUP) {
-    if (!amount) throw new ValidationError('amount is required for WALLET_TOPUP payments');
+    if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+      throw new ValidationError('amount must be a positive number for WALLET_TOPUP payments');
+    }
     return Number(amount);
   } else {
     return Number(amount);
@@ -162,7 +168,8 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
 
-    const paystackRes = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
+    // paystackBreaker resolves with the parsed JSON body (it throws on non-2xx).
+    const data = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
@@ -186,10 +193,8 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
           ],
         },
       }),
-    })) as any;
-
-    const data = (await paystackRes.json()) as PaystackInitializeResponse;
-    if (!paystackRes.ok || !data.status) {
+    })) as PaystackInitializeResponse;
+    if (!data.status) {
       throw new AppError(
         `Paystack initialization failed: ${data.message || 'Unknown error'}`,
         400,
@@ -243,7 +248,8 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       throw new ForbiddenError('You are not authorized to verify this payment');
     }
 
-    const paystackRes = (await paystackBreaker.fire(
+    // paystackBreaker resolves with the parsed JSON body (it throws on non-2xx).
+    const data = (await paystackBreaker.fire(
       `${PAYSTACK_API_URL}/transaction/verify/${reference}`,
       {
         method: 'GET',
@@ -251,10 +257,8 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
           Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
         },
       }
-    )) as any;
-
-    const data = (await paystackRes.json()) as PaystackVerifyResponse;
-    if (!paystackRes.ok || !data.status) {
+    )) as PaystackVerifyResponse;
+    if (!data.status) {
       throw new AppError(
         `Paystack verification failed: ${data.message || 'Unknown error'}`,
         400,
@@ -266,6 +270,7 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
     let paymentStatus: PaymentStatus = PaymentStatus.PENDING;
 
     if (paystackStatus === 'success') {
+      assertPaystackPaymentMatches(payment, data.data);
       paymentStatus = PaymentStatus.SUCCESS;
     } else if (paystackStatus === 'failed' || paystackStatus === 'abandoned') {
       paymentStatus = PaymentStatus.FAILED;
@@ -317,6 +322,8 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         return res.sendStatus(200);
       }
 
+      assertPaystackPaymentMatches(payment, event.data);
+
       const updatedPayment = await prisma.payment.update({
         where: { providerReference: reference },
         data: {
@@ -337,7 +344,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         },
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+          'X-Internal-Secret': getInternalApiSecret(),
         },
       });
     } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {
@@ -375,7 +382,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
         },
         headers: {
           'Content-Type': 'application/json',
-          'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',
+          'X-Internal-Secret': getInternalApiSecret(),
         },
       });
     }
@@ -390,10 +397,14 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 export const getPayments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
 
     const payments = await prisma.payment.findMany({
       where: { userId: userPayload.userId },
       orderBy: { createdAt: 'desc' },
+      take,
+      skip,
     });
 
     res.status(200).json(successResponse(payments));

@@ -1,0 +1,9 @@
+appId: com.ricton.health
+name: Foundation - protected deep link requires authentication
+---
+- clearState
+- openLink: ricton://appointments
+- assertVisible:
+    id: auth.signIn.screen
+- assertNotVisible:
+    id: patient.appointments.screen

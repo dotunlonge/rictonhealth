@@ -96,6 +96,8 @@ export const ProviderPerformanceResponseSchema = registry.register(
         })
       ),
       total: z.number(),
+      limit: z.number(),
+      offset: z.number(),
     }),
   })
 );
@@ -202,6 +204,8 @@ registry.registerPath({
     },
     { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
     { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+    { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+    { name: 'offset', in: 'query', schema: { type: 'integer', minimum: 0 } },
   ],
   responses: {
     200: { description: 'Provider performance' },

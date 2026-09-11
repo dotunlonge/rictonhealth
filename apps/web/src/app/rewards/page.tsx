@@ -11,39 +11,8 @@ interface VoucherGift {
   name: string;
   category: string;
   points: number;
-  image: string;
+  image?: string;
 }
-
-const availableVouchers: VoucherGift[] = [
-  {
-    id: 'gift-1',
-    name: 'The Place Restaurant',
-    category: 'Dining & Meal Voucher',
-    points: 750,
-    image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&q=80&w=800',
-  },
-  {
-    id: 'gift-2',
-    name: 'Bukka Hut Delicacies',
-    category: 'Local Gourmet Voucher',
-    points: 750,
-    image: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&q=80&w=800',
-  },
-  {
-    id: 'gift-3',
-    name: 'Chicken Republic',
-    category: 'Fast Food Voucher',
-    points: 500,
-    image: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?auto=format&fit=crop&q=80&w=800',
-  },
-  {
-    id: 'gift-4',
-    name: 'Cold Stone Creamery',
-    category: 'Desserts & Ice Cream',
-    points: 1000,
-    image: 'https://images.unsplash.com/photo-1559703248-dcaaec9fab78?auto=format&fit=crop&q=80&w=800',
-  },
-];
 
 export default function RewardsPage() {
   const { rewardsPoints } = useAppStore();
@@ -51,25 +20,26 @@ export default function RewardsPage() {
   const [redeemedMsg, setRedeemedMsg] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
 
-  const [vouchers, setVouchers] = useState<VoucherGift[]>(availableVouchers);
+  const [vouchers, setVouchers] = useState<VoucherGift[]>([]);
 
   useEffect(() => {
     async function loadRewards() {
       const [balRes, catRes] = await Promise.all([
-        api.get('/rewards/balance'),
-        api.get('/rewards/catalog'),
+        api.get<{ balance: number }>('/rewards/balance'),
+        api.get<{ items: any[] }>('/rewards/catalog'),
       ]);
-      if (balRes.success && balRes.data?.points !== undefined) {
-        setBalance(balRes.data.points);
+      // Backend envelope: { balance } and { items: [{ id, name, pointsCost, ... }] }.
+      if (balRes.success && balRes.data?.balance !== undefined) {
+        setBalance(Number(balRes.data.balance) || 0);
       }
-      if (catRes.success && Array.isArray(catRes.data?.catalog)) {
+      if (catRes.success && Array.isArray(catRes.data?.items) && catRes.data.items.length > 0) {
         setVouchers(
-          catRes.data.catalog.map((c: any) => ({
+          catRes.data.items.map((c: any) => ({
             id: c.id,
             name: c.name,
             category: c.category || 'Voucher & Gift',
             points: c.pointsCost || 500,
-            image: c.imageUrl || 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&q=80&w=800',
+            image: c.imageUrl || undefined,
           }))
         );
       }
@@ -85,18 +55,27 @@ export default function RewardsPage() {
     }
 
     setRedeemingId(gift.id);
-    const res = await api.post('/rewards/claim', { voucherId: gift.id, points: gift.points });
+    const res = await api.post(
+      '/rewards/claim',
+      { rewardId: gift.id },
+      {
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : gift.id,
+      }
+    );
     setRedeemingId(null);
 
     if (res.success) {
-      const newBal = balance - gift.points;
-      setBalance(newBal);
+      // Server-authoritative: reload the real balance instead of local arithmetic.
+      const balRes = await api.get<{ balance: number }>('/rewards/balance');
+      if (balRes.success && balRes.data?.balance !== undefined) {
+        setBalance(Number(balRes.data.balance) || 0);
+      }
       setRedeemedMsg(`Successfully redeemed ${gift.name} Voucher! Check your email for code.`);
     } else {
-      // Direct deduction for seamless UX demo
-      const newBal = balance - gift.points;
-      setBalance(newBal);
-      setRedeemedMsg(`Successfully redeemed ${gift.name} Voucher! Voucher code sent to email.`);
+      setRedeemedMsg(`Failed: ${res.error?.message || 'Could not redeem voucher'}`);
     }
 
     setTimeout(() => setRedeemedMsg(null), 5000);
@@ -125,10 +104,13 @@ export default function RewardsPage() {
             </span>
             <div className="flex items-baseline justify-center md:justify-start gap-2">
               <span className="text-6xl font-black tracking-tight">{balance}</span>
-              <span className="text-xl font-bold text-blue-200 uppercase tracking-widest">Points</span>
+              <span className="text-xl font-bold text-blue-200 uppercase tracking-widest">
+                Points
+              </span>
             </div>
             <p className="text-xs text-slate-300 max-w-md font-medium">
-              Redeem your points for dining vouchers, pharmacy discounts, and partner healthcare benefits.
+              Redeem your points for dining vouchers, pharmacy discounts, and partner healthcare
+              benefits.
             </p>
           </div>
 
@@ -154,11 +136,16 @@ export default function RewardsPage() {
         <div className="space-y-6">
           <div className="border-b border-slate-200 pb-3 flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900">Available Gift Vouchers</h2>
-            <span className="text-xs font-semibold text-slate-500">4 Featured Rewards</span>
+            <span className="text-xs font-semibold text-slate-500">{vouchers.length} rewards</span>
           </div>
 
           {/* Gifts Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {vouchers.length === 0 && (
+              <div className="md:col-span-2 rounded-3xl border border-slate-200 bg-white p-10 text-center text-sm font-semibold text-slate-500">
+                No rewards are currently available.
+              </div>
+            )}
             {vouchers.map((gift) => {
               const canAfford = balance >= gift.points;
               const isRedeeming = redeemingId === gift.id;
@@ -169,7 +156,15 @@ export default function RewardsPage() {
                 >
                   <div className="space-y-4">
                     <div className="bg-slate-100 rounded-2xl overflow-hidden shadow-xs h-48 relative flex items-center justify-center">
-                      <img src={gift.image} alt={gift.name} className="absolute inset-0 w-full h-full object-cover" />
+                      {gift.image ? (
+                        <img
+                          src={gift.image}
+                          alt={gift.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                      ) : (
+                        <Gift className="h-12 w-12 text-slate-400" aria-hidden="true" />
+                      )}
                       <div className="relative z-10 bg-slate-900/75 backdrop-blur-xs text-white px-5 py-2 rounded-full shadow-lg">
                         <span className="text-sm font-bold truncate">{gift.name}</span>
                       </div>
@@ -198,7 +193,13 @@ export default function RewardsPage() {
                           : 'bg-slate-100 text-slate-400 cursor-not-allowed'
                       }`}
                     >
-                      <span>{isRedeeming ? 'Redeeming...' : canAfford ? 'Redeem Voucher' : 'Insufficient Points'}</span>
+                      <span>
+                        {isRedeeming
+                          ? 'Redeeming...'
+                          : canAfford
+                            ? 'Redeem Voucher'
+                            : 'Insufficient Points'}
+                      </span>
                       {canAfford && <ArrowRight className="w-3.5 h-3.5" />}
                     </button>
                   </div>

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
+import { registry } from './openapi.registry';
 extendZodWithOpenApi(z);
 
 export const CreateConversationSchema = z.object({
@@ -90,4 +91,91 @@ export const MessagesListResponseSchema = z.object({
     totalPages: z.number().int().nonnegative(),
     hasMore: z.boolean(),
   }),
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/messages/conversations',
+  summary: 'List conversations',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'Conversations list' },
+    401: { description: 'Unauthorized' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/messages/conversations',
+  summary: 'Create conversation',
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: CreateConversationSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: { description: 'Conversation created' },
+    400: { description: 'Validation error' },
+    401: { description: 'Unauthorized' },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/messages/conversations/{id}',
+  summary: 'Get conversation messages',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  responses: {
+    200: { description: 'Conversation messages' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Conversation not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/messages/conversations/{id}/messages',
+  summary: 'Send message',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: SendMessageSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    201: { description: 'Message sent' },
+    400: { description: 'Validation error' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Conversation not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/messages/conversations/{id}/read',
+  summary: 'Mark conversation as read',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  responses: {
+    200: { description: 'Conversation marked as read' },
+    401: { description: 'Unauthorized' },
+    404: { description: 'Conversation not found' },
+  },
 });

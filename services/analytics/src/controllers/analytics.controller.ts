@@ -1,37 +1,64 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '@ricton/db';
+import { JwtPayload } from '@ricton/auth-middleware';
 import { logger } from '@ricton/shared';
-import { z } from 'zod';
+import { NotFoundError } from '@ricton/shared';
+import { parseAnalyticsTimeWindow } from '../time-range';
 
-const RangeQuerySchema = z.object({
-  range: z.enum(['7d', '30d', '90d', '12m', 'all']).default('30d'),
-  from: z.string().datetime().optional(),
-  to: z.string().datetime().optional(),
-});
+/**
+ * Tenant scope: SUPER_ADMIN sees the platform; HOSPITAL_ADMIN is confined to
+ * their own hospital (hospitalId resolved from their user record).
+ */
+async function resolveScope(req: Request): Promise<{ hospitalId: string | null }> {
+  const userPayload = req.user as JwtPayload;
+  if ((userPayload as { role?: string }).role === 'SUPER_ADMIN') {
+    return { hospitalId: null };
+  }
+  const adminUser = await prisma.user.findUnique({
+    where: { id: userPayload.userId },
+    select: { hospitalId: true },
+  });
+  if (!adminUser?.hospitalId) {
+    throw new NotFoundError(
+      'No hospital organization is associated with your account. Platform-wide analytics requires SUPER_ADMIN.'
+    );
+  }
+  return { hospitalId: adminUser.hospitalId };
+}
 
 export const getOverview = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { hospitalId } = await resolveScope(req);
+    const userScope = hospitalId ? { hospitalId } : {};
+    const apptScope = hospitalId ? { hospitalId } : {};
+    // Providers may be linked via either their user record or their profile.
+    const providerScope = hospitalId
+      ? { OR: [{ hospitalId }, { providerProfile: { hospitalId } }] }
+      : {};
+
     const [totalUsers, totalPatients, totalProviders, totalPharmacists, totalHospitals] =
       await Promise.all([
-        prisma.user.count(),
-        prisma.user.count({ where: { role: 'PATIENT' } }),
-        prisma.user.count({ where: { role: 'CONSULTANT' } }),
-        prisma.user.count({ where: { role: 'PHARMACIST' } }),
-        prisma.user.count({ where: { role: 'HOSPITAL_ADMIN' } }),
+        prisma.user.count({ where: userScope }),
+        prisma.user.count({ where: { ...userScope, role: 'PATIENT' } }),
+        prisma.user.count({ where: { ...providerScope, role: 'CONSULTANT' } }),
+        prisma.user.count({
+          where: { role: 'PHARMACIST', ...(hospitalId ? { hospitalId } : {}) },
+        }),
+        hospitalId ? prisma.hospital.count({ where: { id: hospitalId } }) : prisma.hospital.count(),
       ]);
 
     const [totalAppointments, completedAppointments] = await Promise.all([
-      prisma.appointment.count(),
-      prisma.appointment.count({ where: { status: 'COMPLETED' } }),
+      prisma.appointment.count({ where: apptScope }),
+      prisma.appointment.count({ where: { ...apptScope, status: 'COMPLETED' } }),
     ]);
 
     const payments = await prisma.payment.aggregate({
       _sum: { amount: true },
-      where: { status: 'SUCCESS' },
+      where: hospitalId ? { status: 'SUCCESS', user: { hospitalId } } : { status: 'SUCCESS' },
     });
 
     const activeSubscriptions = await prisma.subscription.count({
-      where: { status: 'ACTIVE' },
+      where: hospitalId ? { status: 'ACTIVE', user: { hospitalId } } : { status: 'ACTIVE' },
     });
 
     res.json({
@@ -46,6 +73,7 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
         completedAppointments,
         totalRevenue: payments._sum.amount ? Number(payments._sum.amount) : 0,
         activeSubscriptions,
+        scope: hospitalId ? { hospitalId } : { platform: true },
       },
     });
   } catch (error) {
@@ -56,58 +84,43 @@ export const getOverview = async (req: Request, res: Response, next: NextFunctio
 
 export const getAppointmentsTrend = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    RangeQuerySchema.parse(req.query);
+    const { hospitalId } = await resolveScope(req);
+    const { since, until, createdAt } = parseAnalyticsTimeWindow(req.query);
 
-    const appointments = await prisma.appointment.findMany({
-      select: {
-        status: true,
-        type: true,
-        createdAt: true,
+    const byStatus = await prisma.appointment.groupBy({
+      by: ['status'],
+      where: {
+        ...(hospitalId ? { hospitalId } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
+      _count: { id: true },
     });
 
-    const byStatus = appointments.reduce(
-      (acc, apt) => {
-        acc[apt.status] = (acc[apt.status] || 0) + 1;
-        return acc;
+    const byType = await prisma.appointment.groupBy({
+      by: ['type'],
+      where: {
+        ...(hospitalId ? { hospitalId } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
-      {} as Record<string, number>
-    );
+      _count: { id: true },
+    });
 
-    const byType = appointments.reduce(
-      (acc, apt) => {
-        const typeKey = apt.type || 'UNKNOWN';
-        acc[typeKey] = (acc[typeKey] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-
-    const trend = appointments.map((apt) => ({
-      period: apt.createdAt.toISOString().split('T')[0],
-      count: 1,
-    }));
-
-    const aggregatedTrend = Object.values(
-      trend.reduce(
-        (acc, item) => {
-          if (!acc[item.period]) {
-            acc[item.period] = { period: item.period, count: 0 };
-          }
-          acc[item.period].count += item.count;
-          return acc;
-        },
-        {} as Record<string, { period: string; count: number }>
-      )
-    ).sort((a, b) => a.period.localeCompare(b.period));
+    const daily = await prisma.$queryRaw<Array<{ period: string; count: bigint }>>`
+      SELECT to_char(date_trunc('day', "createdAt"), 'YYYY-MM-DD') AS period,
+             COUNT(*)::int AS count
+      FROM "appointments"
+      WHERE (${hospitalId}::uuid IS NULL OR "hospitalId" = ${hospitalId}::uuid)
+        AND (${since}::timestamptz IS NULL OR "createdAt" >= ${since}::timestamptz)
+        AND (${until}::timestamptz IS NULL OR "createdAt" <= ${until}::timestamptz)
+      GROUP BY 1 ORDER BY 1 LIMIT 400`;
 
     res.json({
       success: true,
       data: {
-        total: appointments.length,
-        byStatus,
-        byType,
-        trend: aggregatedTrend,
+        total: byStatus.reduce((s, g) => s + g._count.id, 0),
+        byStatus: Object.fromEntries(byStatus.map((g) => [g.status, g._count.id])),
+        byType: Object.fromEntries(byType.map((g) => [g.type, g._count.id])),
+        trend: daily.map((r) => ({ period: r.period, count: Number(r.count) })),
       },
     });
   } catch (error) {
@@ -118,52 +131,38 @@ export const getAppointmentsTrend = async (req: Request, res: Response, next: Ne
 
 export const getRevenue = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    RangeQuerySchema.parse(req.query);
+    const { hospitalId } = await resolveScope(req);
+    const { since, until, createdAt } = parseAnalyticsTimeWindow(req.query);
 
-    const payments = await prisma.payment.findMany({
-      select: {
-        amount: true,
-        type: true,
-        createdAt: true,
+    const byType = await prisma.payment.groupBy({
+      by: ['type'],
+      where: {
+        status: 'SUCCESS',
+        ...(hospitalId ? { user: { hospitalId } } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
-      where: { status: 'SUCCESS' },
+      _sum: { amount: true },
+      _count: { id: true },
     });
 
-    const totalRevenue = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const totalRevenue = byType.reduce((s, g) => s + Number(g._sum.amount ?? 0), 0);
 
-    const byType = payments.reduce(
-      (acc, p) => {
-        const type = p.type || 'UNKNOWN';
-        acc[type] = (acc[type] || 0) + Number(p.amount);
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-
-    const trend = payments.map((p) => ({
-      period: p.createdAt.toISOString().split('T')[0],
-      amount: Number(p.amount),
-    }));
-
-    const aggregatedTrend = Object.values(
-      trend.reduce(
-        (acc, item) => {
-          if (!acc[item.period]) {
-            acc[item.period] = { period: item.period, amount: 0 };
-          }
-          acc[item.period].amount += item.amount;
-          return acc;
-        },
-        {} as Record<string, { period: string; amount: number }>
-      )
-    ).sort((a, b) => a.period.localeCompare(b.period));
+    const daily = await prisma.$queryRaw<Array<{ period: string; amount: unknown }>>`
+      SELECT to_char(date_trunc('day', p."createdAt"), 'YYYY-MM-DD') AS period,
+             COALESCE(SUM(p."amount"), 0) AS amount
+      FROM "payments" p LEFT JOIN "users" u ON u."id" = p."userId"
+      WHERE p."status" = 'SUCCESS'
+        AND (${hospitalId}::uuid IS NULL OR u."hospitalId" = ${hospitalId}::uuid)
+        AND (${since}::timestamptz IS NULL OR p."createdAt" >= ${since}::timestamptz)
+        AND (${until}::timestamptz IS NULL OR p."createdAt" <= ${until}::timestamptz)
+      GROUP BY 1 ORDER BY 1 LIMIT 400`;
 
     res.json({
       success: true,
       data: {
         totalRevenue,
-        byType,
-        trend: aggregatedTrend,
+        byType: Object.fromEntries(byType.map((g) => [g.type, Number(g._sum.amount ?? 0)])),
+        trend: daily.map((r) => ({ period: r.period, amount: Number(r.amount) })),
       },
     });
   } catch (error) {
@@ -174,49 +173,33 @@ export const getRevenue = async (req: Request, res: Response, next: NextFunction
 
 export const getUserGrowth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    RangeQuerySchema.parse(req.query);
+    const { hospitalId } = await resolveScope(req);
+    const { since, until, createdAt } = parseAnalyticsTimeWindow(req.query);
 
-    const users = await prisma.user.findMany({
-      select: {
-        role: true,
-        createdAt: true,
+    const byRole = await prisma.user.groupBy({
+      by: ['role'],
+      where: {
+        ...(hospitalId ? { hospitalId } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
+      _count: { id: true },
     });
 
-    const totalUsers = users.length;
-
-    const byRole = users.reduce(
-      (acc, u) => {
-        acc[u.role] = (acc[u.role] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>
-    );
-
-    const trend = users.map((u) => ({
-      period: u.createdAt.toISOString().split('T')[0],
-      count: 1,
-    }));
-
-    const aggregatedTrend = Object.values(
-      trend.reduce(
-        (acc, item) => {
-          if (!acc[item.period]) {
-            acc[item.period] = { period: item.period, count: 0 };
-          }
-          acc[item.period].count += item.count;
-          return acc;
-        },
-        {} as Record<string, { period: string; count: number }>
-      )
-    ).sort((a, b) => a.period.localeCompare(b.period));
+    const daily = await prisma.$queryRaw<Array<{ period: string; count: bigint }>>`
+      SELECT to_char(date_trunc('day', "createdAt"), 'YYYY-MM-DD') AS period,
+             COUNT(*)::int AS count
+      FROM "users"
+      WHERE (${hospitalId}::uuid IS NULL OR "hospitalId" = ${hospitalId}::uuid)
+        AND (${since}::timestamptz IS NULL OR "createdAt" >= ${since}::timestamptz)
+        AND (${until}::timestamptz IS NULL OR "createdAt" <= ${until}::timestamptz)
+      GROUP BY 1 ORDER BY 1 LIMIT 400`;
 
     res.json({
       success: true,
       data: {
-        totalUsers,
-        byRole,
-        trend: aggregatedTrend,
+        totalUsers: byRole.reduce((s, g) => s + g._count.id, 0),
+        byRole: Object.fromEntries(byRole.map((g) => [g.role, g._count.id])),
+        trend: daily.map((r) => ({ period: r.period, count: Number(r.count) })),
       },
     });
   } catch (error) {
@@ -227,47 +210,77 @@ export const getUserGrowth = async (req: Request, res: Response, next: NextFunct
 
 export const getProviderPerformance = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    RangeQuerySchema.parse(req.query);
+    const { createdAt } = parseAnalyticsTimeWindow(req.query);
+    const { hospitalId } = await resolveScope(req);
+    const requestedLimit = Number(req.query.limit) || 50;
+    const limit = Math.min(Math.max(requestedLimit, 1), 200);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
 
-    const providers = await prisma.user.findMany({
-      where: { role: 'CONSULTANT' },
-      select: {
-        id: true,
-        email: true,
-        providerProfile: {
-          select: {
-            specialty: true,
-            rating: true,
+    const providerWhere = {
+      role: 'CONSULTANT' as const,
+      ...(hospitalId ? { OR: [{ hospitalId }, { providerProfile: { hospitalId } }] } : {}),
+    };
+
+    const [total, providers] = await Promise.all([
+      prisma.user.count({ where: providerWhere }),
+      prisma.user.findMany({
+        where: providerWhere,
+        select: {
+          id: true,
+          email: true,
+          providerProfile: {
+            select: {
+              firstName: true,
+              lastName: true,
+              specialty: true,
+              rating: true,
+            },
           },
         },
+        orderBy: { id: 'asc' },
+        skip: offset,
+        take: limit,
+      }),
+    ]);
+
+    const counts = await prisma.appointment.groupBy({
+      by: ['providerId', 'status'],
+      where: {
+        providerId: { in: providers.map((p) => p.id) },
+        ...(createdAt ? { createdAt } : {}),
       },
+      _count: { id: true },
     });
 
-    const providerStats = await Promise.all(
-      providers.map(async (provider) => {
-        const [appointmentCount, completedCount] = await Promise.all([
-          prisma.appointment.count({ where: { providerId: provider.id } }),
-          prisma.appointment.count({
-            where: { providerId: provider.id, status: 'COMPLETED' },
-          }),
-        ]);
+    const byProvider = new Map<string, { total: number; completed: number }>();
+    for (const c of counts) {
+      const entry = byProvider.get(c.providerId) ?? { total: 0, completed: 0 };
+      entry.total += c._count.id;
+      if (c.status === 'COMPLETED') entry.completed += c._count.id;
+      byProvider.set(c.providerId, entry);
+    }
 
-        return {
-          providerId: provider.id,
-          name: provider.email || 'Consultant',
-          specialty: provider.providerProfile?.specialty || null,
-          appointmentCount,
-          completedCount,
-          rating: provider.providerProfile?.rating ? Number(provider.providerProfile.rating) : null,
-        };
-      })
-    );
+    const providerStats = providers.map((provider) => ({
+      providerId: provider.id,
+      name:
+        [provider.providerProfile?.firstName, provider.providerProfile?.lastName]
+          .filter(Boolean)
+          .join(' ') ||
+        provider.email ||
+        'Consultant',
+      specialty: provider.providerProfile?.specialty || null,
+      appointmentCount: byProvider.get(provider.id)?.total ?? 0,
+      completedCount: byProvider.get(provider.id)?.completed ?? 0,
+      rating: provider.providerProfile?.rating ? Number(provider.providerProfile.rating) : null,
+    }));
 
     res.json({
       success: true,
       data: {
         providers: providerStats,
-        total: providerStats.length,
+        total,
+        limit,
+        offset,
       },
     });
   } catch (error) {
@@ -278,37 +291,41 @@ export const getProviderPerformance = async (req: Request, res: Response, next: 
 
 export const getPharmacyMetrics = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    RangeQuerySchema.parse(req.query);
+    const { createdAt } = parseAnalyticsTimeWindow(req.query);
+    const { hospitalId } = await resolveScope(req);
+    const pharmacyUserWhere = {
+      role: 'PHARMACIST' as const,
+      ...(hospitalId ? { hospitalId } : {}),
+    };
 
     const [totalPharmacies, verifiedPharmacies] = await Promise.all([
-      prisma.user.count({ where: { role: 'PHARMACIST' } }),
-      prisma.pharmacyProfile.count({ where: { isVerified: true } }),
+      prisma.user.count({ where: pharmacyUserWhere }),
+      prisma.pharmacyProfile.count({
+        where: {
+          isVerified: true,
+          ...(hospitalId ? { user: { hospitalId } } : {}),
+        },
+      }),
     ]);
 
-    const orders = await prisma.pharmacyOrder.findMany({
-      select: {
-        status: true,
-        totalAmount: true,
+    const byStatus = await prisma.pharmacyOrder.groupBy({
+      by: ['status'],
+      where: {
+        ...(hospitalId ? { pharmacy: { hospitalId } } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
+      _count: { id: true },
+      _sum: { totalAmount: true },
     });
-
-    const totalOrders = orders.length;
-
-    const ordersByStatus = orders.reduce((acc: Record<string, number>, o) => {
-      acc[o.status] = (acc[o.status] || 0) + 1;
-      return acc;
-    }, {});
-
-    const totalOrderValue = orders.reduce((sum: number, o) => sum + Number(o.totalAmount), 0);
 
     res.json({
       success: true,
       data: {
         totalPharmacies,
         verifiedPharmacies,
-        totalOrders,
-        ordersByStatus,
-        totalOrderValue,
+        totalOrders: byStatus.reduce((s, g) => s + g._count.id, 0),
+        ordersByStatus: Object.fromEntries(byStatus.map((g) => [g.status, g._count.id])),
+        totalOrderValue: byStatus.reduce((s, g) => s + Number(g._sum.totalAmount ?? 0), 0),
       },
     });
   } catch (error) {

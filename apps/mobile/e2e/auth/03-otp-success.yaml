@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Auth - OTP verification persists session
+---
+- clearState
+- launchApp
+# TODO: register -> POST /api/auth/otp/verify -> patient.home.screen (Phase 2 device run)

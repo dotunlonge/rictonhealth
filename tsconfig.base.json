@@ -11,7 +11,13 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "dist",
     "resolveJsonModule": true,
+    // NOTE: dev/test resolution targets live sources (ts-node chromatic DX;
+    // Jest additionally pins sources via moduleNameMapper). Production builds
+    // use per-project tsconfig.build.json (composite + project references),
+    // which redirect cross-package imports to declaration outputs and emit
+    // flat, runnable dist/ trees. Always build via `tsc -b`.
     "paths": {
+      "@ricton/shared/jobs": ["./packages/shared/src/jobs"],
       "@ricton/*": ["./packages/*/src", "./services/*/src"]
     }
   }

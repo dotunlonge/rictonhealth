@@ -1,49 +1,157 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { prisma, UserRole, UserStatus, TransactionClient } from '@ricton/db';
+import { prisma, Prisma, UserRole, UserStatus, TransactionClient } from '@ricton/db';
 import {
   successResponse,
   ConflictError,
   UnauthorizedError,
+  ForbiddenError,
   ValidationError,
   NotFoundError,
   AppError,
   redis,
   hashOtp,
   verifyOtp,
+  generateTotpSecret,
+  verifyTotpToken,
+  getTotpAuthUrl,
+  encryptTotpSecret,
+  decryptTotpSecret,
 } from '@ricton/shared';
-import twilio from 'twilio';
-import sgMail from '@sendgrid/mail';
+import { isEmailConfigured, isSmsConfigured } from '@ricton/shared/jobs';
 import { OAuth2Client } from 'google-auth-library';
 import appleSigninAuth from 'apple-signin-auth';
 import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const REFRESH_SECRET = process.env.REFRESH_SECRET;
-
-if (!JWT_SECRET || !REFRESH_SECRET) {
-  throw new Error('FATAL: JWT_SECRET or REFRESH_SECRET environment variable is missing.');
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+  }
+  return secret;
 }
 
-// Twilio Config
-const twilioClient =
-  process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
-    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
-    : null;
-
-// SendGrid Config
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+function getRefreshSecret(): string {
+  const secret = process.env.REFRESH_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: REFRESH_SECRET environment variable is missing.');
+  }
+  return secret;
 }
 
-// Google Config
-const googleClient = process.env.GOOGLE_CLIENT_ID
-  ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID)
-  : null;
+function getGoogleClient() {
+  return process.env.GOOGLE_CLIENT_ID ? new OAuth2Client(process.env.GOOGLE_CLIENT_ID) : null;
+}
+
+interface GoogleProfile {
+  email: string;
+  sub: string;
+  givenName?: string;
+  familyName?: string;
+  name?: string;
+  picture?: string;
+}
+
+/**
+ * Verify a Google credential from either frontend path.
+ *
+ * Path 1 (preferred): audience-bound OpenID ID token from One Tap / GIS
+ * credential response — verified by signature + audience.
+ *
+ * Path 2 (popup fallback): OAuth2 access token. Never trusted directly:
+ * it is first bound to this app via tokeninfo (aud/azp must equal our
+ * client ID — a token minted for another app is rejected), then the profile
+ * is read from userinfo. Either leg failing means 401, never a login.
+ */
+async function verifyGoogleCredential(
+  googleClient: OAuth2Client,
+  token: string
+): Promise<GoogleProfile | null> {
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    if (payload?.email && payload.sub && payload.email_verified === true) {
+      return {
+        email: payload.email,
+        sub: payload.sub,
+        givenName: payload.given_name,
+        familyName: payload.family_name,
+        name: payload.name,
+        picture: payload.picture,
+      };
+    }
+  } catch {
+    // Not a valid ID token — try the access-token path below.
+  }
+
+  try {
+    const appId = process.env.GOOGLE_CLIENT_ID;
+    if (!appId) return null;
+    const infoRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!infoRes.ok) return null;
+    const info = (await infoRes.json()) as {
+      aud?: string;
+      azp?: string;
+    };
+    if (info.aud !== appId && info.azp !== appId) return null;
+
+    const meRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!meRes.ok) return null;
+    const me = (await meRes.json()) as {
+      email?: string;
+      sub?: string;
+      verified_email?: boolean;
+      email_verified?: boolean;
+      given_name?: string;
+      family_name?: string;
+      name?: string;
+      picture?: string;
+    };
+    if (!me.email || !me.sub || (me.verified_email !== true && me.email_verified !== true)) {
+      return null;
+    }
+    return {
+      email: me.email,
+      sub: me.sub,
+      givenName: me.given_name,
+      familyName: me.family_name,
+      name: me.name,
+      picture: me.picture,
+    };
+  } catch {
+    return null;
+  }
+}
 
 const hashToken = (token: string): string => {
   return crypto.createHash('sha256').update(token).digest('hex');
+};
+
+// Public self-serve roles only. HOSPITAL_ADMIN / SUPER_ADMIN must be provisioned
+// via an authenticated admin flow, never via public register or OAuth.
+const PUBLIC_REGISTRABLE_ROLES = new Set(['PATIENT', 'CONSULTANT', 'PHARMACIST']);
+
+const generateSecureOtp = (): string => {
+  return crypto.randomInt(100000, 1000000).toString();
+};
+
+const verifyStoredTotp = (code: unknown, storedSecret: string | null): boolean => {
+  if (typeof code !== 'string' || !storedSecret) return false;
+  try {
+    return verifyTotpToken(code, decryptTotpSecret(storedSecret));
+  } catch {
+    return false;
+  }
 };
 
 const generateTokens = async (
@@ -63,12 +171,12 @@ const generateTokens = async (
       tokenVersion,
       jti,
     },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: '15m' }
   );
 
   const refreshTokenExpiry = options?.rememberMe ? '30d' : '7d';
-  const refreshToken = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
+  const refreshToken = jwt.sign({ userId: user.id, jti }, getRefreshSecret(), {
     expiresIn: refreshTokenExpiry,
   });
 
@@ -158,6 +266,12 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       throw new ValidationError('consentVersion is required for NDPA compliance registration');
     }
 
+    if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
+      throw new ForbiddenError(
+        'Registration is limited to PATIENT, CONSULTANT, or PHARMACIST. Contact an administrator for elevated roles.'
+      );
+    }
+
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])],
@@ -231,6 +345,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       throw new UnauthorizedError('Invalid credentials');
     }
 
+    // PENDING users may log in to complete verification/onboarding; privilege
+    // escalation is prevented by the registration allowlist + admin ACTIVE gate.
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
       await auditLog('LOGIN_FAILURE', user.id, req, {
         reason: 'ACCOUNT_DISABLED',
@@ -253,7 +369,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         );
       }
 
-      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+      if (!verifyStoredTotp(totpCode, user.twoFactorSecret)) {
+        await auditLog('LOGIN_FAILURE', user.id, req, { reason: 'INVALID_2FA_CODE' });
         throw new UnauthorizedError('Invalid 2FA authentication code');
       }
     }
@@ -330,41 +447,46 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
     const key = email || phone;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpHash = hashOtp(otp);
-
-    if (phone) {
-      if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new AppError(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await twilioClient.messages.create({
-        body: `Your Ricton Health verification code is: ${otp}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phone,
-      });
-    } else if (email) {
-      if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new AppError(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await sgMail.send({
-        to: email,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Ricton Health - Verification Code',
-        text: `Your Ricton Health verification code is: ${otp}`,
-        html: `<strong>Your Ricton Health verification code is: ${otp}</strong>`,
-      });
+    const channel = phone ? 'SMS' : 'EMAIL';
+    // Fail fast when no delivery path exists (same honesty as before, but
+    // decided before any state is written).
+    if (phone && !isSmsConfigured()) {
+      throw new AppError(
+        'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+        500,
+        'SERVICE_NOT_CONFIGURED'
+      );
+    }
+    if (email && !isEmailConfigured()) {
+      throw new AppError(
+        'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+        500,
+        'SERVICE_NOT_CONFIGURED'
+      );
     }
 
-    // Store in Redis only after successful dispatch
-    await redis.set(`otp:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 minutes expiry
+    const otp = generateSecureOtp();
+    const otpHash = hashOtp(otp);
+
+    // Transactional outbox: the intent survives crashes; the relay delivers
+    // the code and publishes the verification hash only after the provider
+    // accepts the message.
+    await prisma.outboxEvent.create({
+      data: {
+        type: 'LOGIN_OTP',
+        channel,
+        recipient: key,
+        payload: {
+          redisKey: `otp:${key}`,
+          otpHash,
+          to: key,
+          subject: 'Ricton Health - Verification Code',
+          body: `Your Ricton Health verification code is: ${otp}`,
+          message: `Your Ricton Health verification code is: ${otp}`,
+          channel,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     res.status(200).json(successResponse({ message: `OTP sent to ${key}` }));
   } catch (error) {
@@ -408,6 +530,10 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
 
     if (!user) throw new NotFoundError('User not found');
 
+    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+      throw new UnauthorizedError('Account is disabled');
+    }
+
     // Delete OTP only after DB lookup succeeds
     await redis.del(`otp:${key}`);
 
@@ -436,72 +562,20 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
     const { token, role } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
+    const googleClient = getGoogleClient();
     if (!googleClient)
       throw new AppError('Google OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
 
-    let email: string | undefined;
-    let googleSub: string | undefined;
-    let googleFirstName: string | undefined;
-    let googleLastName: string | undefined;
-    let googleAvatarUrl: string | undefined;
-
-    if (token.startsWith('ya29.')) {
-      const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!userinfoRes.ok) {
-        throw new UnauthorizedError('Invalid Google Access Token');
-      }
-      const info = (await userinfoRes.json()) as {
-        email?: string;
-        sub?: string;
-        given_name?: string;
-        family_name?: string;
-        picture?: string;
-        name?: string;
-      };
-      email = info.email;
-      googleSub = info.sub;
-      googleFirstName = info.given_name || info.name?.split(' ')[0];
-      googleLastName = info.family_name || info.name?.split(' ').slice(1).join(' ');
-      googleAvatarUrl = info.picture;
-    } else {
-      try {
-        const ticket = await googleClient.verifyIdToken({
-          idToken: token,
-          audience: process.env.GOOGLE_CLIENT_ID,
-        });
-        const payload = ticket.getPayload();
-        email = payload?.email;
-        googleSub = payload?.sub;
-        googleFirstName = payload?.given_name || payload?.name?.split(' ')[0];
-        googleLastName = payload?.family_name || payload?.name?.split(' ').slice(1).join(' ');
-        googleAvatarUrl = payload?.picture;
-      } catch (_err) {
-        const userinfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (userinfoRes.ok) {
-          const info = (await userinfoRes.json()) as {
-            email?: string;
-            sub?: string;
-            given_name?: string;
-            family_name?: string;
-            picture?: string;
-            name?: string;
-          };
-          email = info.email;
-          googleSub = info.sub;
-          googleFirstName = info.given_name || info.name?.split(' ')[0];
-          googleLastName = info.family_name || info.name?.split(' ').slice(1).join(' ');
-          googleAvatarUrl = info.picture;
-        } else {
-          throw new UnauthorizedError('Invalid Google Token');
-        }
-      }
+    const payload = await verifyGoogleCredential(googleClient, token);
+    if (!payload) {
+      throw new UnauthorizedError('Invalid Google Token');
     }
 
-    if (!email) throw new UnauthorizedError('Invalid Google Token payload');
+    const email = payload.email;
+    const googleSub = payload.sub;
+    const googleFirstName = payload.givenName || payload.name?.split(' ')[0];
+    const googleLastName = payload.familyName || payload.name?.split(' ').slice(1).join(' ');
+    const googleAvatarUrl = payload.picture;
 
     let user = await prisma.user.findUnique({ where: { email } });
 
@@ -517,6 +591,11 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         );
         return;
       }
+      if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
+        throw new ForbiddenError(
+          'OAuth registration is limited to PATIENT, CONSULTANT, or PHARMACIST.'
+        );
+      }
       const resolvedFirst = googleFirstName || email.split('@')[0];
       const resolvedLast = googleLastName || '';
 
@@ -524,7 +603,10 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         data: {
           email,
           role,
-          status: UserStatus.PENDING,
+          // Provider-verified email counts as contact verification for
+          // self-serve roles (allowlist already excludes privileged roles).
+          status: UserStatus.ACTIVE,
+          emailVerified: true,
           oauthProvider: 'GOOGLE',
           oauthId: googleSub || null,
           ...(role === UserRole.PATIENT
@@ -556,6 +638,10 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
       });
     }
 
+    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+      throw new UnauthorizedError('Account is disabled');
+    }
+
     // Two-Factor Authentication Check for OAuth
     const totpCode = req.body.totpCode || req.body.code || req.body['2faCode'];
     if (user.twoFactorEnabled) {
@@ -571,7 +657,7 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
         );
       }
 
-      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+      if (!verifyStoredTotp(totpCode, user.twoFactorSecret)) {
         throw new UnauthorizedError('Invalid 2FA authentication code');
       }
     }
@@ -610,19 +696,27 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
     const { token, role } = req.body;
     if (!token) throw new ValidationError('OAuth token is required');
 
-    const verifyOpts = process.env.APPLE_CLIENT_ID
-      ? { audience: process.env.APPLE_CLIENT_ID }
-      : undefined;
+    if (!process.env.APPLE_CLIENT_ID) {
+      throw new AppError('Apple OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
+    }
 
     let payload;
     try {
-      payload = await appleSigninAuth.verifyIdToken(token, verifyOpts);
+      payload = await appleSigninAuth.verifyIdToken(token, {
+        audience: process.env.APPLE_CLIENT_ID,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       throw new UnauthorizedError(`Invalid Apple Token: ${message}`);
     }
 
-    if (!payload || !payload.email) throw new UnauthorizedError('Invalid Apple Token payload');
+    if (
+      !payload?.email ||
+      !payload.sub ||
+      ![true, 'true'].includes(payload.email_verified as boolean | string)
+    ) {
+      throw new UnauthorizedError('Invalid Apple Token payload');
+    }
     const email = payload.email;
 
     let user = await prisma.user.findUnique({ where: { email } });
@@ -639,15 +733,27 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
         );
         return;
       }
+      if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
+        throw new ForbiddenError(
+          'OAuth registration is limited to PATIENT, CONSULTANT, or PHARMACIST.'
+        );
+      }
       user = await prisma.user.create({
         data: {
           email,
           role,
-          status: UserStatus.PENDING,
+          // Provider-verified email counts as contact verification for
+          // self-serve roles (allowlist already excludes privileged roles).
+          status: UserStatus.ACTIVE,
+          emailVerified: true,
           oauthProvider: 'APPLE',
           oauthId: payload.sub,
         },
       });
+    }
+
+    if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+      throw new UnauthorizedError('Account is disabled');
     }
 
     // Two-Factor Authentication Check for Apple OAuth
@@ -665,7 +771,7 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
         );
       }
 
-      if (typeof totpCode !== 'string' || totpCode.trim().length !== 6) {
+      if (!verifyStoredTotp(totpCode, user.twoFactorSecret)) {
         throw new UnauthorizedError('Invalid 2FA authentication code');
       }
     }
@@ -695,7 +801,23 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const { refreshToken } = req.body;
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
-    const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string; jti?: string };
+    let decoded: { userId: string; jti?: string };
+    try {
+      decoded = jwt.verify(refreshToken, getRefreshSecret()) as {
+        userId: string;
+        jti?: string;
+      };
+    } catch (jwtErr) {
+      if (jwtErr instanceof jwt.TokenExpiredError) {
+        // Decode expired JWT payload to allow evaluating the 24h database grace period
+        decoded = jwt.decode(refreshToken) as { userId: string; jti?: string };
+        if (!decoded?.userId) {
+          throw new UnauthorizedError('Invalid refresh token');
+        }
+      } else {
+        throw new UnauthorizedError('Invalid refresh token');
+      }
+    }
 
     const tokenHash = hashToken(refreshToken);
 
@@ -706,20 +828,29 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     });
 
     if (!currentToken || !currentToken.isActive) {
-      // Check if this is a token reuse attack (token was already used)
-      const revokedToken = await prisma.refreshToken.findUnique({
+      const inactiveToken = await prisma.refreshToken.findUnique({
         where: { tokenHash },
+        include: { childTokens: { select: { id: true } } },
       });
 
-      if (revokedToken && revokedToken.isRevoked) {
+      // Explicit revocation (logout, admin revoke, sessions purge) is NOT an
+      // attack: the session is simply dead.
+      if (inactiveToken?.isRevoked) {
+        throw new UnauthorizedError('Invalid or expired refresh token');
+      }
+
+      // A ROTATED token (superseded by a child during refresh) presented again
+      // signals token theft: the legitimate client moved on, someone else is
+      // replaying the old credential. Nuke the family + access tokens.
+      if (inactiveToken && inactiveToken.childTokens.length > 0) {
         // TOKEN REUSE ATTACK DETECTED - revoke entire family
         await auditLog(
           'TOKEN_REUSE_ATTACK',
           decoded.userId,
           req,
           {
-            tokenId: revokedToken.id,
-            tokenFamily: revokedToken.tokenFamily,
+            tokenId: inactiveToken.id,
+            tokenFamily: inactiveToken.tokenFamily,
           },
           90
         ); // High risk score
@@ -728,7 +859,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
         await prisma.refreshToken.updateMany({
           where: {
             userId: decoded.userId,
-            tokenFamily: revokedToken.tokenFamily,
+            tokenFamily: inactiveToken.tokenFamily,
             isActive: true,
           },
           data: {
@@ -743,6 +874,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
           where: { id: decoded.userId },
           data: { tokenVersion: { increment: 1 } },
         });
+        await redis.del(`user:tokenVersion:${decoded.userId}`);
 
         throw new UnauthorizedError(
           'Security alert: Token reuse detected. All sessions invalidated.'
@@ -800,7 +932,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     }
 
     // Atomically mark current token as inactive and create new one
-    const [newRefreshToken] = await prisma.$transaction(async (tx) => {
+    const rotatedToken = await prisma.$transaction(async (tx) => {
       // Mark current token as used
       await tx.refreshToken.update({
         where: { id: currentToken.id },
@@ -825,18 +957,22 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
         throw new UnauthorizedError('Account is disabled');
       }
 
-      // Create new token in the same family
+      // Create new token in the same family, preserving the original
+      // session lifetime (remember-me sessions stay 30d across rotations).
       const jti = crypto.randomUUID();
-      const refreshTokenExpiry = '7d';
-      const newRefreshTokenStr = jwt.sign({ userId: user.id, jti }, REFRESH_SECRET, {
+      const originalLifespanMs =
+        currentToken.expiresAt.getTime() - currentToken.createdAt.getTime();
+      const longLived = originalLifespanMs > 8 * 24 * 60 * 60 * 1000;
+      const refreshTokenExpiry = longLived ? '30d' : '7d';
+      const refreshTtlSeconds = (longLived ? 30 : 7) * 24 * 60 * 60;
+      const newRefreshTokenStr = jwt.sign({ userId: user.id, jti }, getRefreshSecret(), {
         expiresIn: refreshTokenExpiry,
       });
 
       const newTokenHash = hashToken(newRefreshTokenStr);
-      const ttlSeconds = 7 * 24 * 60 * 60;
 
       await redis.sadd(`refresh:${user.id}`, newRefreshTokenStr);
-      await redis.expire(`refresh:${user.id}`, ttlSeconds);
+      await redis.expire(`refresh:${user.id}`, refreshTtlSeconds);
 
       const newToken = await tx.refreshToken.create({
         data: {
@@ -846,21 +982,20 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
           deviceFingerprint: currentToken.deviceFingerprint,
           deviceIp: (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress,
           userAgent: req.headers['user-agent'],
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expiresAt: new Date(Date.now() + refreshTtlSeconds * 1000),
           tokenFamily: currentToken.tokenFamily,
           parentTokenId: currentToken.id,
         },
       });
 
-      return [newToken, newRefreshTokenStr, user];
+      return {
+        record: newToken,
+        value: newRefreshTokenStr,
+        user,
+      };
     });
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: { id: true, role: true, status: true, tokenVersion: true },
-    });
-
-    if (!user) throw new NotFoundError('User not found');
+    const { user } = rotatedToken;
 
     // Generate new access token with updated tokenVersion
     const jti = crypto.randomUUID();
@@ -873,7 +1008,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
         tokenVersion: user.tokenVersion,
         jti,
       },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '15m' }
     );
 
@@ -883,14 +1018,14 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       req,
       {
         oldTokenId: currentToken.id,
-        newTokenId: newRefreshToken.id,
+        newTokenId: rotatedToken.record.id,
         tokenFamily: currentToken.tokenFamily,
         riskScore,
       },
       riskScore
     );
 
-    res.status(200).json(successResponse({ token, refreshToken: newRefreshToken }));
+    res.status(200).json(successResponse({ token, refreshToken: rotatedToken.value }));
   } catch (error) {
     if (
       error instanceof ValidationError ||
@@ -908,7 +1043,7 @@ export const logout = async (req: Request, res: Response, next: NextFunction) =>
     const { refreshToken } = req.body;
     if (!refreshToken) throw new ValidationError('Refresh token is required');
 
-    const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as { userId: string };
+    const decoded = jwt.verify(refreshToken, getRefreshSecret()) as { userId: string };
 
     // Get token info before revoking for audit
     const tokenHash = hashToken(refreshToken);
@@ -974,6 +1109,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
       where: { id: userId },
       data: { tokenVersion: { increment: 1 } },
     });
+    await redis.del(`user:tokenVersion:${userId}`);
 
     await auditLog('LOGOUT_ALL', userId, req);
 
@@ -986,6 +1122,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
 export const getSessions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
+    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
 
     const sessions = await prisma.refreshToken.findMany({
       where: { userId, isActive: true },
@@ -1001,6 +1138,7 @@ export const getSessions = async (req: Request, res: Response, next: NextFunctio
         tokenFamily: true,
       },
       orderBy: { lastUsedAt: 'desc' },
+      take,
     });
 
     res.status(200).json(successResponse({ sessions }));
@@ -1045,10 +1183,24 @@ export const revokeSession = async (req: Request, res: Response, next: NextFunct
 export const passwordForgot = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, phone } = req.body;
-    if (!email && !phone) throw new ValidationError('Email or phone is required');
+    if (Boolean(email) === Boolean(phone)) {
+      throw new ValidationError('Provide exactly one of email or phone');
+    }
+
+    const channel = phone ? 'SMS' : 'EMAIL';
+    if (phone && !isSmsConfigured()) {
+      throw new AppError('Password recovery SMS is not configured', 503, 'SERVICE_NOT_CONFIGURED');
+    }
+    if (email && !isEmailConfigured()) {
+      throw new AppError(
+        'Password recovery email is not configured',
+        503,
+        'SERVICE_NOT_CONFIGURED'
+      );
+    }
 
     const key = email || phone;
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = generateSecureOtp();
     const otpHash = hashOtp(otp);
 
     // Fire-and-forget user lookup
@@ -1056,25 +1208,26 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
       where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
     });
 
-    // Only send the OTP if the user exists, but don't leak this fact
+    // Only queue the OTP if the user exists, but don't leak this fact.
+    // Transactional outbox: the relay delivers the code and publishes the
+    // verification hash only after the provider accepts the message.
     if (user) {
-      if (phone && twilioClient && process.env.TWILIO_PHONE_NUMBER) {
-        await twilioClient.messages.create({
-          body: `Your Ricton Health password reset code is: ${otp}`,
-          from: process.env.TWILIO_PHONE_NUMBER,
-          to: phone,
-        });
-      } else if (email && process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) {
-        await sgMail.send({
-          to: email,
-          from: process.env.SENDGRID_FROM_EMAIL,
-          subject: 'Ricton Health - Password Reset',
-          text: `Your password reset code is: ${otp}`,
-        });
-      }
-
-      // Store in Redis only after dispatch
-      await redis.set(`reset:${key}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600); // 10 mins
+      await prisma.outboxEvent.create({
+        data: {
+          type: 'PASSWORD_RESET_OTP',
+          channel,
+          recipient: key,
+          payload: {
+            redisKey: `reset:${key}`,
+            otpHash,
+            to: key,
+            subject: 'Ricton Health - Password Reset',
+            body: `Your password reset code is: ${otp}`,
+            message: `Your Ricton Health password reset code is: ${otp}`,
+            channel,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
     }
 
     res
@@ -1088,7 +1241,9 @@ export const passwordForgot = async (req: Request, res: Response, next: NextFunc
 export const passwordReset = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email, phone, otp, newPassword } = req.body;
-    if (!email && !phone) throw new ValidationError('Email or phone is required');
+    if (Boolean(email) === Boolean(phone)) {
+      throw new ValidationError('Provide exactly one of email or phone');
+    }
     if (!otp) throw new ValidationError('OTP is required');
 
     const key = email || phone;
@@ -1149,6 +1304,7 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
     });
 
     await redis.del(`reset:${key}`);
+    await redis.del(`user:tokenVersion:${user.id}`);
 
     await auditLog('PASSWORD_RESET_SUCCESS', user.id, req, { email, phone });
 
@@ -1176,40 +1332,43 @@ const sendVerificationOtp = async (
       throw new NotFoundError('User not found');
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpHash = hashOtp(otp);
-
-    if (channel === 'phone') {
-      if (!twilioClient || !process.env.TWILIO_PHONE_NUMBER) {
-        throw new AppError(
-          'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await twilioClient.messages.create({
-        body: `Your Ricton Health verification code is: ${otp}`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: value,
-      });
-    } else {
-      if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_FROM_EMAIL) {
-        throw new AppError(
-          'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
-          500,
-          'SERVICE_NOT_CONFIGURED'
-        );
-      }
-      await sgMail.send({
-        to: value,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Ricton Health - Verification Code',
-        text: `Your Ricton Health verification code is: ${otp}`,
-        html: `<strong>Your Ricton Health verification code is: ${otp}</strong>`,
-      });
+    if (channel === 'phone' && !isSmsConfigured()) {
+      throw new AppError(
+        'Twilio is not configured. Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER',
+        500,
+        'SERVICE_NOT_CONFIGURED'
+      );
+    }
+    if (channel === 'email' && !isEmailConfigured()) {
+      throw new AppError(
+        'SendGrid is not configured. Missing SENDGRID_API_KEY or SENDGRID_FROM_EMAIL',
+        500,
+        'SERVICE_NOT_CONFIGURED'
+      );
     }
 
-    await redis.set(`verify:${value}`, JSON.stringify({ hash: otpHash, attempts: 0 }), 'EX', 600);
+    const otp = generateSecureOtp();
+    const otpHash = hashOtp(otp);
+    const outboxChannel = channel === 'phone' ? 'SMS' : 'EMAIL';
+
+    // Transactional outbox: the relay delivers the code and publishes the
+    // verification hash only after the provider accepts the message.
+    await prisma.outboxEvent.create({
+      data: {
+        type: 'VERIFY_CONTACT_OTP',
+        channel: outboxChannel,
+        recipient: value,
+        payload: {
+          redisKey: `verify:${value}`,
+          otpHash,
+          to: value,
+          subject: 'Ricton Health - Verification Code',
+          body: `Your Ricton Health verification code is: ${otp}`,
+          message: `Your Ricton Health verification code is: ${otp}`,
+          channel: outboxChannel,
+        } as unknown as Prisma.InputJsonValue,
+      },
+    });
 
     res.status(200).json(successResponse({ message: `Verification code sent to ${value}` }));
   } catch (error) {
@@ -1254,22 +1413,60 @@ export const verifyContact = async (req: Request, res: Response, next: NextFunct
       }
     }
 
-    const updateData: Record<string, boolean> = {};
+    // Verified contact promotes self-serve roles to ACTIVE. Privileged roles
+    // (provisioned out-of-band) still require explicit admin activation.
+    const activatableRoles: UserRole[] = [
+      UserRole.PATIENT,
+      UserRole.CONSULTANT,
+      UserRole.PHARMACIST,
+    ];
+    const updateData: Record<string, boolean | string> = {};
     if (email) updateData.emailVerified = true;
     if (phone) updateData.phoneVerified = true;
 
-    const updateResult = await prisma.user.updateMany({
+    const candidate = await prisma.user.findFirst({
       where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
-      data: updateData,
+      select: { id: true, role: true, status: true, emailVerified: true, phoneVerified: true },
     });
 
-    if (updateResult.count === 0) {
+    if (!candidate) {
       throw new NotFoundError('User not found');
     }
 
+    const verifiedAfter = {
+      emailVerified: candidate.emailVerified || Boolean(email),
+      phoneVerified: candidate.phoneVerified || Boolean(phone),
+    };
+    const shouldActivate =
+      candidate.status === UserStatus.PENDING &&
+      activatableRoles.includes(candidate.role as UserRole) &&
+      (verifiedAfter.emailVerified || verifiedAfter.phoneVerified);
+    const verifiedUser = await prisma.user.update({
+      where: { id: candidate.id },
+      data: {
+        ...updateData,
+        ...(shouldActivate ? { status: UserStatus.ACTIVE } : {}),
+      },
+    });
+
     await redis.del(`verify:${key}`);
 
-    res.status(200).json(successResponse({ message: 'Contact verified successfully' }));
+    const { token, refreshToken } = await generateTokens(verifiedUser, req);
+
+    res.status(200).json(
+      successResponse({
+        message: 'Contact verified successfully',
+        token,
+        refreshToken,
+        user: {
+          id: verifiedUser.id,
+          email: verifiedUser.email,
+          phone: verifiedUser.phone,
+          role: verifiedUser.role,
+          status: verifiedUser.status,
+        },
+      })
+    );
   } catch (error) {
     next(error);
   }
@@ -1295,24 +1492,21 @@ export const enable2FA = async (req: Request, res: Response, next: NextFunction)
     const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
     if (!user) throw new NotFoundError('User not found');
 
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-    let secret = '';
-    for (let i = 0; i < 32; i++) {
-      secret += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
+    const secret = generateTotpSecret();
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { twoFactorSecret: secret },
+      data: { twoFactorSecret: encryptTotpSecret(secret) },
     });
 
-    const qrCodeUrl = `otpauth://totp/Ricton:${encodeURIComponent(user.email || user.id)}?secret=${secret}&issuer=Ricton%20Health`;
+    const qrCodeUrl = getTotpAuthUrl(user.email || user.id, secret, 'Ricton Health');
 
     res.status(200).json(
       successResponse({
         secret,
         qrCodeUrl,
-        message: 'Scan the QR code or enter the secret key into Google Authenticator/Authy.',
+        message:
+          'Scan the QR code locally or enter the secret key into Google Authenticator/Authy. Do not share this secret.',
       })
     );
   } catch (error) {
@@ -1324,12 +1518,16 @@ export const verify2FA = async (req: Request, res: Response, next: NextFunction)
   try {
     const userPayload = (req as any).user;
     const { code } = req.body;
-    if (!code || code.trim().length !== 6) {
+    if (!code || typeof code !== 'string' || code.trim().length !== 6) {
       throw new ValidationError('Valid 6-digit authentication code is required');
     }
 
     const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
     if (!user) throw new NotFoundError('User not found');
+
+    if (!verifyStoredTotp(code, user.twoFactorSecret)) {
+      throw new UnauthorizedError('Invalid 2FA authentication code');
+    }
 
     await prisma.user.update({
       where: { id: user.id },
@@ -1350,8 +1548,29 @@ export const verify2FA = async (req: Request, res: Response, next: NextFunction)
 export const disable2FA = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = (req as any).user;
+    const { code } = req.body;
     const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
     if (!user) throw new NotFoundError('User not found');
+
+    if (!user.twoFactorEnabled) {
+      res.status(200).json(
+        successResponse({
+          twoFactorEnabled: false,
+          message: 'Two-factor authentication disabled.',
+        })
+      );
+      return;
+    }
+
+    // Step-up: a bearer access token alone must not be able to strip the
+    // second factor. The caller proves possession of the authenticator.
+    if (!code || typeof code !== 'string' || code.trim().length !== 6) {
+      throw new ValidationError('Valid 6-digit authentication code is required');
+    }
+    if (!verifyStoredTotp(code, user.twoFactorSecret)) {
+      await auditLog('2FA_DISABLE_FAILURE', user.id, req, { reason: 'INVALID_2FA_CODE' });
+      throw new UnauthorizedError('Invalid 2FA authentication code');
+    }
 
     await prisma.user.update({
       where: { id: user.id },
@@ -1390,10 +1609,32 @@ export const changePassword = async (req: Request, res: Response, next: NextFunc
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
+    // A password change must kill every session: bump access-token version
+    // AND revoke all refresh tokens (a stolen refresh token otherwise
+    // survives and mints fresh access tokens until its own expiry).
+    await prisma.refreshToken.updateMany({
+      where: { userId: user.id, isActive: true },
+      data: {
+        isActive: false,
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokeReason: 'PASSWORD_CHANGE',
+      },
+    });
+    try {
+      await redis.del(`refresh:${user.id}`);
+    } catch {
+      // best-effort cache invalidation (DB is authoritative for refresh)
+    }
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: hashedPassword },
+      data: { passwordHash: hashedPassword, tokenVersion: { increment: 1 } },
     });
+    try {
+      await redis.del(`user:tokenVersion:${user.id}`);
+    } catch {
+      // best-effort cache invalidation
+    }
 
     res.status(200).json(successResponse({ message: 'Password updated successfully!' }));
   } catch (error) {

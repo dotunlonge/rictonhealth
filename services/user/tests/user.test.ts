@@ -3,12 +3,27 @@ import request from 'supertest';
 import express from 'express';
 import userRoutes from '../src/routes/user.routes';
 import { prisma, UserRole, UserStatus } from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
+import { errorResponse, redis } from '@ricton/shared';
 import jwt from 'jsonwebtoken';
+import { cleanDatabase } from '../../../packages/shared/src/__tests__/factories';
 
 jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn().mockResolvedValue('https://mocked-s3-presigned-url.com/avatar.jpg'),
 }));
+
+jest.mock('../src/config/s3', () => ({
+  s3Client: {},
+  S3_BUCKET_NAME: 'ricton-test-avatars',
+  S3_REGION: 'us-east-1',
+}));
+
+jest.mock('@ricton/shared', () => {
+  const actual = jest.requireActual('@ricton/shared');
+  const { createRedisMock } = jest.requireActual(
+    '../../../packages/shared/src/__tests__/helpers/redis-mock'
+  );
+  return { __esModule: true, ...actual, redis: createRedisMock() };
+});
 
 process.env.AWS_SUPPRESS_NODE_VERSION_WARNING = '1';
 
@@ -32,7 +47,7 @@ let patientId: string;
 let consultantId: string;
 
 beforeAll(async () => {
-  await prisma.user.deleteMany();
+  await cleanDatabase();
 
   const patient = await prisma.user.create({
     data: {
@@ -51,7 +66,13 @@ beforeAll(async () => {
   });
   patientId = patient.id;
   patientToken = jwt.sign(
-    { userId: patient.id, role: patient.role, status: patient.status },
+    {
+      userId: patient.id,
+      role: patient.role,
+      status: patient.status,
+      iss: 'ricton-issuer',
+      tokenVersion: 0,
+    },
     process.env.JWT_SECRET as string
   );
 
@@ -72,13 +93,20 @@ beforeAll(async () => {
   });
   consultantId = consultant.id;
   consultantToken = jwt.sign(
-    { userId: consultant.id, role: consultant.role, status: consultant.status },
+    {
+      userId: consultant.id,
+      role: consultant.role,
+      status: consultant.status,
+      iss: 'ricton-issuer',
+      tokenVersion: 0,
+    },
     process.env.JWT_SECRET as string
   );
 });
 
 afterAll(async () => {
   await prisma.$disconnect();
+  redis.disconnect();
 });
 
 describe('User Controller Integration', () => {
@@ -130,7 +158,7 @@ describe('User Controller Integration', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.bloodType).toBe('A-');
+      expect(res.body.data.patientProfile.bloodType).toBe('A-');
 
       // Verify in DB
       const updated = await prisma.patientProfile.findUnique({ where: { userId: patientId } });
@@ -147,11 +175,47 @@ describe('User Controller Integration', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.consultationFee).toBe('15000');
+      expect(res.body.data.providerProfile.consultationFee).toBe('15000');
 
       // Verify in DB
       const updated = await prisma.providerProfile.findUnique({ where: { userId: consultantId } });
       expect(updated?.consultationFee?.toString()).toBe('15000');
+    });
+
+    it('should create (not 500 on) a missing pharmacist profile row', async () => {
+      // Registration and OAuth never create pharmacyProfile rows, so the
+      // first settings save used to die with P2025.
+      const pharmacist = await prisma.user.create({
+        data: {
+          email: 'pharmacist-noprofile@example.com',
+          passwordHash: 'hashed',
+          role: UserRole.PHARMACIST,
+          status: UserStatus.ACTIVE,
+        },
+      });
+      const pharmacistToken = jwt.sign(
+        {
+          userId: pharmacist.id,
+          role: pharmacist.role,
+          status: pharmacist.status,
+          iss: 'ricton-issuer',
+          tokenVersion: 0,
+        },
+        process.env.JWT_SECRET as string
+      );
+
+      const res = await request(app)
+        .put('/api/users/me')
+        .set('Authorization', `Bearer ${pharmacistToken}`)
+        .send({ pharmacyName: 'Test Pharmacy' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      const created = await prisma.pharmacyProfile.findUnique({
+        where: { userId: pharmacist.id },
+      });
+      expect(created?.pharmacyName).toBe('Test Pharmacy');
     });
   });
 
@@ -248,7 +312,9 @@ describe('User Controller Integration', () => {
         .send({ medicalHistory: [{ condition: '', diagnosedAt: '2010-01-01' }] });
 
       expect(res.status).toBe(400);
-      expect(res.body.error.message).toMatch(/condition must be a non-empty string/i);
+      expect(JSON.stringify(res.body.error.details)).toMatch(
+        /condition must be a non-empty string/i
+      );
     });
 
     it('should fail with 400 if diagnosedAt is not in YYYY-MM-DD format', async () => {
@@ -258,7 +324,9 @@ describe('User Controller Integration', () => {
         .send({ medicalHistory: [{ condition: 'Diabetes', diagnosedAt: 'invalid-date' }] });
 
       expect(res.status).toBe(400);
-      expect(res.body.error.message).toMatch(/diagnosed date must be in YYYY-MM-DD format/i);
+      expect(JSON.stringify(res.body.error.details)).toMatch(
+        /diagnosed date must be in YYYY-MM-DD format/i
+      );
     });
 
     it('should fail with 403 Forbidden for consultant trying to update medical history (RBAC test)', async () => {
@@ -269,6 +337,45 @@ describe('User Controller Integration', () => {
 
       expect(res.status).toBe(403);
       expect(res.body.error.message).toMatch(/patients can update medical history/i);
+    });
+  });
+
+  describe('GET /api/users/patients (negative: PHI tenant isolation)', () => {
+    it('should forbid patient listing for PATIENT role', async () => {
+      const res = await request(app)
+        .get('/api/users/patients')
+        .set('Authorization', `Bearer ${patientToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('should forbid reading an unrelated patient record', async () => {
+      const stranger = await prisma.user.create({
+        data: {
+          email: 'stranger-patient@example.com',
+          passwordHash: 'hashed',
+          role: UserRole.PATIENT,
+          status: UserStatus.ACTIVE,
+          patientProfile: { create: { firstName: 'Stranger', lastName: 'Patient' } },
+        },
+      });
+      try {
+        const res = await request(app)
+          .get(`/api/users/patients/${stranger.id}`)
+          .set('Authorization', `Bearer ${consultantToken}`);
+        // No appointment relationship exists between this consultant and stranger.
+        expect(res.status).toBe(403);
+      } finally {
+        await prisma.patientProfile.deleteMany({ where: { userId: stranger.id } });
+        await prisma.user.deleteMany({ where: { id: stranger.id } });
+      }
+    });
+
+    it('should allow a patient to read their own record', async () => {
+      const res = await request(app)
+        .get(`/api/users/patients/${patientId}`)
+        .set('Authorization', `Bearer ${patientToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
     });
   });
 });

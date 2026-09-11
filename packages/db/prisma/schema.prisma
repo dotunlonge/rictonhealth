@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -68,6 +69,8 @@ model User {
   wallet                   Wallet?
   notifications            Notification[]
   notificationPreferences  NotificationPreference?
+  pushTokens               PushToken[]
+  idempotencyKeys          IdempotencyKey[]
   telemedicineRoomsAsHost  TelemedicineRoom[]
   telemedicineParticipants TelemedicineParticipant[]
   auditLogsAsActor         AuditLog[]
@@ -112,6 +115,9 @@ model RefreshToken {
   lastUsedAt        DateTime?      @db.Timestamptz(6)
   usageCount        Int            @default(0)
 
+  @@index([userId, isActive])
+  @@index([deviceId])
+  @@index([expiresAt])
   @@map("refresh_tokens")
 }
 
@@ -209,6 +215,8 @@ model ProviderAvailability {
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([providerId, dayOfWeek, isActive])
+  @@unique([providerId, dayOfWeek])
   @@map("provider_availability")
 }
 
@@ -236,6 +244,7 @@ model Appointment {
   hospital           Hospital?         @relation(fields: [hospitalId], references: [id])
   scheduledAt        DateTime          @db.Timestamptz(6)
   durationMinutes    Int
+  timeRange          Unsupported("tstzrange")?
   type               AppointmentType
   status             AppointmentStatus @default(PENDING)
   cancellationReason String?
@@ -253,6 +262,10 @@ model Appointment {
   prescriptions    Prescription[]
   providerEarnings ProviderEarning[]
 
+  @@index([patientId])
+  @@index([providerId, scheduledAt])
+  @@index([hospitalId])
+  @@index([status])
   @@map("appointments")
 }
 
@@ -283,6 +296,10 @@ model Prescription {
   items          PrescriptionItem[]
   pharmacyOrders PharmacyOrder[]
 
+  @@index([patientId])
+  @@index([providerId])
+  @@index([pharmacyId])
+  @@index([status])
   @@map("prescriptions")
 }
 
@@ -330,6 +347,8 @@ model TelemedicineRoom {
   mdt             MDT?                      @relation(fields: [mdtId], references: [id])
   participants    TelemedicineParticipant[]
 
+  @@index([providerId])
+  @@index([status])
   @@map("telemedicine_rooms")
 }
 
@@ -349,6 +368,8 @@ model TelemedicineParticipant {
   leftAt    DateTime?        @db.Timestamptz(6)
   createdAt DateTime         @default(now()) @db.Timestamptz(6)
 
+  @@index([roomId])
+  @@index([userId])
   @@map("telemedicine_participants")
 }
 
@@ -391,6 +412,9 @@ model PharmacyOrder {
 
   items OrderItem[]
 
+  @@index([patientId])
+  @@index([pharmacyId])
+  @@index([status])
   @@map("pharmacy_orders")
 }
 
@@ -398,12 +422,14 @@ model OrderItem {
   id        String        @id @default(uuid()) @db.Uuid
   orderId   String        @db.Uuid
   order     PharmacyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?       @db.Uuid
   drugName  String
   quantity  Int
   unitPrice Decimal       @db.Decimal(10, 2)
   subtotal  Decimal       @db.Decimal(10, 2)
   createdAt DateTime      @default(now()) @db.Timestamptz(6)
 
+  @@index([productId])
   @@map("order_items")
 }
 
@@ -445,6 +471,10 @@ model Payment {
   order        PharmacyOrder? @relation("OrderPayment")
   subscription Subscription?  @relation("SubscriptionPayment")
 
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([providerReference])
   @@map("payments")
 }
 
@@ -452,6 +482,7 @@ model Wallet {
   id                   String   @id @default(uuid()) @db.Uuid
   userId               String   @unique @db.Uuid
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance              Decimal  @default(0) @db.Decimal(12, 2)
   virtualAccountNumber String?
   virtualBankName      String?
   currency             String   @default("NGN")
@@ -488,6 +519,9 @@ model WalletTransaction {
   referenceId   String?
   createdAt     DateTime              @default(now()) @db.Timestamptz(6)
 
+  @@index([walletId, createdAt])
+  @@index([referenceId])
+  @@unique([walletId, referenceId])
   @@map("wallet_transactions")
 }
 
@@ -497,6 +531,7 @@ enum SubscriptionPlan {
 }
 
 enum SubscriptionStatus {
+  PENDING
   ACTIVE
   CANCELLED
   EXPIRED
@@ -513,6 +548,8 @@ model Subscription {
   paymentId String?            @unique @db.Uuid
   payment   Payment?           @relation("SubscriptionPayment", fields: [paymentId], references: [id])
   autoRenew Boolean            @default(true)
+  renewalAttempts Int          @default(0)
+  lastRenewalAttemptAt DateTime? @db.Timestamptz(6)
   createdAt DateTime           @default(now()) @db.Timestamptz(6)
   updatedAt DateTime           @updatedAt @db.Timestamptz(6)
 
@@ -543,7 +580,25 @@ model Notification {
   createdAt DateTime            @default(now()) @db.Timestamptz(6)
   readAt    DateTime?           @db.Timestamptz(6)
 
+  @@index([userId, isRead])
+  @@index([createdAt])
   @@map("notifications")
+}
+
+model PushToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String
+  platform  String   @default("mobile")
+  isActive  Boolean  @default(true)
+  lastUsedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([userId, token])
+  @@index([userId, isActive])
+  @@map("push_tokens")
 }
 
 model NotificationPreference {
@@ -560,6 +615,23 @@ model NotificationPreference {
   @@map("notification_preferences")
 }
 
+model IdempotencyKey {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key        String
+  method     String
+  path       String
+  requestHash String?
+  statusCode Int      @default(0)
+  response   Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([userId, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
 model AuditLog {
   id           String   @id @default(uuid()) @db.Uuid
   actorId      String?  @db.Uuid
@@ -574,6 +646,9 @@ model AuditLog {
   riskScore    Int? // 0-100 risk score for the event
   createdAt    DateTime @default(now()) @db.Timestamptz(6)
 
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -595,6 +670,8 @@ model ProviderEarning {
   createdAt       DateTime              @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @db.Timestamptz(6)
 
+  @@index([providerId])
+  @@index([status])
   @@map("provider_earnings")
 }
 
@@ -709,6 +786,8 @@ model ChatMessage {
   createdAt DateTime             @default(now()) @db.Timestamptz(6)
   receipts  ChatMessageReceipt[]
 
+  @@index([threadId, createdAt])
+  @@index([senderId])
   @@map("chat_messages")
 }
 
@@ -766,19 +845,24 @@ model MDTParticipant {
 }
 
 model Product {
-  id          String   @id @default(uuid()) @db.Uuid
-  pharmacyId  String   @db.Uuid
-  pharmacy    User     @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
-  name        String
-  description String?  @db.Text
-  price       Decimal  @db.Decimal(10, 2)
-  stock       Int      @default(0)
-  category    String?
-  imageUrl    String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+  id                   String   @id @default(uuid()) @db.Uuid
+  pharmacyId           String   @db.Uuid
+  pharmacy             User     @relation(fields: [pharmacyId], references: [id], onDelete: Cascade)
+  name                 String
+  description          String?  @db.Text
+  price                Decimal  @db.Decimal(10, 2)
+  stock                Int      @default(0)
+  category             String?
+  imageUrl             String?
+  requiresPrescription Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(6)
 
+  @@index([pharmacyId])
+  @@index([pharmacyId, name])
+  @@index([category])
+  @@index([isActive])
   @@map("products")
 }
 
@@ -804,4 +888,27 @@ enum RewardTier {
   SILVER
   GOLD
   PLATINUM
+}
+
+enum OutboxStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  type          String
+  channel       String
+  recipient     String
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  nextAttemptAt DateTime     @default(now()) @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(6)
+
+  @@index([status, nextAttemptAt])
+  @@map("outbox_events")
 }

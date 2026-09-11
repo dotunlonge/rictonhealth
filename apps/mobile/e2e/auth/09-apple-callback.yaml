@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Auth - Apple callback creates PATIENT session
+---
+- clearState
+- launchApp
+# TODO: provider token -> POST /api/auth/oauth/apple (Phase 2 device run, sandbox)

@@ -28,7 +28,9 @@ export const redis = isCluster
   : new Redis(redisUrl, {
       password: redisPassword,
       maxRetriesPerRequest: 3,
+      lazyConnect: process.env.NODE_ENV === 'test',
       retryStrategy(times) {
+        if (process.env.NODE_ENV === 'test') return null;
         return Math.min(times * 50, 2000);
       },
     });

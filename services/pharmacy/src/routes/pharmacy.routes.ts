@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole } from '@ricton/auth-middleware';
-import { rateLimit } from '@ricton/shared';
+import { idempotency, rateLimit } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import * as pharmacyController from '../controllers/pharmacy.controller';
 
 const router = Router();
@@ -75,6 +76,18 @@ router.get('/products/:id', pharmacyController.getProductById);
  */
 router.get('/categories', pharmacyController.getCategories);
 
+/**
+ * @openapi
+ * /api/pharmacy/pharmacies:
+ *   get:
+ *     summary: List active pharmacies available for prescription assignment
+ *     tags: [Pharmacy]
+ *     responses:
+ *       200:
+ *         description: Active pharmacy directory
+ */
+router.get('/pharmacies', pharmacyController.getPharmacies);
+
 // Protected endpoints
 router.use(requireAuth);
 router.use(pharmacyRateLimit);
@@ -93,7 +106,7 @@ router.use(pharmacyRateLimit);
  *         in: query
  *         schema:
  *           type: string
- *           enum: [PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *           enum: [PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *       - name: limit
  *         in: query
  *         schema:
@@ -154,7 +167,7 @@ router.get('/orders', pharmacyController.getOrders);
  *       400:
  *         description: Validation error
  */
-router.post('/orders', pharmacyController.createOrder);
+router.post('/orders', idempotency(prisma), pharmacyController.createOrder);
 
 /**
  * @openapi
@@ -212,6 +225,47 @@ router.patch('/orders/:id/cancel', pharmacyController.cancelOrder);
 
 // Pharmacist-only endpoints
 router.use(requireRole('PHARMACIST'));
+
+// Tenant-scoped management views. These deliberately differ from the public
+// catalog because pharmacists must be able to see their own inactive listings.
+/**
+ * @openapi
+ * /api/pharmacy/inventory:
+ *   get:
+ *     summary: List the authenticated pharmacist's inventory
+ *     tags: [Pharmacy]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tenant-scoped inventory
+ */
+router.get('/inventory', pharmacyController.getInventory);
+
+/**
+ * @openapi
+ * /api/pharmacy/inventory/{id}:
+ *   get:
+ *     summary: Get one product from the authenticated pharmacist's inventory
+ *     tags: [Pharmacy]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Inventory product
+ *       403:
+ *         description: Product belongs to another pharmacy
+ *       404:
+ *         description: Product not found
+ */
+router.get('/inventory/:id', pharmacyController.getInventoryProduct);
 
 /**
  * @openapi
@@ -341,7 +395,7 @@ router.delete('/products/:id', pharmacyController.deleteProduct);
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED]
+ *                 enum: [PLACED, CONFIRMED, PREPARING, READY_FOR_PICKUP, OUT_FOR_DELIVERY, DELIVERED, CANCELLED]
  *     responses:
  *       200:
  *         description: Order status updated successfully
@@ -373,6 +427,6 @@ router.patch('/orders/:id/status', pharmacyController.updateOrderStatus);
  *       201:
  *         description: Prescription fulfilled successfully
  */
-router.post('/prescriptions/fulfill', pharmacyController.fulfillPrescription);
+router.post('/prescriptions/fulfill', idempotency(prisma), pharmacyController.fulfillPrescription);
 
 export default router;

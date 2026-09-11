@@ -142,6 +142,42 @@ router.post('/:id/sign', controller.signPrescription);
 
 /**
  * @openapi
+ * /api/prescriptions/{id}/send-to-pharmacy:
+ *   patch:
+ *     summary: Assign a signed prescription to one active pharmacy
+ *     tags: [Prescriptions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [pharmacyId]
+ *             properties:
+ *               pharmacyId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Prescription assigned
+ *       400:
+ *         description: Prescription is not signed or was already assigned
+ *       403:
+ *         description: Only the owning patient may assign the prescription
+ */
+router.patch('/:id/send-to-pharmacy', controller.sendPrescriptionToPharmacy);
+
+/**
+ * @openapi
  * /api/prescriptions/{id}/dispense:
  *   patch:
  *     summary: Mark a prescription as dispensed by a pharmacist

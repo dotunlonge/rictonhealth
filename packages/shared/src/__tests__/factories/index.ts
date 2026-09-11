@@ -110,7 +110,8 @@ export async function createRefreshToken(user: {
     },
   });
 
-  await redis.hset(`refresh:${user.id}`, tokenRecord.id, refreshToken);
+  // Set semantics mirror the controller (sadd/srem by token value).
+  await redis.sadd(`refresh:${user.id}`, refreshToken);
   await redis.expire(`refresh:${user.id}`, 7 * 24 * 60 * 60);
 
   return { refreshToken, tokenId: tokenRecord.id };
@@ -276,4 +277,48 @@ export async function createWalletTransaction(
       referenceId: overrides.referenceId,
     },
   });
+}
+
+/**
+ * FK-safe full reset for integration suites. Children are deleted before
+ * parents so suites stay green no matter what other flows (E2E, neighboring
+ * suites) left behind. Prefer this over ad-hoc deleteMany chains.
+ */
+export async function cleanDatabase(): Promise<void> {
+  await prisma.telemedicineParticipant.deleteMany();
+  await prisma.telemedicineRoom.deleteMany();
+  await prisma.appointment.deleteMany();
+  await prisma.prescriptionItem.deleteMany();
+  await prisma.prescription.deleteMany();
+  await prisma.pharmacyOrder.deleteMany();
+  await prisma.walletTransaction.deleteMany();
+  await prisma.wallet.deleteMany();
+  await prisma.subscription.deleteMany();
+  await prisma.payment.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.notificationPreference.deleteMany();
+  await prisma.pushToken.deleteMany();
+  await prisma.rewardTransaction.deleteMany();
+  await prisma.rewardPoint.deleteMany();
+  await prisma.$executeRawUnsafe('DELETE FROM "_RewardRedeemedBy"');
+  await prisma.rewardCatalog.deleteMany();
+  await prisma.chatMessageReceipt.deleteMany();
+  await prisma.chatMessage.deleteMany();
+  await prisma.chatParticipant.deleteMany();
+  await prisma.chatThread.deleteMany();
+  await prisma.mDTParticipant.deleteMany();
+  await prisma.mDT.deleteMany();
+  await prisma.address.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.providerEarning.deleteMany();
+  await prisma.providerAvailability.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.idempotencyKey.deleteMany();
+  await prisma.hospital.deleteMany();
+  await prisma.providerProfile.deleteMany();
+  await prisma.patientProfile.deleteMany();
+  await prisma.pharmacyProfile.deleteMany();
+  await prisma.refreshToken.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.outboxEvent.deleteMany();
 }

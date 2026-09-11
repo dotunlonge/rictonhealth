@@ -12,10 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js 20.x
+      - name: Use Node.js 22.13.x
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.13.x'
           cache: 'npm'
 
       - name: Install Dependencies
@@ -27,8 +27,85 @@ jobs:
       - name: Check Formatting
         run: npm run format:check
 
+      - name: Typecheck Workspaces
+        run: npm run typecheck
+
+      - name: Typecheck Web
+        run: npx tsc --noEmit -p apps/web/tsconfig.json
+
+      - name: Typecheck Mobile
+        # Must run via the workspace script: mobile pins TypeScript 6 and the
+        # root tsc (5.x) cannot parse its tsconfig.
+        run: npm -w apps/mobile run typecheck
+
+      - name: Run Contract Tests (no Docker)
+        run: npm run test:contracts
+
+      - name: Lint and Build Web
+        run: |
+          npm -w apps/web run lint
+          npm -w apps/web run build
+
+      - name: Test Mobile
+        run: npm -w apps/mobile run test:ci
+
       - name: Run Integration Tests
         run: ./scripts/test-e2e.sh
+
+  e2e-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 22.13.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.x'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: |
+          npx playwright install chromium
+          sudo npx playwright install-deps chromium
+
+      - name: Start test Postgres and ephemeral Redis
+        run: |
+          docker compose -f docker-compose.test.yml up -d
+          docker run -d --name e2e-redis -p 6390:6379 redis:7-alpine redis-server --save '' --appendonly no
+          sleep 8
+
+      - name: Migrate test database
+        run: DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public" npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
+
+      - name: Build web app
+        run: npm -w apps/web run build
+
+      - name: Start backend services and web
+        run: |
+          export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public"
+          export REDIS_URL="redis://localhost:6390"
+          export JWT_SECRET="e2e-jwt-secret"
+          export REFRESH_SECRET="e2e-refresh-secret"
+          export OTP_SECRET="e2e-otp-secret"
+          unset REDIS_PASSWORD
+          nohup npm run dev --workspace=@ricton/auth-service > /tmp/e2e-auth.log 2>&1 &
+          nohup npm run dev --workspace=@ricton/user-service > /tmp/e2e-user.log 2>&1 &
+          nohup npm run dev --workspace=@ricton/appointment-service > /tmp/e2e-appt.log 2>&1 &
+          nohup npx next start -p 3100 --dir apps/web > /tmp/e2e-web.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:3001/health && break
+            sleep 5
+          done
+          curl -sf -o /dev/null http://127.0.0.1:3001/health
+          curl -sf -o /dev/null http://127.0.0.1:3002/health
+          curl -sf -o /dev/null http://127.0.0.1:3005/health
+          curl -sf -o /dev/null http://127.0.0.1:3100/login
+
+      - name: Run Playwright staging slice
+        run: E2E_BASE_URL=http://localhost:3100 npx playwright test --config apps/web/playwright.config.ts
 
   helm-lint:
     runs-on: ubuntu-latest

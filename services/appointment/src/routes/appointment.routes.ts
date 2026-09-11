@@ -8,9 +8,10 @@ import {
   UpdateAppointmentStatusSchema,
   GetAvailabilityQuerySchema,
   GetAppointmentsQuerySchema,
-  BookAppointmentInputSchema,
+  SetAvailabilityInputSchema,
 } from '@ricton/shared';
-import { rateLimit } from '@ricton/shared';
+import { idempotency, rateLimit } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 
 const router = Router();
 
@@ -23,8 +24,8 @@ router.use(requireAuth);
 router.post(
   '/availability',
   requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
-  validateRequest(BookAppointmentInputSchema),
-  appointmentController.getAvailability
+  validateRequest(SetAvailabilityInputSchema),
+  appointmentController.setAvailability
 );
 
 // Get available slots
@@ -34,11 +35,13 @@ router.get(
   appointmentController.getAvailability
 );
 
-// Book appointment
+// Book appointment (idempotent: mobile retries with the same Idempotency-Key)
 router.post(
   '/',
+  requireRole('PATIENT'),
   appointmentRateLimit,
   validateRequest(CreateAppointmentSchema),
+  idempotency(prisma),
   appointmentController.createAppointment
 );
 

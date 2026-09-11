@@ -1,0 +1,19 @@
+appId: com.ricton.health
+name: Foundation - invalid credentials remain unauthenticated
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+---
+- clearState
+- launchApp
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: definitely-wrong-password
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: auth.signIn.error
+- assertNotVisible:
+    id: patient.home.screen

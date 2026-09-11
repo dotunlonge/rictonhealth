@@ -17,6 +17,24 @@ type Meeting = {
   createdAt: string;
 };
 
+type RoomResponse = {
+  id: string;
+  status: Meeting['status'];
+  roomType: 'ONE_ON_ONE' | 'MDT';
+  createdAt: string;
+  provider?: {
+    email?: string | null;
+    providerProfile?: { firstName?: string; lastName?: string } | null;
+  } | null;
+  appointment?: {
+    scheduledAt?: string;
+    patient?: {
+      email?: string | null;
+      patientProfile?: { firstName?: string; lastName?: string } | null;
+    } | null;
+  } | null;
+};
+
 export default function TelemedicinePage() {
   const router = useRouter();
   const { user } = useAppStore();
@@ -25,6 +43,7 @@ export default function TelemedicinePage() {
   const [statusFilter, setStatusFilter] = useState<'All' | 'ACTIVE' | 'ENDED' | 'CREATED'>('All');
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadMeetings() {
@@ -37,18 +56,35 @@ export default function TelemedicinePage() {
         : [];
 
       setMeetings(
-        rawList.map((m: any) => ({
+        (rawList as RoomResponse[]).map((m) => ({
           id: m.id,
-          status: m.status || 'ACTIVE',
-          providerName: m.provider
-            ? `Dr. ${m.provider.firstName || ''} ${m.provider.lastName || ''}`.trim()
-            : user?.role === 'CONSULTANT'
-            ? `Dr. ${user.firstName || ''} ${user.lastName || ''}`.trim()
-            : 'Assigned Specialist',
-          patientName: m.appointment?.patientName || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Patient Consultation'),
-          scheduledTime: new Date(m.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          roomType: m.roomType || 'General Telemedicine HD',
-          createdAt: m.createdAt || new Date().toISOString(),
+          status: m.status,
+          providerName:
+            m.provider?.providerProfile?.firstName || m.provider?.providerProfile?.lastName
+              ? `Dr. ${m.provider.providerProfile?.firstName || ''} ${m.provider.providerProfile?.lastName || ''}`.trim()
+              : user?.role === 'CONSULTANT'
+                ? `Dr. ${user.firstName || ''} ${user.lastName || ''}`.trim()
+                : m.provider?.email || 'Assigned Specialist',
+          patientName:
+            [
+              m.appointment?.patient?.patientProfile?.firstName,
+              m.appointment?.patient?.patientProfile?.lastName,
+            ]
+              .filter(Boolean)
+              .join(' ') ||
+            m.appointment?.patient?.email ||
+            (user?.firstName
+              ? `${user.firstName} ${user.lastName || ''}`.trim()
+              : 'Patient Consultation'),
+          scheduledTime: new Date(m.appointment?.scheduledAt || m.createdAt).toLocaleTimeString(
+            [],
+            {
+              hour: '2-digit',
+              minute: '2-digit',
+            }
+          ),
+          roomType: m.roomType === 'MDT' ? 'Multidisciplinary Team' : 'One-on-one',
+          createdAt: m.createdAt,
         }))
       );
       setLoading(false);
@@ -58,13 +94,13 @@ export default function TelemedicinePage() {
 
   const handleCreateMeeting = async () => {
     setCreating(true);
-    const res = await api.post('/telemedicine/meetings', { roomType: 'HD Video Call' });
+    setCreateError(null);
+    const res = await api.post('/telemedicine/meetings', { roomType: 'ONE_ON_ONE' });
     setCreating(false);
     if (res.success && res.data?.id) {
       router.push(`/telemedicine/${res.data.id}`);
     } else {
-      const demoId = `ROOM-${Math.floor(1000 + Math.random() * 9000)}`;
-      router.push(`/telemedicine/${demoId}`);
+      setCreateError(res.error?.message || 'Failed to create consultation room. Please try again.');
     }
   };
 
@@ -88,20 +124,28 @@ export default function TelemedicinePage() {
               <Video className="w-6 h-6 text-[#1877F2]" /> Telemedicine & Live Video Consultations
             </h1>
             <p className="text-xs font-semibold text-slate-500 mt-1">
-              Encrypted end-to-end HD video, voice, and clinical screen sharing
+              Secure provider-hosted video consultations (TLS-encrypted transport)
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleCreateMeeting}
-            disabled={creating}
-            className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{creating ? 'Initializing Room...' : 'Start Instant Consultation'}</span>
-          </button>
+          {(user?.role === 'CONSULTANT' || user?.role === 'SUPER_ADMIN') && (
+            <button
+              type="button"
+              onClick={handleCreateMeeting}
+              disabled={creating}
+              className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{creating ? 'Initializing Room...' : 'Start Instant Consultation'}</span>
+            </button>
+          )}
         </div>
+
+        {createError && (
+          <div className="p-4 rounded-2xl text-xs font-bold bg-red-50 text-red-700 border border-red-200 flex items-center gap-2">
+            <span>{createError}</span>
+          </div>
+        )}
 
         {/* Join Consultation Card */}
         <div className="bg-[#0A192F] text-white rounded-3xl p-8 shadow-xl space-y-4 border border-slate-800">
@@ -111,7 +155,9 @@ export default function TelemedicinePage() {
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Join Video Room with Code</h2>
-              <p className="text-xs text-slate-400 font-medium">Enter your appointment room ID or access pin to join</p>
+              <p className="text-xs text-slate-400 font-medium">
+                Enter the room ID from your appointment to join
+              </p>
             </div>
           </div>
 
@@ -145,7 +191,9 @@ export default function TelemedicinePage() {
                   type="button"
                   onClick={() => setStatusFilter(tab)}
                   className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                    statusFilter === tab ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                    statusFilter === tab
+                      ? 'bg-[#1877F2] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   {tab}
@@ -156,18 +204,24 @@ export default function TelemedicinePage() {
 
           <div className="space-y-4">
             {loading ? (
-              <div className="p-8 text-center text-xs font-bold text-slate-400">Loading consultation rooms...</div>
+              <div className="p-8 text-center text-xs font-bold text-slate-400">
+                Loading consultation rooms...
+              </div>
             ) : filteredMeetings.length === 0 ? (
               <div className="p-12 text-center space-y-3">
                 <Video className="w-10 h-10 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-600">No video consultation sessions currently active</p>
-                <button
-                  type="button"
-                  onClick={handleCreateMeeting}
-                  className="text-xs text-[#1877F2] font-bold hover:underline"
-                >
-                  + Create Instant Video Consultation Room
-                </button>
+                <p className="text-xs font-bold text-slate-600">
+                  No video consultation sessions currently active
+                </p>
+                {(user?.role === 'CONSULTANT' || user?.role === 'SUPER_ADMIN') && (
+                  <button
+                    type="button"
+                    onClick={handleCreateMeeting}
+                    className="text-xs text-[#1877F2] font-bold hover:underline"
+                  >
+                    + Create Instant Video Consultation Room
+                  </button>
+                )}
               </div>
             ) : (
               filteredMeetings.map((room) => (
@@ -181,14 +235,16 @@ export default function TelemedicinePage() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-extrabold text-slate-900 text-sm">{room.providerName}</h3>
+                        <h3 className="font-extrabold text-slate-900 text-sm">
+                          {room.providerName}
+                        </h3>
                         <span
                           className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
                             room.status === 'ACTIVE'
                               ? 'bg-emerald-100 text-emerald-700'
                               : room.status === 'CREATED'
-                              ? 'bg-blue-100 text-[#1877F2]'
-                              : 'bg-slate-200 text-slate-600'
+                                ? 'bg-blue-100 text-[#1877F2]'
+                                : 'bg-slate-200 text-slate-600'
                           }`}
                         >
                           {room.status}

@@ -1,7 +1,19 @@
 import { z } from 'zod';
 import { extendZodWithOpenApi } from '@asteasolutions/zod-to-openapi';
+import { registry } from './openapi.registry';
 
 extendZodWithOpenApi(z);
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/notifications',
+  summary: 'List notifications',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: { description: 'Notifications list' },
+    401: { description: 'Unauthorized' },
+  },
+});
 
 export const NotificationSchema = z.object({
   id: z.string().uuid(),
@@ -46,8 +58,6 @@ export type NotificationSchema = z.infer<typeof NotificationSchema>;
 export type SendNotificationSchema = z.infer<typeof SendNotificationSchema>;
 export type SendBulkNotificationSchema = z.infer<typeof SendBulkNotificationSchema>;
 export type MarkNotificationAsReadSchema = z.infer<typeof MarkNotificationAsReadSchema>;
-
-import { registry } from './openapi.registry';
 
 export const NotificationsListResponse = registry.register(
   'NotificationsListResponse',

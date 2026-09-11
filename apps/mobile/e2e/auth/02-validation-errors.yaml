@@ -1,0 +1,8 @@
+appId: com.ricton.health
+name: Auth - validation errors block submit
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen
+# TODO: empty/invalid email + short password inline errors (Phase 2 device run)

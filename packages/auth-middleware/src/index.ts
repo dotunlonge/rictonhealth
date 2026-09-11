@@ -1,11 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UnauthorizedError, ForbiddenError, redis } from '@ricton/shared';
-import { UserRole, UserStatus } from '@ricton/db';
+import { prisma, UserRole, UserStatus } from '@ricton/db';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('FATAL: JWT_SECRET environment variable is missing.');
+  }
+  return secret;
 }
 
 export interface JwtPayload {
@@ -13,6 +16,8 @@ export interface JwtPayload {
   role: UserRole;
   status: UserStatus;
   iss: string;
+  tokenVersion?: number;
+  jti?: string;
   iat?: number;
   exp?: number;
 }
@@ -39,20 +44,32 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
 
     if (decoded.iss !== 'ricton-issuer') {
       return next(new UnauthorizedError('Invalid issuer'));
     }
 
-    // 1. Check if token is explicitly blacklisted (e.g. from logout)
-    const isBlacklisted = await redis.get(`blacklist:token:${token}`);
+    // 1. Check if token is explicitly blacklisted (e.g. from logout).
+    // Best-effort: a cache outage must not lock users out; revocation is
+    // still enforced authoritatively via tokenVersion below.
+    let isBlacklisted: string | null = null;
+    try {
+      isBlacklisted = await redis.get(`blacklist:token:${token}`);
+    } catch {
+      // Fall through to authoritative checks.
+    }
     if (isBlacklisted) {
       return next(new UnauthorizedError('Token has been revoked'));
     }
 
-    // 2. Check for live user status override (for instant suspension)
-    const liveStatus = await redis.get(`user:status:${decoded.userId}`);
+    // 2. Check for live user status override (for instant suspension).
+    let liveStatus: string | null = null;
+    try {
+      liveStatus = await redis.get(`user:status:${decoded.userId}`);
+    } catch {
+      // Fall through to the token payload status check below.
+    }
     if (liveStatus === UserStatus.SUSPENDED || liveStatus === UserStatus.DEACTIVATED) {
       return next(new ForbiddenError('Account is suspended or deactivated'));
     }
@@ -63,6 +80,57 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
       (decoded.status === UserStatus.SUSPENDED || decoded.status === UserStatus.DEACTIVATED)
     ) {
       return next(new ForbiddenError('Account is suspended or deactivated'));
+    }
+
+    // 4. Enforce tokenVersion revocation (password reset / logout-all / reuse detection).
+    // Tokens issued before a version bump must be rejected. Cache-aside: the
+    // database is authoritative, so cache outages fall back to a DB read and
+    // never lock users out on their own.
+    if (typeof decoded.tokenVersion === 'number') {
+      let cachedVersion: number | null = null;
+      try {
+        const raw = await redis.get(`user:tokenVersion:${decoded.userId}`);
+        if (raw !== null && raw !== undefined && !Number.isNaN(Number(raw))) {
+          cachedVersion = Number(raw);
+        }
+      } catch {
+        // Cache unreadable — fall through to the authoritative DB check.
+      }
+      if (cachedVersion !== null) {
+        if (decoded.tokenVersion !== cachedVersion) {
+          return next(new UnauthorizedError('Token has been revoked. Please log in again.'));
+        }
+      } else {
+        let user;
+        try {
+          user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { tokenVersion: true, status: true },
+          });
+        } catch {
+          return next(new UnauthorizedError('Unable to verify token revocation status'));
+        }
+        if (!user) {
+          return next(new UnauthorizedError('User no longer exists'));
+        }
+        if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
+          return next(new ForbiddenError('Account is suspended or deactivated'));
+        }
+        if (decoded.tokenVersion !== user.tokenVersion) {
+          return next(new UnauthorizedError('Token has been revoked. Please log in again.'));
+        }
+        try {
+          // Cache briefly to avoid DB hit on every request; invalidated on bump paths.
+          await redis.set(
+            `user:tokenVersion:${decoded.userId}`,
+            String(user.tokenVersion),
+            'EX',
+            60
+          );
+        } catch {
+          // Best-effort cache write; the request is already authorized.
+        }
+      }
     }
 
     req.user = decoded;
@@ -84,4 +152,20 @@ export const requireRole = (...roles: UserRole[]) => {
 
     next();
   };
+};
+
+/**
+ * Defense-in-depth for privileged surfaces (e.g. platform admin): even a
+ * correctly-signed token is rejected unless the account is ACTIVE. This closes
+ * the "PENDING token accepted by the admin service" class even if a privileged
+ * row ever exists in PENDING state.
+ */
+export const requireActiveStatus = (req: Request, _res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return next(new UnauthorizedError('Authentication required'));
+  }
+  if (req.user.status !== UserStatus.ACTIVE) {
+    return next(new ForbiddenError('Account must be active to access this resource'));
+  }
+  next();
 };

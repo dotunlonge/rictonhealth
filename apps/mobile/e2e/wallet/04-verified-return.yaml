@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Wallet - 04-verified-return
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + Paystack sandbox + device run (Phase 5/6). No local credit; verify via server.

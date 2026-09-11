@@ -1,6 +1,7 @@
-node_modules
+# node_modules intentionally NOT ignored — copied from host to avoid npm ci network issues
+# apps/web/.next is still excluded below
 dist
-.env
+.env*
 .git
 .github
 .husky

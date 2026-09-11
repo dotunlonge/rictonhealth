@@ -1,0 +1,53 @@
+/** @ricton/api-contract — authoritative gateway path constants (TDD RED→GREEN seed). */
+export const GATEWAY_PATHS = {
+  messages: '/api/messages',
+  wallets: '/api/wallets',
+  appointments: '/api/appointments',
+  prescriptions: '/api/prescriptions',
+  usersMe: '/api/users/me',
+  patientDashboard: '/api/users/dashboard/patient',
+  authLogin: '/api/auth/login',
+  authRefresh: '/api/auth/refresh',
+  authLogout: '/api/auth/logout',
+  authLogoutAll: '/api/auth/logout-all',
+  authRegister: '/api/auth/register',
+  authOtpSend: '/api/auth/otp/send',
+  authOtpVerify: '/api/auth/otp/verify',
+  authVerifyEmail: '/api/auth/verify-email',
+  authVerifyConfirm: '/api/auth/verify/confirm',
+  authPasswordForgot: '/api/auth/password/forgot',
+  authPasswordReset: '/api/auth/password/reset',
+  authGoogle: '/api/auth/oauth/google',
+  authApple: '/api/auth/oauth/apple',
+  providers: '/api/users/providers',
+  providerSlots: '/api/appointments/slots',
+  prescriptionDetail: '/api/prescriptions',
+  pharmacyProducts: '/api/pharmacy/products',
+  pharmacyDirectory: '/api/pharmacy/pharmacies',
+  pharmacyOrders: '/api/pharmacy/orders',
+  walletMe: '/api/wallets/me',
+  walletTopup: '/api/wallets/topup',
+  walletTransactions: '/api/wallets/transactions',
+  walletVirtualAccount: '/api/wallets/virtual-account',
+  paymentVerify: '/api/payments/verify',
+  teleRooms: '/api/telemedicine/rooms',
+  teleRoomToken: '/api/telemedicine/rooms/token',
+  subscriptionPlans: '/api/subscriptions/plans',
+  subscriptionMy: '/api/subscriptions/my',
+  subscriptionUpgrade: '/api/subscriptions/upgrade',
+  subscriptionCancel: '/api/subscriptions/cancel',
+  rewardsBalance: '/api/rewards/balance',
+  rewardsCatalog: '/api/rewards/catalog',
+  rewardsRedeem: '/api/rewards/redeem',
+  notifications: '/api/notifications',
+  notificationPreferences: '/api/notifications/preferences',
+  notificationPushToken: '/api/notifications/push-token',
+  addresses: '/api/addresses',
+  authPasswordChange: '/api/auth/password/change',
+} as const;
+
+export type GatewayPath = (typeof GATEWAY_PATHS)[keyof typeof GATEWAY_PATHS];
+
+export function joinGateway(base: string, path: string): string {
+  return `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+}

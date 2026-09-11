@@ -81,27 +81,18 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
     { label: 'User Directory', href: '/patients', icon: Users },
     { label: 'System Settings', href: '/settings', icon: Settings },
   ],
-  ADMIN: [
-    { label: 'Admin Center', href: '/admin', icon: ShieldAlert },
-    { label: 'Platform Analytics', href: '/admin/analytics', icon: BarChart3 },
-    { label: 'Provider Approvals', href: '/admin/providers', icon: Users },
-    { label: 'User Directory', href: '/patients', icon: Users },
-    { label: 'System Settings', href: '/settings', icon: Settings },
-  ],
 };
 
 function resolveUserDisplay(user: any) {
-  let targetUser = user;
-  if (!targetUser && typeof window !== 'undefined') {
-    try {
-      const cached = localStorage.getItem('ricton_user');
-      if (cached) targetUser = JSON.parse(cached);
-    } catch {
-      // ignore
-    }
+  const targetUser = user;
+  if (!targetUser) {
+    return {
+      name: 'Account',
+      role: 'PATIENT' as UserRole,
+      roleLabel: 'Patient',
+      avatarUrl: undefined,
+    };
   }
-
-  if (!targetUser) return { name: 'Account', role: 'PATIENT' as UserRole, roleLabel: 'Patient', avatarUrl: undefined };
   const role: UserRole = targetUser.role || 'PATIENT';
   const roleLabels: Record<UserRole, string> = {
     PATIENT: 'Patient',
@@ -109,12 +100,12 @@ function resolveUserDisplay(user: any) {
     PHARMACIST: 'Licensed Pharmacist',
     HOSPITAL_ADMIN: 'Hospital Admin',
     SUPER_ADMIN: 'System Admin',
-    ADMIN: 'System Admin',
   };
 
   const profile = targetUser.patientProfile || targetUser.providerProfile || {};
   const first = targetUser.firstName || profile.firstName || targetUser.name?.split(' ')[0] || '';
-  const last = targetUser.lastName || profile.lastName || targetUser.name?.split(' ').slice(1).join(' ') || '';
+  const last =
+    targetUser.lastName || profile.lastName || targetUser.name?.split(' ').slice(1).join(' ') || '';
   let name = [first, last].filter(Boolean).join(' ');
 
   if (!name && targetUser.email) {
@@ -143,25 +134,40 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   const { notifications, fetchNotifications } = useNotificationsState();
   const [searchQuery, setSearchQuery] = useState('');
 
+  // No-flash guard: never render protected children until the session owner
+  // is resolved (middleware handles the redirect for missing sessions).
+  const [sessionChecked, setSessionChecked] = useState(false);
+
   useEffect(() => {
-    fetchUser();
+    let cancelled = false;
+    (async () => {
+      await fetchUser();
+      if (!cancelled) setSessionChecked(true);
+    })();
     fetchNotifications();
+    return () => {
+      cancelled = true;
+    };
   }, [fetchUser, fetchNotifications]);
 
   const display = useMemo(() => resolveUserDisplay(user), [user]);
 
-  // Route Protection & Role Guard
+  // Route Protection & Role Guard (client mirror of middleware.ts)
   useEffect(() => {
-    if (!user) return;
+    if (!sessionChecked) return;
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
     const currentRole: UserRole = user.role || 'PATIENT';
 
     if (allowedRoles && !allowedRoles.includes(currentRole)) {
       if (currentRole === 'HOSPITAL_ADMIN') router.replace('/dashboard/hospital');
       else if (currentRole === 'PHARMACIST') router.replace('/dashboard/pharmacy');
-      else if (currentRole === 'SUPER_ADMIN' || currentRole === 'ADMIN') router.replace('/admin');
+      else if (currentRole === 'SUPER_ADMIN') router.replace('/admin');
       else router.replace('/dashboard');
     }
-  }, [user, allowedRoles, router]);
+  }, [sessionChecked, user, allowedRoles, router]);
 
   const navItems = roleNavigationMap[display.role] || roleNavigationMap.PATIENT;
 
@@ -169,6 +175,17 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
     logout();
     router.push('/login');
   };
+
+  if (!sessionChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC]">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-slate-500">Verifying session…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex bg-[#F4F7FC] font-sans antialiased text-slate-800">
@@ -192,7 +209,11 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
           <div className="px-6 py-4 flex items-center gap-3.5 border-b border-white/10 bg-white/5">
             <div className="w-10 h-10 rounded-full border-2 border-[#1877F2] overflow-hidden bg-slate-800 flex items-center justify-center shrink-0 shadow-inner">
               {display.avatarUrl ? (
-                <img src={display.avatarUrl} alt={display.name} className="w-full h-full object-cover" />
+                <img
+                  src={display.avatarUrl}
+                  alt={display.name}
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <User className="w-5 h-5 text-slate-300" />
               )}
@@ -209,7 +230,9 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
           <nav className="px-3 py-4 space-y-1">
             {navItems.map((item) => {
               const IconComponent = item.icon;
-              const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href ||
+                (item.href !== '/dashboard' && pathname.startsWith(item.href));
               return (
                 <Link
                   key={item.href}
@@ -220,7 +243,9 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'
                   }`}
                 >
-                  <IconComponent className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <IconComponent
+                    className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`}
+                  />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -270,13 +295,19 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
             <div className="flex items-center gap-3 border-l border-slate-200 pl-4">
               <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center font-bold text-slate-600">
                 {display.avatarUrl ? (
-                  <img src={display.avatarUrl} alt={display.name} className="w-full h-full object-cover" />
+                  <img
+                    src={display.avatarUrl}
+                    alt={display.name}
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <User className="w-4 h-4 text-slate-500" />
                 )}
               </div>
               <div className="text-left leading-tight hidden sm:block">
-                <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">{display.name}</p>
+                <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">
+                  {display.name}
+                </p>
                 <p className="text-[10px] font-medium text-slate-500">{display.roleLabel}</p>
               </div>
             </div>

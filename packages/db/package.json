@@ -5,10 +5,11 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -b .",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "seed:e2e": "ts-node prisma/seed-mobile-e2e.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.13.0"

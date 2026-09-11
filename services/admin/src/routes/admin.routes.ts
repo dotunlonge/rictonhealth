@@ -1,14 +1,18 @@
 import { Router } from 'express';
-import { requireRole } from '@ricton/auth-middleware';
+import { requireAuth, requireRole, requireActiveStatus } from '@ricton/auth-middleware';
 import * as adminController from '../controllers/admin.controller';
 
 const router = Router();
 
-// All admin routes require SUPER_ADMIN role
+// All admin routes require authentication, SUPER_ADMIN role, AND active status
+// (a PENDING privileged token must never be accepted here).
+router.use(requireAuth);
 router.use(requireRole('SUPER_ADMIN'));
+router.use(requireActiveStatus);
 
 // User Management
 router.get('/users', adminController.listUsers);
+router.post('/users', adminController.provisionUser);
 router.get('/users/:id', adminController.getUserById);
 router.patch('/users/:id/status', adminController.updateUserStatus);
 router.post('/users/:id/verify', adminController.verifyUser);

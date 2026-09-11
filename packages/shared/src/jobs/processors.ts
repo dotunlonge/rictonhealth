@@ -3,30 +3,110 @@ import { prisma } from '@ricton/db';
 import { logger } from '../logger';
 import { redis } from '../redis';
 import { EmailJob, SmsJob, NotificationJob, WebhookJob } from './types';
+import { startRenewalWorker, scheduleRenewalSweep } from './renewals';
+import { startOutboxWorker, scheduleOutboxRelay } from './outbox';
 
-const processEmail = async (job: { data: EmailJob }) => {
-  const { to, subject, templateId } = job.data;
+const SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
+
+export function isEmailConfigured(): boolean {
+  return Boolean(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL);
+}
+
+export function isSmsConfigured(): boolean {
+  return Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_PHONE_NUMBER
+  );
+}
+
+export async function sendEmailViaProvider(input: {
+  to: string;
+  subject: string;
+  templateId?: string;
+  body?: string;
+  html?: string;
+}): Promise<{ to: string; subject: string; status: 'sent' | 'skipped' }> {
+  const { to, subject, templateId, body, html } = input;
   logger.info(`[EmailWorker] Sending email to ${to}: ${subject}`);
 
-  if (templateId) {
-    logger.info(`[EmailWorker] Using template ${templateId}`);
+  const apiKey = process.env.SENDGRID_API_KEY;
+  const from = process.env.SENDGRID_FROM_EMAIL;
+  if (!apiKey || !from) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SendGrid is not configured; email job will retry');
+    }
+    logger.warn('[EmailWorker] SendGrid unconfigured — skipping delivery (non-production)');
+    return { to, subject, status: 'skipped' as const };
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  const response = await fetch(SENDGRID_API_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: from },
+      subject,
+      content: [
+        {
+          type: 'text/plain',
+          value: body ?? `Ricton Health notification: ${subject}`,
+        },
+        ...(html || templateId ? [{ type: 'text/html', value: html ?? `<p>${subject}</p>` }] : []),
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`SendGrid delivery failed: ${response.status} ${response.statusText}`);
+  }
 
   logger.info(`[EmailWorker] Email sent to ${to}`);
-  return { to, subject, status: 'sent' };
-};
+  return { to, subject, status: 'sent' as const };
+}
 
-const processSms = async (job: { data: SmsJob }) => {
-  const { to, message } = job.data;
+const processEmail = async (job: { data: EmailJob }) => sendEmailViaProvider(job.data);
+
+export async function sendSmsViaProvider(input: {
+  to: string;
+  message: string;
+}): Promise<{ to: string; status: 'sent' | 'skipped' }> {
+  const { to, message } = input;
   logger.info(`[SmsWorker] Sending SMS to ${to}: ${message.slice(0, 50)}...`);
 
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_PHONE_NUMBER;
+  if (!accountSid || !authToken || !from) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Twilio is not configured; SMS job will retry');
+    }
+    logger.warn('[SmsWorker] Twilio unconfigured — skipping delivery (non-production)');
+    return { to, status: 'skipped' as const };
+  }
+
+  const params = new URLSearchParams({ To: to, From: from, Body: message });
+  const response = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Twilio delivery failed: ${response.status} ${response.statusText}`);
+  }
 
   logger.info(`[SmsWorker] SMS sent to ${to}`);
-  return { to, status: 'sent' };
-};
+  return { to, status: 'sent' as const };
+}
+
+const processSms = async (job: { data: SmsJob }) => sendSmsViaProvider(job.data);
 
 const processNotification = async (job: { data: NotificationJob }) => {
   const { userId, type, title, body, channel, metadata } = job.data;
@@ -101,6 +181,14 @@ export const startJobProcessors = () => {
     logger.error(`[WebhookWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
+  const renewalWorker = startRenewalWorker();
+  scheduleRenewalSweep().catch((err) =>
+    logger.error({ err }, 'Failed to schedule subscription renewal sweep')
+  );
+
+  const outboxWorker = startOutboxWorker();
+  scheduleOutboxRelay().catch((err) => logger.error({ err }, 'Failed to schedule outbox relay'));
+
   logger.info('[JobProcessors] All workers started');
-  return { emailWorker, smsWorker, notificationWorker, webhookWorker };
+  return { emailWorker, smsWorker, notificationWorker, webhookWorker, renewalWorker, outboxWorker };
 };

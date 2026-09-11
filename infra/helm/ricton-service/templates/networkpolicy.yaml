@@ -1,0 +1,50 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ricton-service.fullname" . }}
+  labels:
+    {{- include "ricton-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ricton-service.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Gateway / ingress controller inside the namespace.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.allowIngressFrom | nindent 14 }}
+      ports:
+        - port: {{ .Values.service.targetPort }}
+          protocol: TCP
+  egress:
+    # DNS must always be reachable.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Managed Postgres / Redis endpoints (CIDR or pod selectors supplied per env).
+    - to:
+        {{- toYaml .Values.networkPolicy.allowEgressTo | nindent 8 }}
+      ports:
+        - port: {{ .Values.networkPolicy.databasePort }}
+          protocol: TCP
+        - port: {{ .Values.networkPolicy.redisPort }}
+          protocol: TCP
+    # Provider webhooks / APIs (Twilio, SendGrid, Paystack) need HTTPS egress.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 443
+          protocol: TCP
+{{- end }}

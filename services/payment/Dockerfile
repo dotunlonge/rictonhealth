@@ -1,20 +1,5 @@
-FROM node:20-alpine AS builder
+FROM ricton-base AS builder
 
-RUN apk add --no-cache openssl curl
-
-WORKDIR /app
-
-COPY package*.json ./
-COPY tsconfig*.json ./
-
-COPY packages/ ./packages/
-COPY services/payment/ ./services/payment/
-
-RUN npm install
-
-RUN npm run generate --workspace=@ricton/db
-
-RUN npm run build --workspace=@ricton/shared --workspace=@ricton/db --workspace=@ricton/auth-middleware
 RUN npm run build --workspace=@ricton/payment-service
 
 FROM node:20-alpine AS runner
@@ -32,6 +17,6 @@ COPY --from=builder /app/services/payment ./services/payment
 
 EXPOSE 3007
 
-HEALTHCHECK --interval=10s --timeout=5s --retries=5   CMD curl -f http://localhost:3007/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 CMD curl -f http://localhost:3007/health || exit 1
 
-CMD ["node", "services/payment/dist/src/index.js"]
+CMD ["node", "services/payment/dist/index.js"]

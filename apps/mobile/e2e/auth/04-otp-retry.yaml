@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Auth - wrong/expired OTP + resend
+---
+- clearState
+- launchApp
+# TODO: wrong code shows error; resend via POST /api/auth/otp/send (Phase 2 device run)

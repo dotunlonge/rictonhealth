@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Messages - 01-empty
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 6). Idempotent send covered by phase6.test.ts.

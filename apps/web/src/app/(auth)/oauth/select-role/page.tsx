@@ -1,25 +1,31 @@
 'use client';
 
-import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import { loginWithGoogleToken, loginWithAppleToken } from '@/lib/oauth';
+import {
+  clearPendingOAuthRoleSelection,
+  getPendingOAuthRoleSelection,
+  loginWithAppleToken,
+  loginWithGoogleToken,
+} from '@/lib/oauth';
 import Navbar from '@/components/Navbar';
+import { useAppStore } from '@/store/useAppStore';
 
 function SelectRoleContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const email = searchParams.get('email') || '';
-  const token = searchParams.get('token') || '';
-  const provider = searchParams.get('provider') || 'google';
+  const setUser = useAppStore((state) => state.setUser);
+  const pending = getPendingOAuthRoleSelection();
+  const email = pending?.email || '';
 
-  const [selectedRole, setSelectedRole] = useState<'PATIENT' | 'CONSULTANT' | 'PHARMACIST' | 'HOSPITAL_ADMIN'>('PATIENT');
+  const [selectedRole, setSelectedRole] = useState<'PATIENT' | 'CONSULTANT' | 'PHARMACIST'>(
+    'PATIENT'
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleCompleteSignUp = async () => {
-    if (!token) {
+    if (!pending?.token) {
       setErrorMsg('Session expired. Please try signing in again.');
       return;
     }
@@ -29,22 +35,21 @@ function SelectRoleContent() {
 
     try {
       let res;
-      if (provider === 'apple') {
-        res = await loginWithAppleToken(token, selectedRole);
+      if (pending.provider === 'apple') {
+        res = await loginWithAppleToken(pending.token, selectedRole);
       } else {
-        res = await loginWithGoogleToken(token, selectedRole);
+        res = await loginWithGoogleToken(pending.token, selectedRole);
       }
 
       setIsLoading(false);
 
       if (res.success && res.data?.token) {
-        api.setToken(res.data.token);
+        clearPendingOAuthRoleSelection();
+        api.setToken(res.data.token, res.data?.refreshToken ?? null, res.data?.user?.role ?? null);
         if (res.data.user) {
-          localStorage.setItem('ricton_user', JSON.stringify(res.data.user));
+          setUser(res.data.user);
         }
-        if (selectedRole === 'HOSPITAL_ADMIN') {
-          router.push('/onboarding/hospital');
-        } else if (selectedRole === 'CONSULTANT') {
+        if (selectedRole === 'CONSULTANT') {
           router.push('/onboarding/doctor');
         } else if (selectedRole === 'PHARMACIST') {
           router.push('/onboarding/pharmacy');
@@ -68,7 +73,12 @@ function SelectRoleContent() {
       desc: 'Access healthcare, book appointments, view prescriptions and lab results.',
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.75}
+            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+          />
         </svg>
       ),
     },
@@ -78,7 +88,12 @@ function SelectRoleContent() {
       desc: 'Provide consultations, write digital prescriptions, manage clinical appointments.',
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 12h6m-3-3v6m-9 1a9 9 0 1118 0 9 9 0 01-18 0z" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.75}
+            d="M9 12h6m-3-3v6m-9 1a9 9 0 1118 0 9 9 0 01-18 0z"
+          />
         </svg>
       ),
     },
@@ -88,17 +103,12 @@ function SelectRoleContent() {
       desc: 'Fulfill digital prescriptions, manage drug inventory and dispense medication.',
       icon: (
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L5.6 15.12a2 2 0 00-1.8.568l-.4.4a2 2 0 000 2.828l.4.4a2 2 0 001.8.568l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.8-.568l.4-.4a2 2 0 000-2.828l-.4-.4z" />
-        </svg>
-      ),
-    },
-    {
-      key: 'HOSPITAL_ADMIN',
-      title: 'Hospital / Facility',
-      desc: 'Manage clinical staff, hospital admissions, billing and facility operations.',
-      icon: (
-        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.75}
+            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L5.6 15.12a2 2 0 00-1.8.568l-.4.4a2 2 0 000 2.828l.4.4a2 2 0 001.8.568l2.387-.477a6 6 0 003.86-.517l.318-.158a6 6 0 013.86-.517l2.387.477a2 2 0 001.8-.568l.4-.4a2 2 0 000-2.828l-.4-.4z"
+          />
         </svg>
       ),
     },
@@ -113,14 +123,21 @@ function SelectRoleContent() {
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-[#1c7bcf]/10 text-[#1c7bcf] mx-auto mb-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
             </svg>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
             Welcome to Ricton!
           </h1>
           <p className="text-slate-500 text-sm sm:text-base max-w-md mx-auto">
-            {email ? `Setting up account for ${email}.` : 'Please select how you will be using Ricton to finish your account setup.'}
+            {email
+              ? `Setting up account for ${email}.`
+              : 'Please select how you will be using Ricton to finish your account setup.'}
           </p>
         </div>
 
@@ -146,10 +163,14 @@ function SelectRoleContent() {
                 }`}
               >
                 <div className="flex items-center justify-between w-full">
-                  <div className={`p-3 rounded-2xl ${isSelected ? 'bg-[#1c7bcf] text-white' : 'bg-slate-100 text-slate-700'}`}>
+                  <div
+                    className={`p-3 rounded-2xl ${isSelected ? 'bg-[#1c7bcf] text-white' : 'bg-slate-100 text-slate-700'}`}
+                  >
                     {r.icon}
                   </div>
-                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-[#1c7bcf] bg-[#1c7bcf]' : 'border-slate-300'}`}>
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-[#1c7bcf] bg-[#1c7bcf]' : 'border-slate-300'}`}
+                  >
                     {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
                   </div>
                 </div>
@@ -177,9 +198,5 @@ function SelectRoleContent() {
 }
 
 export default function SelectRolePage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500 font-semibold">Loading...</div>}>
-      <SelectRoleContent />
-    </Suspense>
-  );
+  return <SelectRoleContent />;
 }

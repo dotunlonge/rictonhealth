@@ -20,13 +20,15 @@ import {
   createCors,
 } from '@ricton/shared';
 import notificationRoutes from './routes/notification.routes';
+import internalRoutes from './routes/internal.routes';
+import { startJobProcessors } from '@ricton/shared/jobs';
 
 dotenv.config({ path: '../../.env' });
 
 initSentry('notification-service');
 
 const app = express();
-const PORT = process.env.NOTIFICATION_PORT || 3009;
+const PORT = process.env.NOTIFICATION_PORT || 3016;
 
 app.set('trust proxy', true);
 app.use(helmet());
@@ -59,6 +61,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   }
 });
 
+app.use('/api/internal', internalRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 app.use((_req: Request, res: Response) => {
@@ -78,6 +81,10 @@ const server = app.listen(PORT, () => {
   logger.info(`Notification service listening on port ${PORT}`);
 });
 
+// Delivery workers (email/SMS/notification/webhook, subscription renewals,
+// OTP outbox relay). Without these, queued work would never be delivered.
+const jobProcessors = startJobProcessors();
+
 server.timeout = 30000;
 
 setupGracefulShutdown({
@@ -85,6 +92,7 @@ setupGracefulShutdown({
   server,
   serviceName: 'notification-service',
   onShutdown: async () => {
+    await Promise.all(Object.values(jobProcessors).map((worker) => worker.close()));
     await prisma.$disconnect();
     await redis.quit();
   },

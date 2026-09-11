@@ -1,0 +1,22 @@
+appId: com.ricton.health
+name: Foundation - authenticated session survives a relaunch
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
+---
+- clearState
+- launchApp
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- stopApp
+- launchApp
+- assertVisible:
+    id: patient.home.screen

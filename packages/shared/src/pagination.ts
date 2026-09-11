@@ -10,6 +10,22 @@ export interface CursorPaginatedResult<T> {
   hasMore: boolean;
 }
 
+export function parsePage(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+export function parseOffset(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export function parseLimit(value: unknown, defaultLimit = 20, maxLimit = 200): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return defaultLimit;
+  return Math.min(parsed, maxLimit);
+}
+
 export function createCursorKey(
   baseKey: string,
   cursor: string | undefined,

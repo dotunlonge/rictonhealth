@@ -1,0 +1,8 @@
+appId: com.ricton.health
+name: Prescriptions - 06-dispensed-history
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 4). Orderability covered by clinical.test.ts.
+- assertVisible:
+    id: patient.prescriptions.screen

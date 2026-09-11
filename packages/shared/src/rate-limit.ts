@@ -12,6 +12,9 @@ export function rateLimit(options: RateLimitOptions) {
   const { windowMs, max, keyPrefix = 'rl' } = options;
 
   return (req: Request, res: Response, next: NextFunction) => {
+    if (process.env.NODE_ENV === 'test') {
+      return next();
+    }
     const key = `${keyPrefix}:${req.ip}:${req.path}`;
     const now = Date.now();
 

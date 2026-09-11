@@ -31,7 +31,7 @@ export default function AdminProvidersPage() {
 
   const handleVerify = async (providerId: string) => {
     setVerifying(providerId);
-    const res = await api.post(`/admin/providers/${providerId}/verify`);
+    const res = await api.post(`/admin/providers/${providerId}/verify`, { verified: true });
     setVerifying(null);
     if (res.success) {
       setProviders((prev) => prev.filter((p) => p.id !== providerId));

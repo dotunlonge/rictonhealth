@@ -1,0 +1,26 @@
+appId: com.ricton.health
+name: Foundation - logout clears the persisted session
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
+---
+- clearState
+- launchApp
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.signOut
+- assertVisible:
+    id: auth.signIn.screen
+- stopApp
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen

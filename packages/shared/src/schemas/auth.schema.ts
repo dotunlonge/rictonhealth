@@ -1,66 +1,84 @@
 import { z } from './zod';
 import { registry } from './openapi.registry';
 
+const hasExactlyOneIdentifier = (data: { email?: unknown; phone?: unknown }) =>
+  Boolean(data.email) !== Boolean(data.phone);
+
+const hasAtLeastOneIdentifier = (data: { email?: unknown; phone?: unknown }) =>
+  Boolean(data.email) || Boolean(data.phone);
+
+const identifierRefinement = {
+  message: 'Provide exactly one of email or phone',
+  path: ['email'] as string[],
+};
+
+const registrationIdentifierRefinement = {
+  message: 'Provide an email address, a phone number, or both',
+  path: ['email'] as string[],
+};
+
+const StrongPasswordSchema = z
+  .string()
+  .min(8)
+  .regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    'Password must contain at least one uppercase letter, one lowercase letter, one number and one special character'
+  );
+
 export const RegisterInputSchema = registry.register(
   'RegisterInput',
   z
     .object({
       email: z.string().email().optional(),
       phone: z.string().optional(),
-      password: z
-        .string()
-        .min(8)
-        .regex(
-          /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-          'Password must contain at least one uppercase letter, one lowercase letter, one number and one special character'
-        ),
-      role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+      password: StrongPasswordSchema,
+      role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST']),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
       consentVersion: z.string().min(1, 'consentVersion is required'),
     })
-    .refine((data) => data.email || data.phone, {
-      message: 'Either email or phone is required',
-      path: ['email'],
-    })
+    .refine(hasAtLeastOneIdentifier, registrationIdentifierRefinement)
 );
 
 export const LoginInputSchema = registry.register(
   'LoginInput',
-  z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    password: z.string(),
-    totpCode: z.string().optional(),
-    rememberMe: z.boolean().optional(),
-  })
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      password: z.string(),
+      totpCode: z.string().optional(),
+      rememberMe: z.boolean().optional(),
+    })
+    .refine(hasExactlyOneIdentifier, identifierRefinement)
 );
 
 export const SendOtpInputSchema = registry.register(
   'SendOtpInput',
-  z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-  })
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+    })
+    .refine(hasExactlyOneIdentifier, identifierRefinement)
 );
 
 export const VerifyOtpInputSchema = registry.register(
   'VerifyOtpInput',
-  z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    otp: z.string().length(6),
-  })
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      otp: z.string().length(6),
+    })
+    .refine(hasExactlyOneIdentifier, identifierRefinement)
 );
 
 export const OAuthInputSchema = registry.register(
   'OAuthInput',
   z.object({
     token: z.string(),
-    role: z
-      .enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN', 'ADMIN'])
-      .or(z.literal(''))
-      .optional(),
+    role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST']).or(z.literal('')).optional(),
   })
 );
 
@@ -73,18 +91,14 @@ export const RefreshTokenInputSchema = registry.register(
 
 export const PasswordResetInputSchema = registry.register(
   'PasswordResetInput',
-  z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    otp: z.string().length(6),
-    newPassword: z
-      .string()
-      .min(8)
-      .regex(
-        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
-        'Password must contain at least one uppercase letter, one lowercase letter, one number and one special character'
-      ),
-  })
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      otp: z.string().length(6),
+      newPassword: StrongPasswordSchema,
+    })
+    .refine(hasExactlyOneIdentifier, identifierRefinement)
 );
 
 export const AuthResponseSchema = registry.register(
@@ -305,10 +319,20 @@ export const VerifyPhoneInputSchema = registry.register(
 
 export const VerifyConfirmInputSchema = registry.register(
   'VerifyConfirmInput',
+  z
+    .object({
+      email: z.string().email().optional(),
+      phone: z.string().optional(),
+      otp: z.string().length(6),
+    })
+    .refine(hasExactlyOneIdentifier, identifierRefinement)
+);
+
+export const ChangePasswordInputSchema = registry.register(
+  'ChangePasswordInput',
   z.object({
-    email: z.string().email().optional(),
-    phone: z.string().optional(),
-    otp: z.string().length(6),
+    currentPassword: z.string().min(1),
+    newPassword: StrongPasswordSchema,
   })
 );
 
@@ -324,6 +348,24 @@ export type AuthResponseSchema = z.infer<typeof AuthResponseSchema>;
 export type VerifyEmailInputSchema = z.infer<typeof VerifyEmailInputSchema>;
 export type VerifyPhoneInputSchema = z.infer<typeof VerifyPhoneInputSchema>;
 export type VerifyConfirmInputSchema = z.infer<typeof VerifyConfirmInputSchema>;
+export type ChangePasswordInputSchema = z.infer<typeof ChangePasswordInputSchema>;
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/auth/password/change',
+  summary: 'Change the authenticated user password',
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: { 'application/json': { schema: ChangePasswordInputSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Password changed successfully' },
+    400: { description: 'Current password is incorrect or the new password is invalid' },
+    401: { description: 'Unauthorized' },
+  },
+});
 
 registry.registerPath({
   method: 'post',
@@ -363,6 +405,9 @@ registry.registerPath({
     },
   },
   responses: {
-    200: { description: 'Contact verified successfully' },
+    200: {
+      description: 'Contact verified successfully and authenticated session created',
+      content: { 'application/json': { schema: AuthResponseSchema } },
+    },
   },
 });

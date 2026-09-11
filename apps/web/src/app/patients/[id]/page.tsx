@@ -2,358 +2,189 @@
 
 import { useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
-import {
-  User,
-  Phone,
-  Mail,
-  Calendar,
-  MapPin,
-  FileText,
-  Pill,
-  Video,
-  Clock,
-  ChevronLeft,
-  Plus,
-  CheckCircle2,
-  Download,
-  Stethoscope,
-  MoreVertical,
-  Activity,
-} from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
+
+interface MedicalHistoryEntry {
+  id?: string;
+  condition: string;
+  diagnosedAt?: string;
+  notes?: string;
+}
 
 interface PatientDetail {
   id: string;
-  name: string;
-  badge: string;
-  avatarUrl?: string;
-  dob: string;
-  gender: string;
-  email: string;
-  serialNumber: string;
-  phone: string;
-  address: string;
-  medicalHistory: { id: string; condition: string; date: string }[];
-  prescriptions: { id: string; date: string; medication: string; dose: string; form: string; quantity: string }[];
-  appointments: { id: string; date: string; type: string; doctor: string }[];
-  telemedicine: { id: string; name: string; day: string }[];
+  email: string | null;
+  phone: string | null;
+  status: string;
+  createdAt: string;
+  patientProfile: {
+    firstName: string;
+    lastName: string;
+    avatarUrl?: string | null;
+    dateOfBirth?: string | null;
+    gender?: string | null;
+    bloodType?: string | null;
+    allergies?: string[] | null;
+    medicalHistory?: MedicalHistoryEntry[] | null;
+  } | null;
+  prescriptionsAsPatient: Array<{
+    id: string;
+    status: string;
+    createdAt: string;
+    items: Array<{
+      id: string;
+      drugName: string;
+      dosage: string;
+      quantity: number;
+      frequency: string;
+      duration: string;
+    }>;
+  }>;
+  appointmentsAsPatient: Array<{
+    id: string;
+    scheduledAt: string;
+    type: string;
+    status: string;
+    provider: {
+      id: string;
+      providerProfile: {
+        firstName: string;
+        lastName: string;
+        title?: string | null;
+      } | null;
+    };
+  }>;
 }
+
+const formatDate = (value?: string | null) =>
+  value ? new Date(value).toLocaleDateString() : '—';
 
 export default function PatientDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const patientId = (params?.id as string) || 'PT-1001';
-
+  const patientId = params?.id as string | undefined;
   const [patient, setPatient] = useState<PatientDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     async function loadPatientDetail() {
+      if (!patientId) return;
       setLoading(true);
-      const res = await api.get(`/users/patients/${patientId}`);
+      setError('');
+      const res = await api.get<PatientDetail>(`/users/patients/${patientId}`);
       if (res.success && res.data) {
-        const p = res.data;
-        setPatient({
-          id: p.id || patientId,
-          name: p.name || `${p.firstName || 'Patient'} ${p.lastName || ''}`.trim(),
-          badge: p.badge || 'Active Patient',
-          avatarUrl: p.avatarUrl,
-          dob: p.dob || p.patientProfile?.dateOfBirth || 'N/A',
-          gender: p.gender || p.patientProfile?.gender || 'Unspecified',
-          email: p.email || 'N/A',
-          serialNumber: p.serialNumber || `#09${patientId.slice(-4)}`,
-          phone: p.phone || 'N/A',
-          address: p.address || 'Clinical Ward',
-          medicalHistory: p.medicalHistory || [],
-          prescriptions: p.prescriptions || [],
-          appointments: p.appointments || [],
-          telemedicine: p.telemedicine || [],
-        });
+        setPatient(res.data);
       } else {
         setPatient(null);
+        setError(res.error?.message || 'Unable to load this patient record.');
       }
       setLoading(false);
     }
-    loadPatientDetail();
+    void loadPatientDetail();
   }, [patientId]);
 
-  const triggerAction = (msg: string) => {
-    setActionMsg(msg);
-    setTimeout(() => setActionMsg(null), 3000);
-  };
-
-  if (loading || !patient) {
+  if (loading) {
     return (
-      <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN', 'ADMIN']}>
-        <div className="p-8 text-center text-xs font-bold text-slate-400">Loading patient clinical profile...</div>
+      <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']}>
+        <div className="p-8 text-center text-xs font-bold text-slate-400">Loading patient record…</div>
       </SidebarLayout>
     );
   }
 
+  if (!patient) {
+    return (
+      <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']}>
+        <div className="p-8 text-center text-xs font-bold text-rose-600">{error}</div>
+      </SidebarLayout>
+    );
+  }
+
+  const profile = patient.patientProfile;
+  const name = `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim() || patient.email || 'Unnamed patient';
+  const medicalHistory = Array.isArray(profile?.medicalHistory) ? profile.medicalHistory : [];
+
   return (
-    <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN', 'ADMIN']}>
+    <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']}>
       <div className="space-y-8 max-w-6xl mx-auto pb-12">
-        {/* Navigation Back Header */}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => router.push('/patients')}
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#1877F2] transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>Back to Patients Directory</span>
-          </button>
-        </div>
+        <button type="button" onClick={() => router.push('/patients')} className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-[#1877F2]">
+          <ChevronLeft className="w-4 h-4" /> Back to patient directory
+        </button>
 
-        {actionMsg && (
-          <div className="p-4 rounded-2xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{actionMsg}</span>
-          </div>
-        )}
-
-        {/* Patient Profile Header Card (Patient Page 8 H design) */}
-        <div className="bg-[#D9E4FF]/60 rounded-3xl p-8 shadow-xs border border-blue-100/60 relative">
+        <section className="bg-[#D9E4FF]/60 rounded-3xl p-8 border border-blue-100/60">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            {/* Avatar Photo Container */}
-            <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white shadow-md shrink-0 bg-slate-200 flex items-center justify-center">
-              {patient.avatarUrl ? (
-                <img src={patient.avatarUrl} alt={patient.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full bg-[#1877F2] text-white flex items-center justify-center text-3xl font-black">
-                  {patient.name.charAt(0)}
-                </div>
-              )}
+            <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-white bg-[#1877F2] text-white flex items-center justify-center text-3xl font-black">
+              {profile?.avatarUrl ? <img src={profile.avatarUrl} alt={name} className="w-full h-full object-cover" /> : name.charAt(0).toUpperCase()}
             </div>
-
-            <div className="space-y-3 text-center sm:text-left flex-1">
-              <div className="flex items-center justify-center sm:justify-start gap-3">
-                <h1 className="text-2xl font-black text-slate-900">{patient.name}</h1>
-                <span className="px-3 py-1 bg-white/80 border border-blue-200 text-[#1877F2] font-bold text-[10px] rounded-full uppercase tracking-wider">
-                  {patient.badge}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-center sm:justify-start gap-2">
-                <button
-                  type="button"
-                  onClick={() => router.push('/telemedicine')}
-                  className="px-5 py-1.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs transition-all shadow-xs"
-                >
-                  Call
-                </button>
-                <button
-                  type="button"
-                  onClick={() => triggerAction('MDTs Session Initiated')}
-                  className="px-5 py-1.5 bg-white hover:bg-slate-50 border border-blue-200 text-[#1877F2] font-bold rounded-full text-xs transition-all shadow-xs"
-                >
-                  MDTs
-                </button>
-              </div>
-            </div>
-
-            <button type="button" className="text-slate-500 hover:text-slate-900 p-2">
-              <MoreVertical className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Action Button Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => triggerAction('Patient Checked In Successfully')}
-              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-xl text-xs transition-all shadow-xs"
-            >
-              Check in
-            </button>
-            <button
-              type="button"
-              onClick={() => triggerAction('Patient Checked Out Successfully')}
-              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-xl text-xs transition-all shadow-xs"
-            >
-              Check out
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.push('/appointments')}
-              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-xl text-xs transition-all shadow-xs"
-            >
-              New Appointment
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push('/prescriptions')}
-              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-xl text-xs transition-all shadow-xs"
-            >
-              Add Prescription
-            </button>
-          </div>
-        </div>
-
-        {/* Personal Details Card */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">
-            Personal details
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-8 text-xs font-semibold">
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Date of Birth:</span>
-              <span className="text-slate-900 font-bold">{patient.dob}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Gender:</span>
-              <span className="text-slate-900 font-bold">{patient.gender}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Email:</span>
-              <span className="text-slate-900 font-bold">{patient.email}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Serial Number:</span>
-              <span className="text-slate-900 font-bold">{patient.serialNumber}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Phone Number:</span>
-              <span className="text-slate-900 font-bold">{patient.phone}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-slate-100">
-              <span className="text-slate-500">Address:</span>
-              <span className="text-slate-900 font-bold">{patient.address}</span>
+            <div>
+              <h1 className="text-2xl font-black text-slate-900">{name}</h1>
+              <p className="text-xs text-slate-500 mt-1">Patient ID: {patient.id}</p>
+              <p className="text-xs text-slate-500">Account status: {patient.status}</p>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Medical History Section */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">Medical history</h2>
-            <button
-              type="button"
-              onClick={() => router.push(`/patients/${patient.id}/medical-history/diff-breathing`)}
-              className="px-3.5 py-1 bg-[#1877F2] text-white font-bold rounded-full text-[10px] hover:bg-blue-700 transition-all"
-            >
-              View all
-            </button>
-          </div>
-
-          <div className="divide-y divide-slate-100 text-xs font-semibold">
-            {patient.medicalHistory.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => router.push(`/patients/${patient.id}/medical-history/${item.id}`)}
-                className="flex items-center justify-between py-3 hover:bg-slate-50 px-2 rounded-xl cursor-pointer transition-colors"
-              >
-                <span className="text-slate-800 font-bold">{item.condition}</span>
-                <span className="text-slate-500">{item.date}</span>
-              </div>
+        <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80">
+          <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">Personal details</h2>
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-8 text-xs font-semibold mt-3">
+            {[
+              ['Date of birth', formatDate(profile?.dateOfBirth)],
+              ['Gender', profile?.gender || '—'],
+              ['Blood type', profile?.bloodType || '—'],
+              ['Email', patient.email || '—'],
+              ['Phone', patient.phone || '—'],
+              ['Allergies', profile?.allergies?.join(', ') || 'None recorded'],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-4 py-3 border-b border-slate-100"><dt className="text-slate-500">{label}</dt><dd className="text-slate-900 font-bold text-right">{value}</dd></div>
             ))}
-          </div>
-        </div>
+          </dl>
+        </section>
 
-        {/* E-Prescription Section */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">E-Prescription</h2>
-            <button
-              type="button"
-              onClick={() => router.push('/prescriptions')}
-              className="px-3.5 py-1 bg-[#1877F2] text-white font-bold rounded-full text-[10px] hover:bg-blue-700 transition-all"
-            >
-              View all
-            </button>
-          </div>
+        <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80">
+          <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">Medical history</h2>
+          {medicalHistory.length === 0 ? (
+            <p className="py-6 text-xs text-slate-500">No medical-history entries have been recorded.</p>
+          ) : (
+            <div className="divide-y divide-slate-100 text-xs">
+              {medicalHistory.map((entry, index) => {
+                const entryId = entry.id || String(index);
+                return (
+                  <button key={entryId} type="button" onClick={() => router.push(`/patients/${patient.id}/medical-history/${encodeURIComponent(entryId)}`)} className="w-full flex items-center justify-between gap-4 py-4 text-left hover:bg-slate-50 px-2 rounded-xl">
+                    <span><strong className="block text-slate-900">{entry.condition}</strong><span className="text-slate-500">{entry.notes || 'No notes recorded'}</span></span>
+                    <span className="text-slate-500 shrink-0">{formatDate(entry.diagnosedAt)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-semibold">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-100 font-bold">
-                  <th className="pb-3 px-2">Date</th>
-                  <th className="pb-3 px-2">Medication</th>
-                  <th className="pb-3 px-2">Dose</th>
-                  <th className="pb-3 px-2">Form</th>
-                  <th className="pb-3 px-2">Quantity</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {patient.prescriptions.map((rx) => (
-                  <tr key={rx.id}>
-                    <td className="py-3 px-2 text-slate-500">{rx.date}</td>
-                    <td className="py-3 px-2 font-bold text-slate-900">{rx.medication}</td>
-                    <td className="py-3 px-2">{rx.dose}</td>
-                    <td className="py-3 px-2">{rx.form}</td>
-                    <td className="py-3 px-2 font-bold text-[#1877F2]">{rx.quantity}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80">
+          <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">Prescriptions</h2>
+          {patient.prescriptionsAsPatient.length === 0 ? <p className="py-6 text-xs text-slate-500">No prescriptions found.</p> : patient.prescriptionsAsPatient.map((prescription) => (
+            <div key={prescription.id} className="py-4 border-b border-slate-100 last:border-0">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">{formatDate(prescription.createdAt)} · {prescription.status}</p>
+              <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                {prescription.items.map((item) => <li key={item.id}><strong>{item.drugName}</strong> — {item.dosage}, {item.frequency} for {item.duration} · Qty {item.quantity}</li>)}
+              </ul>
+            </div>
+          ))}
+        </section>
 
-        {/* Appointment Section */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">Appointment</h2>
-            <button
-              type="button"
-              onClick={() => router.push('/appointments')}
-              className="px-3.5 py-1 bg-[#1877F2] text-white font-bold rounded-full text-[10px] hover:bg-blue-700 transition-all"
-            >
-              View all
-            </button>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-semibold">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-100 font-bold">
-                  <th className="pb-3 px-2">Date</th>
-                  <th className="pb-3 px-2">Type</th>
-                  <th className="pb-3 px-2">Doctor</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {patient.appointments.map((apt) => (
-                  <tr key={apt.id}>
-                    <td className="py-3 px-2 text-slate-500">{apt.date}</td>
-                    <td className="py-3 px-2 font-bold text-slate-900">{apt.type}</td>
-                    <td className="py-3 px-2 font-bold text-[#1877F2]">{apt.doctor}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Telemedicine Section */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">Tele medicine</h2>
-            <button
-              type="button"
-              onClick={() => router.push('/telemedicine')}
-              className="px-3.5 py-1 bg-[#1877F2] text-white font-bold rounded-full text-[10px] hover:bg-blue-700 transition-all"
-            >
-              View all
-            </button>
-          </div>
-
-          <div className="divide-y divide-slate-100 text-xs font-semibold">
-            {patient.telemedicine.map((tm) => (
-              <div key={tm.id} className="flex items-center justify-between py-3 px-2">
-                <span className="text-slate-800 font-bold">{tm.name}</span>
-                <span className="text-slate-500">{tm.day}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <section className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80">
+          <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-3">Appointments</h2>
+          {patient.appointmentsAsPatient.length === 0 ? <p className="py-6 text-xs text-slate-500">No appointments found.</p> : (
+            <div className="divide-y divide-slate-100 text-xs">
+              {patient.appointmentsAsPatient.map((appointment) => {
+                const provider = appointment.provider.providerProfile;
+                const providerName = provider ? `${provider.title || ''} ${provider.firstName} ${provider.lastName}`.trim() : 'Clinician unavailable';
+                return <div key={appointment.id} className="grid grid-cols-1 md:grid-cols-4 gap-3 py-4"><span>{new Date(appointment.scheduledAt).toLocaleString()}</span><span>{appointment.type}</span><span>{appointment.status}</span><span className="font-bold text-[#1877F2]">{providerName}</span></div>;
+              })}
+            </div>
+          )}
+        </section>
       </div>
     </SidebarLayout>
   );

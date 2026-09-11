@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
+import {
+  getSubscriptionCheckoutUrl,
+  mapSubscriptionPlan,
+  unwrapSubscriptionHistory,
+} from '@/lib/api-contract-mappers';
 
 const HEX_BG = `url("data:image/svg+xml,%3Csvg width='60' height='103.92' viewBox='0 0 60 103.92' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 103.92L0 86.6V51.96l30-17.32 30 17.32v34.64l-30 17.32zM30 86.6l20-11.55V51.96L30 40.41 10 51.96v23.09L30 86.6z' fill='%23FFFFFF' fill-opacity='1' fill-rule='evenodd'/%3E%3C/svg%3E")`;
 
@@ -63,37 +68,18 @@ export default function SubscriptionPage() {
 
       if (plansRes.success && plansRes.data) {
         const rawPlans = Array.isArray(plansRes.data) ? plansRes.data : plansRes.data.plans || [];
-        setPlans(
-          rawPlans.map((p: any) => ({
-            ...p,
-            features: featuresByPlan[p.name?.toUpperCase()] || p.features || [],
-          }))
-        );
-      } else {
-        // Fallback display plans if endpoint not yet returning data
-        setPlans([
-          {
-            id: 'free',
-            name: 'FREE',
-            price: 0,
-            currency: 'NGN',
-            interval: 'month',
-            features: featuresByPlan['FREE'],
-          },
-          {
-            id: 'premium',
-            name: 'PREMIUM',
-            price: 49999,
-            currency: 'NGN',
-            interval: 'month',
-            features: featuresByPlan['PREMIUM'],
-          },
-        ]);
+        setPlans(rawPlans.map((plan: unknown) => {
+          const mapped = mapSubscriptionPlan(plan);
+          return {
+            ...mapped,
+            features: featuresByPlan[mapped.name.toUpperCase()] || mapped.features,
+          };
+        }));
       }
 
       if (myRes.success && myRes.data) setMySubscription(myRes.data);
       if (histRes.success && histRes.data) {
-        setHistory(Array.isArray(histRes.data) ? histRes.data : histRes.data.history || []);
+        setHistory(unwrapSubscriptionHistory(histRes.data));
       }
 
       setLoading(false);
@@ -105,10 +91,11 @@ export default function SubscriptionPage() {
     setUpgrading(true);
     const res = await api.post('/subscriptions/upgrade', { plan: 'PREMIUM' });
     setUpgrading(false);
-    if (res.success && res.data?.url) {
-      window.location.href = res.data.url;
+    const checkoutUrl = getSubscriptionCheckoutUrl(res.data);
+    if (res.success && checkoutUrl) {
+      window.location.href = checkoutUrl;
     } else {
-      alert(res.error?.message || 'Upgrade initiated. Complete payment to activate.');
+      alert(res.error?.message || 'Failed to initiate upgrade. Please try again.');
     }
   };
 
@@ -137,7 +124,7 @@ export default function SubscriptionPage() {
         </div>
         <nav className="flex-1 px-2 mt-4 space-y-1 overflow-y-auto">
           {[
-            { label: 'Home', href: '/dashboard/hospital', icon: '🏠' },
+            { label: 'Home', href: '/dashboard', icon: '🏠' },
             { label: 'Settings', href: '/settings', icon: '⚙️' },
             { label: 'Subscription', href: '/subscription', icon: '💎' },
             { label: 'Earnings', href: '/wallet', icon: '💳' },

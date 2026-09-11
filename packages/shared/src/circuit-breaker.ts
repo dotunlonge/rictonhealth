@@ -1,4 +1,3 @@
-import './types/opossum';
 import CircuitBreaker from 'opossum';
 import { logger } from './logger';
 

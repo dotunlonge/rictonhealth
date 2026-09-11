@@ -8,9 +8,14 @@ import {
 } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import { successResponse, NotFoundError, ValidationError, AppError } from '@ricton/shared';
+import crypto from 'crypto';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
+
+// Single source of truth for the premium price (kobo reconciliation included).
+const PREMIUM_PRICE_NGN = 5000;
+const PREMIUM_PRICE_KOBO = PREMIUM_PRICE_NGN * 100;
 
 /**
  * List available subscription plans
@@ -153,7 +158,7 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
     }
 
     // Calculate pricing
-    const premiumPrice = 5000; // NGN
+    const premiumPrice = PREMIUM_PRICE_NGN; // NGN
     const billingPeriod = 'monthly';
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -161,24 +166,14 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
       throw new NotFoundError('User not found');
     }
 
-    // Create active subscription record
-    const subscription = await prisma.subscription.create({
-      data: {
-        userId,
-        plan,
-        status: SubscriptionStatus.ACTIVE,
-        startsAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-        autoRenew: true,
-      },
-    });
-
     // Initialize Paystack payment
     if (!PAYSTACK_SECRET_KEY) {
       throw new AppError('Payment gateway not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
     const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/subscription/success`;
+    const subscriptionId = crypto.randomUUID();
+    const requestedReference = `SUB_${userId}_${crypto.randomUUID()}`;
 
     const paymentInitRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
@@ -190,14 +185,14 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
         email: user.email || 'user@ricton.tech',
         amount: premiumPrice * 100, // Paystack expects kobo
         currency: 'NGN',
-        reference: `SUB_${userId}_${Date.now()}`,
+        reference: requestedReference,
         callback_url: callbackUrl,
         metadata: {
           type: PaymentType.SUBSCRIPTION,
           plan,
           billingPeriod,
           userId,
-          subscriptionId: subscription.id,
+          subscriptionId,
         },
       }),
     });
@@ -214,28 +209,34 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
 
     const { authorization_url, reference } = paymentData.data;
 
-    // Create payment record
-    const payment = await prisma.payment.create({
-      data: {
-        userId,
-        amount: premiumPrice,
-        currency: 'NGN',
-        type: PaymentType.SUBSCRIPTION,
-        status: 'PENDING',
-        provider: PaymentProvider.PAYSTACK,
-        providerReference: reference,
-        metadata: {
-          subscriptionId: subscription.id,
-          plan,
-          billingPeriod,
+    // Persist both records only after Paystack accepted initialization. This
+    // prevents failed provider calls from leaving orphan PENDING subscriptions.
+    const { subscription } = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.create({
+        data: {
+          userId,
+          amount: premiumPrice,
+          currency: 'NGN',
+          type: PaymentType.SUBSCRIPTION,
+          status: 'PENDING',
+          provider: PaymentProvider.PAYSTACK,
+          providerReference: reference,
+          metadata: { subscriptionId, plan, billingPeriod },
         },
-      },
-    });
-
-    // Link payment to subscription
-    await prisma.subscription.update({
-      where: { id: subscription.id },
-      data: { paymentId: payment.id },
+      });
+      const subscription = await tx.subscription.create({
+        data: {
+          id: subscriptionId,
+          userId,
+          plan,
+          status: SubscriptionStatus.PENDING,
+          startsAt: new Date(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          autoRenew: true,
+          paymentId: payment.id,
+        },
+      });
+      return { payment, subscription };
     });
 
     res.status(200).json(
@@ -264,11 +265,14 @@ export const cancelSubscription = async (req: Request, res: Response, next: Next
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
 
+    // Both paid (ACTIVE) and unpaid (PENDING) upgrades are cancellable; the
+    // latter abandons the checkout before payment completes.
     const subscription = await prisma.subscription.findFirst({
       where: {
         userId,
-        status: SubscriptionStatus.ACTIVE,
+        status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.PENDING] },
       },
+      orderBy: { createdAt: 'desc' },
     });
 
     if (!subscription) {
@@ -279,12 +283,14 @@ export const cancelSubscription = async (req: Request, res: Response, next: Next
       throw new ValidationError('Cannot cancel Free plan');
     }
 
-    // Update subscription - keep active until expiry but disable auto-renew
+    // ACTIVE: keep access until expiry, disable auto-renew. PENDING (unpaid):
+    // abandon the upgrade entirely.
     const updated = await prisma.subscription.update({
       where: { id: subscription.id },
-      data: {
-        autoRenew: false,
-      },
+      data:
+        subscription.status === SubscriptionStatus.PENDING
+          ? { status: SubscriptionStatus.CANCELLED, autoRenew: false }
+          : { autoRenew: false },
     });
 
     res.status(200).json(
@@ -375,6 +381,23 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
       if (metadata.type === PaymentType.SUBSCRIPTION) {
         const { userId, plan, subscriptionId } = metadata;
 
+        // Reconcile provider amount/currency against the expected premium price
+        // before granting anything.
+        if (event.data.currency && event.data.currency !== 'NGN') {
+          throw new AppError(
+            `Unsupported subscription currency: ${event.data.currency}`,
+            400,
+            'PAYMENT_RECONCILIATION_FAILED'
+          );
+        }
+        if (event.data.amount !== PREMIUM_PRICE_KOBO) {
+          throw new AppError(
+            `Subscription amount mismatch: expected ${PREMIUM_PRICE_KOBO}, got ${event.data.amount}`,
+            400,
+            'PAYMENT_RECONCILIATION_FAILED'
+          );
+        }
+
         // Find the payment
         const payment = await prisma.payment.findUnique({
           where: { providerReference: event.data.reference },
@@ -391,7 +414,7 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
             },
           });
 
-          // Activate/update subscription
+          // Activate/update subscription (PENDING → ACTIVE only here)
           if (subscriptionId) {
             await prisma.subscription.update({
               where: { id: subscriptionId },
@@ -421,10 +444,14 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
       const metadata = event.data.metadata || {};
 
       if (metadata.type === PaymentType.SUBSCRIPTION && metadata.subscriptionId) {
-        // Mark payment as failed
+        // Mark payment as failed and retire the pending subscription.
         await prisma.payment.updateMany({
           where: { providerReference: event.data.reference },
           data: { status: 'FAILED' },
+        });
+        await prisma.subscription.updateMany({
+          where: { id: metadata.subscriptionId, status: SubscriptionStatus.PENDING },
+          data: { status: SubscriptionStatus.CANCELLED },
         });
       }
     }

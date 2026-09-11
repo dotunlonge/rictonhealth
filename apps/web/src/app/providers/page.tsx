@@ -5,21 +5,11 @@ import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { Stethoscope, Star, Clock, CheckCircle2, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-
-interface ProviderDoctor {
-  id: string;
-  name: string;
-  specialization: string;
-  rating: number;
-  shiftHours: string;
-  experienceYears: number;
-  avatarUrl?: string;
-  isAvailable: boolean;
-}
+import { mapProviderSummary, type ProviderSummary } from '@/lib/api-contract-mappers';
 
 export default function ProvidersPage() {
   const router = useRouter();
-  const [providers, setProviders] = useState<ProviderDoctor[]>([]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('All');
   const [loading, setLoading] = useState(true);
 
@@ -33,25 +23,14 @@ export default function ProvidersPage() {
           : res.data?.providers || []
         : [];
 
-      setProviders(
-        rawList.map((p: any) => ({
-          id: p.id,
-          name: `Dr. ${p.firstName || 'Medical'} ${p.lastName || 'Specialist'}`,
-          specialization: p.providerProfile?.specialization || 'General Practice & Telemedicine',
-          rating: p.providerProfile?.rating ? Number(p.providerProfile.rating) : 5.0,
-          shiftHours: '9:00 AM - 5:00 PM',
-          experienceYears: p.providerProfile?.experienceYears || 5,
-          avatarUrl: p.avatarUrl || p.providerProfile?.avatarUrl,
-          isAvailable: true,
-        }))
-      );
+      setProviders(rawList.map(mapProviderSummary));
       setLoading(false);
     }
     loadProviders();
   }, []);
 
   const filteredProviders = providers.filter(
-    (p) => selectedSpecialty === 'All' || p.specialization.toLowerCase().includes(selectedSpecialty.toLowerCase())
+    (p) => selectedSpecialty === 'All' || p.specialty.toLowerCase().includes(selectedSpecialty.toLowerCase())
   );
 
   return (
@@ -130,8 +109,8 @@ export default function ProvidersPage() {
 
                     <div>
                       <h2 className="font-extrabold text-slate-900 text-sm">{doc.name}</h2>
-                      <p className="text-xs font-bold text-[#1877F2]">{doc.specialization}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">{doc.experienceYears} Years Clinical Experience</p>
+                      <p className="text-xs font-bold text-[#1877F2]">{doc.specialty}</p>
+                      <p className="text-[10px] font-semibold text-slate-400">{doc.yearsExperience} Years Clinical Experience</p>
                     </div>
                   </div>
 
@@ -144,12 +123,12 @@ export default function ProvidersPage() {
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
                   <div className="flex items-center gap-2 text-slate-600 font-semibold">
                     <Clock className="w-4 h-4 text-[#1877F2]" />
-                    <span>{doc.shiftHours}</span>
+                    <span>View live appointment slots</span>
                   </div>
 
                   <div className="flex items-center gap-1 text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
                     <CheckCircle2 className="w-3 h-3" />
-                    <span>Available Today</span>
+                    <span>{doc.isVerified ? 'Verified provider' : 'Verification pending'}</span>
                   </div>
                 </div>
 

@@ -1,6 +1,6 @@
 services:
   test-db:
-    image: postgis/postgis:16-3.4-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: ricton_test_user
       POSTGRES_PASSWORD: ricton_test_password
@@ -9,6 +9,17 @@ services:
       - '5433:5432'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ricton_test_user -d ricton_test_db']
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  test-redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ricton_test_redis_password
+    ports:
+      - '127.0.0.1:6381:6379'
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a ricton_test_redis_password ping || exit 1']
       interval: 2s
       timeout: 5s
       retries: 10

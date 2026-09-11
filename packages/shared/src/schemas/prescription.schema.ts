@@ -59,6 +59,13 @@ export const SignPrescriptionInputSchema = registry.register(
   })
 );
 
+export const SendPrescriptionToPharmacyInputSchema = registry.register(
+  'SendPrescriptionToPharmacyInput',
+  z.object({
+    pharmacyId: z.string().uuid(),
+  })
+);
+
 export const GetPrescriptionResponseSchema = registry.register(
   'GetPrescriptionResponse',
   z.object({
@@ -80,6 +87,9 @@ export type PrescriptionItemSchema = z.infer<typeof PrescriptionItemSchema>;
 export type PrescriptionSchema = z.infer<typeof PrescriptionSchema>;
 export type CreatePrescriptionInputSchema = z.infer<typeof CreatePrescriptionInputSchema>;
 export type SignPrescriptionInputSchema = z.infer<typeof SignPrescriptionInputSchema>;
+export type SendPrescriptionToPharmacyInputSchema = z.infer<
+  typeof SendPrescriptionToPharmacyInputSchema
+>;
 export type GetPrescriptionResponseSchema = z.infer<typeof GetPrescriptionResponseSchema>;
 export type ListPrescriptionsResponseSchema = z.infer<typeof ListPrescriptionsResponseSchema>;
 
@@ -158,6 +168,38 @@ registry.registerPath({
       description: 'Prescription signed successfully',
       content: { 'application/json': { schema: GetPrescriptionResponseSchema } },
     },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/prescriptions/{id}/send-to-pharmacy',
+  summary: 'Assign a signed prescription to one active pharmacy',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    {
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: { type: 'string', format: 'uuid' },
+    },
+  ],
+  request: {
+    body: {
+      content: {
+        'application/json': { schema: SendPrescriptionToPharmacyInputSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Prescription assigned',
+      content: { 'application/json': { schema: GetPrescriptionResponseSchema } },
+    },
+    400: { description: 'Prescription is not signed or is already assigned' },
+    401: { description: 'Unauthorized' },
+    403: { description: 'Only the owning patient may assign the prescription' },
+    404: { description: 'Prescription or pharmacy not found' },
   },
 });
 

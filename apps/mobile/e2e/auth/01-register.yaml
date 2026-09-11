@@ -1,0 +1,8 @@
+appId: com.ricton.health
+name: Auth - email registration requires verification
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen
+# TODO: registration screen + POST /api/auth/register + OTP verify (Phase 2 device run)

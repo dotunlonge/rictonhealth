@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Subscription - 05-cancel
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 6). Entitlement server-authoritative; see phase6.test.ts.

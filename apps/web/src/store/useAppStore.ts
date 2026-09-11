@@ -1,15 +1,8 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 import { useShallow } from 'zustand/react/shallow';
 import { api } from '@/lib/api-client';
 
-export type UserRole =
-  | 'PATIENT'
-  | 'CONSULTANT'
-  | 'PHARMACIST'
-  | 'HOSPITAL_ADMIN'
-  | 'SUPER_ADMIN'
-  | 'ADMIN';
+export type UserRole = 'PATIENT' | 'CONSULTANT' | 'PHARMACIST' | 'HOSPITAL_ADMIN' | 'SUPER_ADMIN';
 
 export interface BankDetails {
   bankName?: string;
@@ -74,9 +67,11 @@ export interface Prescription {
 export interface NotificationItem {
   id: string;
   title: string;
-  message: string;
-  createdAt: string;
+  body: string;
+  type: string;
+  channel?: string;
   isRead: boolean;
+  createdAt: string;
 }
 
 interface AppState {
@@ -104,167 +99,152 @@ interface AppState {
   setUser: (user: UserProfile | null) => void;
 }
 
-export const useAppStore = create<AppState>()(
-  persist(
-    (set, get) => ({
+export const useAppStore = create<AppState>()((set, get) => ({
+  user: null,
+  appointments: [],
+  prescriptions: [],
+  notifications: [],
+  walletBalance: 0,
+  rewardsPoints: 0,
+  isLoading: false,
+  error: null,
+
+  setUser: (user) => {
+    if (user) {
+      const existing = get().user || ({} as UserProfile);
+      set({ user: { ...existing, ...user } });
+    } else {
+      set({ user: null });
+    }
+  },
+
+  updateUserOptimistic: (patch) => {
+    const current = get().user;
+    if (current) {
+      set({ user: { ...current, ...patch } });
+    }
+  },
+
+  fetchUser: async () => {
+    try {
+      const res = await api.get('/users/me');
+      if (res.success && res.data) {
+        const u = res.data as UserProfile;
+        const existing = get().user;
+        const merged: UserProfile = {
+          ...u,
+          avatarUrl:
+            u.avatarUrl ||
+            u.patientProfile?.avatarUrl ||
+            u.providerProfile?.avatarUrl ||
+            existing?.avatarUrl,
+          firstName:
+            u.firstName ||
+            u.patientProfile?.firstName ||
+            u.providerProfile?.firstName ||
+            existing?.firstName,
+          lastName:
+            u.lastName ||
+            u.patientProfile?.lastName ||
+            u.providerProfile?.lastName ||
+            existing?.lastName,
+        };
+        set({ user: merged });
+        return merged;
+      }
+    } catch (err: unknown) {
+      console.warn('Failed fetching current user profile', err);
+    }
+    return get().user;
+  },
+
+  fetchAppointments: async () => {
+    try {
+      const res = await api.get<{ appointments: Appointment[] }>('/appointments');
+      if (res.success && Array.isArray(res.data?.appointments)) {
+        set({ appointments: res.data.appointments });
+      }
+    } catch (err: unknown) {
+      console.warn('Failed fetching appointments', err);
+    }
+  },
+
+  addAppointmentOptimistic: (appt) => {
+    set({ appointments: [appt, ...get().appointments] });
+  },
+
+  fetchPrescriptions: async () => {
+    try {
+      const res = await api.get<Prescription[]>('/prescriptions');
+      const raw = res.success && Array.isArray(res.data) ? res.data : [];
+      set({ prescriptions: raw });
+    } catch (err: unknown) {
+      console.warn('Failed fetching prescriptions', err);
+    }
+  },
+
+  addPrescriptionOptimistic: (rx) => {
+    set({ prescriptions: [rx, ...get().prescriptions] });
+  },
+
+  fetchNotifications: async () => {
+    try {
+      const res = await api.get('/notifications');
+      if (res.success && Array.isArray(res.data?.notifications)) {
+        set({ notifications: res.data.notifications });
+      }
+    } catch (err: unknown) {
+      console.warn('Failed fetching notifications', err);
+    }
+  },
+
+  markNotificationRead: async (id: string) => {
+    // Optimistic UI update
+    const currentList = get().notifications;
+    set({
+      notifications: currentList.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+    });
+    try {
+      await api.patch(`/notifications/${id}/read`, {});
+    } catch (err) {
+      console.warn('Failed to mark notification read', err);
+    }
+  },
+
+  fetchWallet: async () => {
+    try {
+      const res = await api.get<{ balance: number }>('/wallets/me');
+      if (res.success && res.data?.balance !== undefined) {
+        set({ walletBalance: res.data.balance });
+      }
+    } catch (err: unknown) {
+      console.warn('Failed fetching wallet balance', err);
+    }
+  },
+
+  fetchRewards: async () => {
+    try {
+      const res = await api.get('/rewards/balance');
+      if (res.success && res.data?.balance !== undefined) {
+        set({ rewardsPoints: res.data.balance });
+      }
+    } catch (err: unknown) {
+      console.warn('Failed fetching rewards balance', err);
+    }
+  },
+
+  logout: () => {
+    api.logout();
+    set({
       user: null,
       appointments: [],
       prescriptions: [],
       notifications: [],
       walletBalance: 0,
       rewardsPoints: 0,
-      isLoading: false,
-      error: null,
-
-      setUser: (user) => {
-        if (user) {
-          const existing = get().user || ({} as UserProfile);
-          set({ user: { ...existing, ...user } });
-        } else {
-          set({ user: null });
-        }
-      },
-
-      updateUserOptimistic: (patch) => {
-        const current = get().user;
-        if (current) {
-          set({ user: { ...current, ...patch } });
-        }
-      },
-
-      fetchUser: async () => {
-        try {
-          const res = await api.get('/users/me');
-          if (res.success && res.data) {
-            const u = res.data as UserProfile;
-            const existing = get().user;
-            const merged: UserProfile = {
-              ...u,
-              avatarUrl:
-                u.avatarUrl ||
-                u.patientProfile?.avatarUrl ||
-                u.providerProfile?.avatarUrl ||
-                existing?.avatarUrl,
-              firstName:
-                u.firstName ||
-                u.patientProfile?.firstName ||
-                u.providerProfile?.firstName ||
-                existing?.firstName,
-              lastName:
-                u.lastName ||
-                u.patientProfile?.lastName ||
-                u.providerProfile?.lastName ||
-                existing?.lastName,
-            };
-            set({ user: merged });
-            return merged;
-          }
-        } catch (err: unknown) {
-          console.warn('Failed fetching current user profile', err);
-        }
-        return get().user;
-      },
-
-      fetchAppointments: async () => {
-        try {
-          const res = await api.get('/appointments/me');
-          if (res.success && Array.isArray(res.data)) {
-            set({ appointments: res.data });
-          }
-        } catch (err: unknown) {
-          console.warn('Failed fetching appointments', err);
-        }
-      },
-
-      addAppointmentOptimistic: (appt) => {
-        set({ appointments: [appt, ...get().appointments] });
-      },
-
-      fetchPrescriptions: async () => {
-        try {
-          const res = await api.get('/pharmacy/prescriptions');
-          const raw = res.success
-            ? Array.isArray(res.data)
-              ? res.data
-              : res.data?.prescriptions || []
-            : [];
-          set({ prescriptions: raw });
-        } catch (err: unknown) {
-          console.warn('Failed fetching prescriptions', err);
-        }
-      },
-
-      addPrescriptionOptimistic: (rx) => {
-        set({ prescriptions: [rx, ...get().prescriptions] });
-      },
-
-      fetchNotifications: async () => {
-        try {
-          const res = await api.get('/notifications');
-          if (res.success && Array.isArray(res.data?.notifications)) {
-            set({ notifications: res.data.notifications });
-          }
-        } catch (err: unknown) {
-          console.warn('Failed fetching notifications', err);
-        }
-      },
-
-      markNotificationRead: async (id: string) => {
-        // Optimistic UI update
-        const currentList = get().notifications;
-        set({
-          notifications: currentList.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
-        });
-        try {
-          await api.patch(`/notifications/${id}/read`, {});
-        } catch (err) {
-          console.warn('Failed to mark notification read', err);
-        }
-      },
-
-      fetchWallet: async () => {
-        try {
-          const res = await api.get('/wallet/balance');
-          if (res.success && res.data?.balance !== undefined) {
-            set({ walletBalance: res.data.balance });
-          }
-        } catch (err: unknown) {
-          console.warn('Failed fetching wallet balance', err);
-        }
-      },
-
-      fetchRewards: async () => {
-        try {
-          const res = await api.get('/rewards/balance');
-          if (res.success && res.data?.balance !== undefined) {
-            set({ rewardsPoints: res.data.balance });
-          }
-        } catch (err: unknown) {
-          console.warn('Failed fetching rewards balance', err);
-        }
-      },
-
-      logout: () => {
-        api.logout();
-        set({
-          user: null,
-          appointments: [],
-          prescriptions: [],
-          notifications: [],
-          walletBalance: 0,
-          rewardsPoints: 0,
-        });
-      },
-    }),
-    {
-      name: 'ricton_user_storage',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        user: state.user,
-      }),
-    }
-  )
-);
+    });
+  },
+}));
 
 // Granular Atomic Selectors (Re-render Optimization Custom Hooks)
 export const useCurrentUser = () => useAppStore((state) => state.user);

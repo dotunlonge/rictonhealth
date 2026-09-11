@@ -1,0 +1,11 @@
+appId: com.ricton.health
+name: Discovery - 01-populated-home
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 3). Unit/contract covered by booking.test.ts.
+- assertVisible:
+    id: patient.home.screen

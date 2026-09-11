@@ -1,21 +1,6 @@
-FROM node:20-alpine AS builder
+FROM ricton-base AS builder
 
-RUN apk add --no-cache openssl curl
-
-WORKDIR /app
-
-COPY package*.json ./
-COPY tsconfig*.json ./
-
-COPY packages/ ./packages/
-COPY services/messaging/ ./services/messaging/
-
-RUN npm install
-
-RUN npm run generate --workspace=@ricton/db
-
-RUN npm run build --workspace=@ricton/shared --workspace=@ricton/db --workspace=@ricton/auth-middleware
-RUN npm run build --workspace=@ricton/messaging
+RUN npm run build --workspace=@ricton/messaging-service
 
 FROM node:20-alpine AS runner
 
@@ -32,6 +17,6 @@ COPY --from=builder /app/services/messaging ./services/messaging
 
 EXPOSE 3012
 
-HEALTHCHECK --interval=10s --timeout=5s --retries=5   CMD curl -f http://localhost:3012/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 CMD curl -f http://localhost:3012/health || exit 1
 
-CMD ["node", "services/messaging/dist/src/index.js"]
+CMD ["node", "services/messaging/dist/index.js"]

@@ -269,7 +269,11 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
             return { transaction, newBalance, reward };
           },
           {
-            timeout: 10000, // 10 second timeout
+            // True serializable isolation (not just a comment): concurrent
+            // redemptions of the same balance serialize or roll back to retry.
+            isolationLevel: 'Serializable',
+            timeout: 30000,
+            maxWait: 15000,
           }
         );
 

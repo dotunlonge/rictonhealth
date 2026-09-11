@@ -12,12 +12,15 @@ import {
   VerifyEmailInputSchema,
   VerifyPhoneInputSchema,
   VerifyConfirmInputSchema,
+  ChangePasswordInputSchema,
 } from '@ricton/shared';
 import { rateLimit } from '@ricton/shared';
 import { requireAuth } from '@ricton/auth-middleware';
 
 const router = Router();
 
+// NOTE: rateLimit() itself bypasses under NODE_ENV=test (per-request check),
+// so suites stay fast while tests can lift the bypass to verify 429s.
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'auth' });
 const otpRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3, keyPrefix: 'otp' });
 
@@ -49,7 +52,7 @@ const otpRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3, keyPrefix: 'otp' }
  *                 minLength: 8
  *               role:
  *                 type: string
- *                 enum: [PATIENT, CONSULTANT, PHARMACIST, HOSPITAL_ADMIN]
+ *                 enum: [PATIENT, CONSULTANT, PHARMACIST]
  *               firstName:
  *                 type: string
  *               lastName:
@@ -165,11 +168,17 @@ router.post(
 
 // 2FA Endpoints
 router.get('/2fa/status', requireAuth, authController.get2FAStatus);
+router.post('/2fa/setup', requireAuth, authController.enable2FA);
 router.post('/2fa/enable', requireAuth, authController.enable2FA);
 router.post('/2fa/verify', requireAuth, authController.verify2FA);
 router.post('/2fa/disable', requireAuth, authController.disable2FA);
 
 // Password Change
-router.post('/password/change', requireAuth, authController.changePassword);
+router.post(
+  '/password/change',
+  requireAuth,
+  validateRequest(ChangePasswordInputSchema),
+  authController.changePassword
+);
 
 export default router;

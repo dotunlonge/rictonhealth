@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Auth - forgot/reset password does not leak existence
+---
+- clearState
+- launchApp
+# TODO: forgot screen -> POST /api/auth/password/forgot -> reset confirm (Phase 2 device run)

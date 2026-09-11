@@ -28,9 +28,10 @@ export default function AppointmentsPage() {
   // New Booking State
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
-  const [consultType, setConsultType] = useState('General Consultation');
-  const [apptDate, setApptDate] = useState('');
+  const [consultType, setConsultType] = useState<'VIDEO' | 'IN_PERSON'>('VIDEO');
+  const [apptDateTime, setApptDateTime] = useState('');
   const [bookingMsg, setBookingMsg] = useState<string | null>(null);
+  const [bookingError, setBookingError] = useState(false);
   const [booking, setBooking] = useState(false);
 
   useEffect(() => {
@@ -53,62 +54,92 @@ export default function AppointmentsPage() {
         : [];
 
       setAppointmentsList(
-        rawAppts.map((a: any, idx: number) => ({
-          id: a.id || `APT-100${idx}`,
-          patientName:
-            a.patientName ||
-            (a.patient
-              ? `${a.patient.firstName || ''} ${a.patient.lastName || ''}`.trim() || a.patient.email
-              : user?.firstName
-              ? `${user.firstName} ${user.lastName || ''}`.trim()
-              : 'Patient Record'),
-          doctorName:
-            a.providerName ||
-            (a.provider
-              ? `Dr. ${a.provider.firstName || ''} ${a.provider.lastName || ''}`.trim()
-              : 'Medical Specialist'),
-          scheduledAt: a.scheduledAt
-            ? new Date(a.scheduledAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            : 'Scheduled Date',
-          type: a.type || 'General Consultation',
-          status: a.status || 'CONFIRMED',
-        }))
+        rawAppts
+          .filter((a: any) => a?.id)
+          .map((a: any) => {
+            const patientProfile = a.patient?.patientProfile || {};
+            const patientName =
+              patientProfile.firstName || patientProfile.lastName
+                ? `${patientProfile.firstName || ''} ${patientProfile.lastName || ''}`.trim()
+                : a.patient?.email || 'Patient Record';
+            const providerProfile = a.provider?.providerProfile || {};
+            const doctorName =
+              providerProfile.firstName || providerProfile.lastName
+                ? `Dr. ${providerProfile.firstName || ''} ${providerProfile.lastName || ''}`.trim()
+                : a.provider?.email || 'Medical Specialist';
+            return {
+              id: a.id,
+              patientName,
+              doctorName,
+              scheduledAt: a.scheduledAt
+                ? new Date(a.scheduledAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : '—',
+              type: a.type || 'VIDEO',
+              status: a.status || 'PENDING',
+            };
+          })
       );
       setLoading(false);
     }
     loadData();
-  }, [user]);
+  }, []);
 
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
     setBooking(true);
-    const selectedDoc = doctorsList.find((d) => d.id === selectedDoctorId);
-    const doctorName = selectedDoc
-      ? `Dr. ${selectedDoc.firstName || ''} ${selectedDoc.lastName || ''}`.trim()
-      : 'Medical Specialist';
+    const providerId =
+      doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId)?.userId ||
+      doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId)?.id ||
+      selectedDoctorId;
+    const selectedDoc = doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId);
+    const doctorName =
+      selectedDoc?.firstName || selectedDoc?.lastName
+        ? `Dr. ${selectedDoc.firstName || ''} ${selectedDoc.lastName || ''}`.trim()
+        : 'Medical Specialist';
+
+    // Backend requires a full RFC datetime aligned to minute boundaries.
+    const scheduledAt = apptDateTime
+      ? new Date(apptDateTime).toISOString()
+      : new Date().toISOString();
 
     const res = await api.post('/appointments', {
-      providerId: selectedDoctorId,
-      scheduledAt: apptDate || new Date().toISOString(),
+      providerId,
+      scheduledAt,
       type: consultType,
     });
 
     setBooking(false);
-    const newAppt: AppointmentRecord = {
-      id: res.data?.id || `APT-${Math.floor(1000 + Math.random() * 9000)}`,
-      patientName: user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'Patient Record',
-      doctorName,
-      scheduledAt: apptDate
-        ? new Date(apptDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      type: consultType,
-      status: 'CONFIRMED',
-    };
 
-    setAppointmentsList((prev) => [newAppt, ...prev]);
-    setShowBookModal(false);
-    setBookingMsg('Appointment successfully scheduled and confirmed!');
-    setTimeout(() => setBookingMsg(null), 4000);
+    if (res.success && res.data?.id) {
+      const newAppt: AppointmentRecord = {
+        id: res.data.id,
+        patientName: user?.firstName
+          ? `${user.firstName} ${user.lastName || ''}`.trim()
+          : user?.email || 'Patient Record',
+        doctorName,
+        scheduledAt: new Date(res.data.scheduledAt || scheduledAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        }),
+        type: res.data.type || consultType,
+        status: res.data.status || 'PENDING',
+      };
+
+      setAppointmentsList((prev) => [newAppt, ...prev]);
+      setShowBookModal(false);
+      setBookingMsg('Appointment request sent. Awaiting provider confirmation.');
+      setBookingError(false);
+      setTimeout(() => setBookingMsg(null), 4000);
+    } else {
+      setBookingMsg(res.error?.message || 'Failed to book appointment. Please try again.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 6000);
+    }
   };
 
   const filteredAppts = appointmentsList.filter((a) => {
@@ -121,7 +152,9 @@ export default function AppointmentsPage() {
   });
 
   const counts = useMemo(() => {
-    const confirmed = appointmentsList.filter((a) => a.status === 'CONFIRMED' || a.status === 'COMPLETED').length;
+    const confirmed = appointmentsList.filter(
+      (a) => a.status === 'CONFIRMED' || a.status === 'COMPLETED'
+    ).length;
     const pending = appointmentsList.filter((a) => a.status === 'PENDING').length;
     const cancelled = appointmentsList.filter((a) => a.status === 'CANCELLED').length;
     return { confirmed, pending, cancelled };
@@ -137,7 +170,8 @@ export default function AppointmentsPage() {
               <Calendar className="w-6 h-6 text-[#1877F2]" /> Consultations & Appointment Manager
             </h1>
             <p className="text-xs font-semibold text-slate-500 mt-1">
-              Book online telemedicine sessions, view specialist availability, and manage consultation schedules
+              Book online telemedicine sessions, view specialist availability, and manage
+              consultation schedules
             </p>
           </div>
 
@@ -152,8 +186,14 @@ export default function AppointmentsPage() {
         </div>
 
         {bookingMsg && (
-          <div className="p-4 rounded-2xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" />
+          <div
+            className={`p-4 rounded-2xl text-xs font-bold border flex items-center gap-2 ${
+              bookingError
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            }`}
+          >
+            {bookingError ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
             <span>{bookingMsg}</span>
           </div>
         )}
@@ -162,7 +202,9 @@ export default function AppointmentsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Confirmed Sessions</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Confirmed Sessions
+              </span>
               <p className="text-3xl font-black text-slate-900 mt-1">{counts.confirmed}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
@@ -172,7 +214,9 @@ export default function AppointmentsPage() {
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pending Approval</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Pending Approval
+              </span>
               <p className="text-3xl font-black text-amber-600 mt-1">{counts.pending}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
@@ -182,7 +226,9 @@ export default function AppointmentsPage() {
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cancelled / Closed</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Cancelled / Closed
+              </span>
               <p className="text-3xl font-black text-slate-400 mt-1">{counts.cancelled}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center font-bold">
@@ -247,7 +293,9 @@ export default function AppointmentsPage() {
                   <tr>
                     <td colSpan={6} className="py-12 text-center space-y-3">
                       <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
-                      <p className="text-xs font-bold text-slate-600">No scheduled appointments found</p>
+                      <p className="text-xs font-bold text-slate-600">
+                        No scheduled appointments found
+                      </p>
                       <button
                         type="button"
                         onClick={() => setShowBookModal(true)}
@@ -266,7 +314,9 @@ export default function AppointmentsPage() {
                             <Calendar className="w-4 h-4" />
                           </div>
                           <div>
-                            <p className="font-extrabold text-slate-900 text-xs">{apt.patientName}</p>
+                            <p className="font-extrabold text-slate-900 text-xs">
+                              {apt.patientName}
+                            </p>
                             <p className="text-[10px] font-semibold text-slate-400">{apt.id}</p>
                           </div>
                         </div>
@@ -280,8 +330,8 @@ export default function AppointmentsPage() {
                             apt.status === 'CONFIRMED'
                               ? 'bg-emerald-100 text-emerald-700'
                               : apt.status === 'PENDING'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-slate-100 text-slate-500'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-slate-100 text-slate-500'
                           }`}
                         >
                           {apt.status}
@@ -307,8 +357,14 @@ export default function AppointmentsPage() {
         {/* Book Appointment Modal */}
         {showBookModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs" onClick={() => setShowBookModal(false)} />
-            <form onSubmit={handleBookAppointment} className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4">
+            <div
+              className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs"
+              onClick={() => setShowBookModal(false)}
+            />
+            <form
+              onSubmit={handleBookAppointment}
+              className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4"
+            >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h2 className="text-base font-extrabold text-slate-900">Schedule Consultation</h2>
                 <button
@@ -322,7 +378,9 @@ export default function AppointmentsPage() {
 
               <div className="space-y-3 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Select Medical Specialist</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Select Medical Specialist
+                  </label>
                   <select
                     value={selectedDoctorId}
                     onChange={(e) => setSelectedDoctorId(e.target.value)}
@@ -330,8 +388,10 @@ export default function AppointmentsPage() {
                   >
                     <option value="">Choose Doctor (Or First Available Specialist)</option>
                     {doctorsList.map((doc) => (
-                      <option key={doc.id} value={doc.id}>
-                        Dr. {doc.firstName || ''} {doc.lastName || ''} ({doc.providerProfile?.specialization || 'General Practice'})
+                      <option key={doc.userId || doc.id} value={doc.userId || doc.id}>
+                        Dr. {doc.firstName || ''} {doc.lastName || ''} (
+                        {doc.specialty || doc.providerProfile?.specialization || 'General Practice'}
+                        )
                       </option>
                     ))}
                   </select>
@@ -341,23 +401,23 @@ export default function AppointmentsPage() {
                   <label className="block font-bold text-slate-700 mb-1">Consultation Type</label>
                   <select
                     value={consultType}
-                    onChange={(e) => setConsultType(e.target.value)}
+                    onChange={(e) => setConsultType(e.target.value as 'VIDEO' | 'IN_PERSON')}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   >
-                    <option value="General Consultation">General Consultation</option>
-                    <option value="Cardiology Review">Cardiology Review</option>
-                    <option value="Ophthalmology Eye Check">Ophthalmology Eye Check</option>
-                    <option value="Pediatric Follow-up">Pediatric Follow-up</option>
+                    <option value="VIDEO">Video Consultation</option>
+                    <option value="IN_PERSON">In-Person Visit</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Preferred Date</label>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Preferred Date & Time
+                  </label>
                   <input
-                    type="date"
+                    type="datetime-local"
                     required
-                    value={apptDate}
-                    onChange={(e) => setApptDate(e.target.value)}
+                    value={apptDateTime}
+                    onChange={(e) => setApptDateTime(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   />
                 </div>

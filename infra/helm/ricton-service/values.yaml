@@ -17,6 +17,14 @@ serviceAccount:
 podAnnotations: {}
 podSecurityContext: {}
 
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: ricton-service
+
 securityContext: {}
 
 service:
@@ -44,7 +52,53 @@ env:
     value: "production"
   - name: LOG_LEVEL
     value: "info"
-# Database URL is injected via secrets or KMS in a real cluster
+
+# Secrets: prefer an externally-managed Secret (ESO/Vault) via existingSecret.
+# Otherwise values are rendered into a Secret — never commit real values; use
+# --set, --set-file, or CI-injected values files at deploy time.
+secrets:
+  existingSecret: ""
+  databaseUrl: "SET_VIA_DEPLOY_TIME_VALUES"
+  redisUrl: "SET_VIA_DEPLOY_TIME_VALUES"
+  jwtSecret: "SET_VIA_DEPLOY_TIME_VALUES"
+  refreshSecret: ""
+  otpSecret: ""
+  internalApiSecret: ""
+
+ingress:
+  enabled: false
+  className: "nginx"
+  host: "api.example.com"
+  tlsSecretName: ""
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  allowIngressFrom:
+    app.kubernetes.io/name: "kong-gateway"
+  allowEgressTo:
+    - ipBlock:
+        cidr: "10.0.0.0/8"
+  databasePort: 5432
+  redisPort: 6379
+
+migration:
+  enabled: true
+  image:
+    repository: placeholder-account.dkr.ecr.us-east-1.amazonaws.com/ricton-db
+    tag: "latest"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 # These will be specific to each service
 livenessProbe:

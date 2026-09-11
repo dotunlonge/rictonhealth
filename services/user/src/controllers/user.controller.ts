@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { prisma, UserRole, UserStatus, AppointmentStatus, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
@@ -9,10 +10,11 @@ import {
   getCached,
   setCached,
   makeCacheKey,
+  AppError,
 } from '@ricton/shared';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { s3Client, S3_BUCKET_NAME } from '../config/s3';
+import { s3Client, S3_BUCKET_NAME, S3_REGION } from '../config/s3';
 
 export const getCurrentUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -20,10 +22,11 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
     const userId = userPayload.userId;
     const role = userPayload.role;
 
-    let profileInclude = {};
+    let profileInclude: Record<string, boolean> = {};
     if (role === UserRole.PATIENT) profileInclude = { patientProfile: true };
     else if (role === UserRole.CONSULTANT) profileInclude = { providerProfile: true };
     else if (role === UserRole.PHARMACIST) profileInclude = { pharmacyProfile: true };
+    else if (role === UserRole.HOSPITAL_ADMIN) profileInclude = { hospital: true };
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -36,6 +39,7 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
         emailVerified: true,
         phoneVerified: true,
         bankDetails: true,
+        hospitalId: true,
         createdAt: true,
         ...profileInclude,
       },
@@ -45,12 +49,17 @@ export const getCurrentUser = async (req: Request, res: Response, next: NextFunc
       throw new NotFoundError('User not found');
     }
 
-    const activeProfile = (user as any).patientProfile || (user as any).providerProfile || {};
+    const activeProfile =
+      (user as any).patientProfile ||
+      (user as any).providerProfile ||
+      (user as any).pharmacyProfile ||
+      {};
     const formatted = {
       ...user,
-      firstName: activeProfile.firstName || user.email?.split('@')[0],
+      firstName:
+        activeProfile.firstName || (user as any).hospital?.name || user.email?.split('@')[0],
       lastName: activeProfile.lastName || '',
-      avatarUrl: activeProfile.avatarUrl || null,
+      avatarUrl: activeProfile.avatarUrl || (user as any).hospital?.logoUrl || null,
     };
 
     res.status(200).json(successResponse(formatted));
@@ -72,27 +81,12 @@ export const getHospitalDashboard = async (req: Request, res: Response, next: Ne
       include: { hospital: true },
     });
 
-    let hospital = adminUser?.hospital;
+    const hospital = adminUser?.hospital;
 
     if (!hospital) {
-      // Find fallback or create a default one for sandbox/onboarding mapping
-      hospital = await prisma.hospital.findFirst();
-      if (!hospital) {
-        hospital = await prisma.hospital.create({
-          data: {
-            name: 'Ricton General Hospital',
-            phone: '07012345678',
-            email: 'admin@ricton.health',
-            logoUrl: 'https://ricton.health/logo.png',
-          },
-        });
-      }
-
-      // Persist association to prevent unlinked reads on next calls
-      await prisma.user.update({
-        where: { id: userPayload.userId },
-        data: { hospitalId: hospital.id },
-      });
+      throw new NotFoundError(
+        'No hospital organization is associated with your account. Please complete hospital onboarding.'
+      );
     }
 
     const doctorCount = await prisma.providerProfile.count({
@@ -199,9 +193,17 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
       };
       // Clean undefined keys
       Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
-      await prisma.patientProfile.update({
+      // Upsert: OAuth/admin-provisioned accounts may have no profile row yet;
+      // a plain update would 500 with P2025.
+      await prisma.patientProfile.upsert({
         where: { userId },
-        data,
+        update: data,
+        create: {
+          userId,
+          firstName: (data.firstName as string) ?? '',
+          lastName: (data.lastName as string) ?? '',
+          ...(data as Record<string, string>),
+        },
       });
     } else if (role === UserRole.CONSULTANT) {
       const data: Record<string, unknown> = {
@@ -213,22 +215,104 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
         title: updateData.title,
       };
       Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
-      await prisma.providerProfile.update({
+      await prisma.providerProfile.upsert({
         where: { userId },
-        data,
+        update: data,
+        create: {
+          userId,
+          firstName: (data.firstName as string) ?? '',
+          lastName: (data.lastName as string) ?? '',
+          ...(data as Record<string, string>),
+        },
       });
     } else if (role === UserRole.PHARMACIST) {
       const data: Record<string, unknown> = {
         pharmacyName: updateData.pharmacyName,
       };
       Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
-      await prisma.pharmacyProfile.update({
+      // Pharmacists never get a profile row at registration (password or
+      // OAuth), so update-always would 500 their very first settings save.
+      await prisma.pharmacyProfile.upsert({
         where: { userId },
-        data,
+        update: data,
+        create: {
+          userId,
+          pharmacyName: (data.pharmacyName as string) ?? '',
+          ...(data as Record<string, string>),
+        },
       });
+    } else if (role === UserRole.HOSPITAL_ADMIN) {
+      // If hospital facility data is submitted during onboarding or settings update
+      if (
+        updateData.hospitalName ||
+        updateData.registrationNumber ||
+        updateData.cacNumber ||
+        updateData.departments ||
+        updateData.address
+      ) {
+        const currentUser = await prisma.user.findUnique({
+          where: { id: userId },
+          include: { hospital: true },
+        });
+        const hospitalName =
+          updateData.hospitalName || currentUser?.hospital?.name || 'Hospital Facility';
+        const hospitalAddress = updateData.address
+          ? typeof updateData.address === 'string'
+            ? { address: updateData.address, city: updateData.city, state: updateData.state }
+            : updateData.address
+          : currentUser?.hospital?.address;
+        const departments = updateData.departments || currentUser?.hospital?.departments || [];
+        const documents = {
+          licenseFileUploaded: Boolean(
+            updateData.licenseFileUploaded || updateData.documents?.licenseFileUploaded
+          ),
+          cacFileUploaded: Boolean(
+            updateData.cacFileUploaded || updateData.documents?.cacFileUploaded
+          ),
+          ...(typeof updateData.documents === 'object' ? updateData.documents : {}),
+        };
+
+        if (currentUser?.hospitalId) {
+          await prisma.hospital.update({
+            where: { id: currentUser.hospitalId },
+            data: {
+              name: hospitalName,
+              registrationNumber:
+                updateData.registrationNumber || updateData.cacNumber || undefined,
+              phone: updateData.emergencyPhone || updateData.phone || undefined,
+              email: updateData.supportEmail || updateData.email || undefined,
+              address: hospitalAddress as any,
+              departments: departments as any,
+              documents: documents as any,
+              onboardingComplete: true,
+            },
+          });
+        } else {
+          const newHospital = await prisma.hospital.create({
+            data: {
+              name: hospitalName,
+              registrationNumber:
+                updateData.registrationNumber || updateData.cacNumber || undefined,
+              phone: updateData.emergencyPhone || updateData.phone || undefined,
+              email: updateData.supportEmail || updateData.email || undefined,
+              address: hospitalAddress as any,
+              departments: departments as any,
+              documents: documents as any,
+              onboardingComplete: true,
+            },
+          });
+          await prisma.user.update({
+            where: { id: userId },
+            data: {
+              hospitalId: newHospital.id,
+              status: currentUser?.status === UserStatus.PENDING ? UserStatus.ACTIVE : undefined,
+            },
+          });
+        }
+      }
     }
 
-    // Sync bank details & set active status on onboarding completion
+    // Sync bank details if provided
     const incomingBank =
       updateData.bankDetails ||
       (updateData.bankName
@@ -265,7 +349,6 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
         where: { id: userId },
         data: {
           bankDetails: incomingBank,
-          status: UserStatus.ACTIVE,
         },
       });
     }
@@ -276,18 +359,26 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
         patientProfile: true,
         providerProfile: true,
         pharmacyProfile: true,
+        hospital: true,
       },
     });
 
-    const activeProfile = (fullUser?.patientProfile || fullUser?.providerProfile || {}) as Record<
-      string,
-      unknown
-    >;
+    if (fullUser) {
+      delete (fullUser as any).passwordHash;
+      delete (fullUser as any).twoFactorSecret;
+      delete (fullUser as any).tokenVersion;
+    }
+
+    const activeProfile = (fullUser?.patientProfile ||
+      fullUser?.providerProfile ||
+      fullUser?.pharmacyProfile ||
+      {}) as Record<string, unknown>;
     const formatted = {
       ...fullUser,
-      firstName: activeProfile.firstName || fullUser?.email?.split('@')[0],
+      firstName:
+        activeProfile.firstName || fullUser?.hospital?.name || fullUser?.email?.split('@')[0],
       lastName: activeProfile.lastName || '',
-      avatarUrl: activeProfile.avatarUrl || null,
+      avatarUrl: activeProfile.avatarUrl || fullUser?.hospital?.logoUrl || null,
     };
 
     res.status(200).json(successResponse(formatted));
@@ -301,13 +392,21 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
     const userPayload = req.user as JwtPayload;
     const { fileType } = req.body;
     if (!fileType) throw new ValidationError('fileType is required (e.g. image/jpeg)');
+    if (!S3_BUCKET_NAME) {
+      throw new AppError('Avatar object storage is not configured', 503, 'SERVICE_NOT_CONFIGURED');
+    }
 
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(fileType)) {
       throw new ValidationError(`Invalid file type. Allowed: ${allowedTypes.join(', ')}`);
     }
 
-    const key = `avatars/${userPayload.userId}-${Date.now()}`;
+    const extensionByType: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const key = `avatars/${userPayload.userId}/${crypto.randomUUID()}.${extensionByType[fileType]}`;
     const command = new PutObjectCommand({
       Bucket: S3_BUCKET_NAME,
       Key: key,
@@ -319,7 +418,7 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
     res.status(200).json(
       successResponse({
         uploadUrl: presignedUrl,
-        publicUrl: `https://${S3_BUCKET_NAME}.s3.amazonaws.com/${key}`,
+        publicUrl: `https://${S3_BUCKET_NAME}.s3.${S3_REGION}.amazonaws.com/${key}`,
         maxSizeBytes: 2 * 1024 * 1024, // 2MB
       })
     );
@@ -416,10 +515,35 @@ export const updateMedicalHistory = async (req: Request, res: Response, next: Ne
 
 export const getPatients = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userPayload = req.user as JwtPayload;
+    const allowedListRoles = new Set<UserRole>([
+      UserRole.CONSULTANT,
+      UserRole.HOSPITAL_ADMIN,
+      UserRole.SUPER_ADMIN,
+    ]);
+    if (!allowedListRoles.has(userPayload.role)) {
+      throw new ForbiddenError('Only clinical staff can list patient records');
+    }
     const { limit = 50, offset = 0, search } = req.query;
+
+    let adminHospitalId: string | undefined;
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      const admin = await prisma.user.findUnique({
+        where: { id: userPayload.userId },
+        select: { hospitalId: true },
+      });
+      if (!admin?.hospitalId) {
+        throw new ForbiddenError('Hospital administrator is not assigned to a hospital');
+      }
+      adminHospitalId = admin.hospitalId;
+    }
 
     const where: Prisma.UserWhereInput = {
       role: UserRole.PATIENT,
+      ...(userPayload.role === UserRole.CONSULTANT && {
+        appointmentsAsPatient: { some: { providerId: userPayload.userId } },
+      }),
+      ...(adminHospitalId && { hospitalId: adminHospitalId }),
       ...(search && {
         OR: [
           { email: { contains: String(search), mode: 'insensitive' } },
@@ -445,6 +569,12 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
         include: {
           patientProfile: true,
           appointmentsAsPatient: {
+            where:
+              userPayload.role === UserRole.CONSULTANT
+                ? { providerId: userPayload.userId }
+                : adminHospitalId
+                  ? { hospitalId: adminHospitalId }
+                  : undefined,
             take: 1,
             orderBy: { scheduledAt: 'desc' },
             include: {
@@ -460,14 +590,15 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
       prisma.user.count({ where }),
     ]);
 
-    const formatted = patients.map((p, idx) => {
+    const formatted = patients.map((p) => {
       const profile = p.patientProfile;
       const latestAppt = p.appointmentsAsPatient[0];
       const doctorName = latestAppt?.provider?.providerProfile
-        ? `${latestAppt.provider.providerProfile.title || 'Dr.'} ${latestAppt.provider.providerProfile.firstName} ${latestAppt.provider.providerProfile.lastName}`
-        : 'Dr. Oluwaseun Davies';
+        ? `${latestAppt.provider.providerProfile.title || ''} ${latestAppt.provider.providerProfile.firstName || ''} ${latestAppt.provider.providerProfile.lastName || ''}`.trim() ||
+          null
+        : null;
 
-      let age = 30;
+      let age: number | null = null;
       if (profile?.dateOfBirth) {
         const birthYear = new Date(profile.dateOfBirth).getFullYear();
         if (!isNaN(birthYear)) age = new Date().getFullYear() - birthYear;
@@ -475,17 +606,23 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 
       return {
         id: p.id,
-        firstName: profile?.firstName || p.email?.split('@')[0] || 'Patient',
-        lastName: profile?.lastName || '',
+        firstName: profile?.firstName || null,
+        lastName: profile?.lastName || null,
         email: p.email,
         phone: p.phone,
         patientProfile: profile,
         age,
-        gender: profile?.gender || 'Unspecified',
-        ward: `Ward ${(idx % 3) + 1}`,
-        bed: `Bed ${idx + 1}`,
-        doctor: doctorName,
-        status: idx % 4 === 0 ? 'Discharged' : idx % 3 === 0 ? 'Outpatient' : 'Admitted',
+        gender: profile?.gender || null,
+        latestProvider: doctorName,
+        status: p.status,
+        latestAppointment: latestAppt
+          ? {
+              id: latestAppt.id,
+              scheduledAt: latestAppt.scheduledAt,
+              status: latestAppt.status,
+              type: latestAppt.type,
+            }
+          : null,
         createdAt: p.createdAt,
       };
     });
@@ -498,14 +635,56 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 
 export const getPatientById = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userPayload = req.user as JwtPayload;
     const { id } = req.params;
+
+    // Authorization: patient may read self; consultant must have an appointment
+    // relationship; hospital admin must share hospitalId; super admin allowed.
+    if (userPayload.role === UserRole.PATIENT && userPayload.userId !== id) {
+      throw new ForbiddenError('Patients may only access their own record');
+    }
+    if (
+      userPayload.role !== UserRole.PATIENT &&
+      userPayload.role !== UserRole.CONSULTANT &&
+      userPayload.role !== UserRole.HOSPITAL_ADMIN &&
+      userPayload.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenError('You are not authorized to view patient records');
+    }
+    if (userPayload.role === UserRole.CONSULTANT) {
+      const relationship = await prisma.appointment.findFirst({
+        where: { patientId: id, providerId: userPayload.userId },
+        select: { id: true },
+      });
+      if (!relationship) {
+        throw new ForbiddenError('No clinical relationship with this patient');
+      }
+    }
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      const [adminUser, patientUser] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userPayload.userId }, select: { hospitalId: true } }),
+        prisma.user.findUnique({ where: { id }, select: { hospitalId: true, role: true } }),
+      ]);
+      if (!patientUser || patientUser.role !== UserRole.PATIENT) {
+        throw new NotFoundError('Patient not found');
+      }
+      if (!adminUser?.hospitalId || adminUser.hospitalId !== patientUser.hospitalId) {
+        throw new ForbiddenError('Hospital scope mismatch for this patient record');
+      }
+    }
 
     const patient = await prisma.user.findFirst({
       where: {
         id,
         role: UserRole.PATIENT,
       },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        status: true,
+        hospitalId: true,
+        createdAt: true,
         patientProfile: true,
         prescriptionsAsPatient: {
           take: 10,
@@ -520,6 +699,7 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
           include: {
             provider: {
               select: {
+                id: true,
                 providerProfile: { select: { firstName: true, lastName: true, title: true } },
               },
             },
@@ -532,75 +712,7 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
       throw new NotFoundError('Patient not found');
     }
 
-    const profile = patient.patientProfile;
-    const name =
-      `${profile?.firstName || 'Patient'} ${profile?.lastName || ''}`.trim() ||
-      patient.email ||
-      'Patient';
-
-    let dob = 'January 1, 1995';
-    if (profile?.dateOfBirth) {
-      dob = new Date(profile.dateOfBirth).toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-      });
-    }
-
-    const rawHistory = (profile?.medicalHistory as any) || [];
-    const medicalHistory = Array.isArray(rawHistory)
-      ? rawHistory
-      : [
-          {
-            id: 'mh-1',
-            condition: 'Routine clinical checkup & blood pressure evaluation',
-            date: new Date().toLocaleDateString('en-GB', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            }),
-          },
-        ];
-
-    const prescriptions = patient.prescriptionsAsPatient.map((p) => {
-      const firstItem = p.items?.[0];
-      return {
-        id: p.id,
-        date: new Date(p.createdAt).toLocaleString(),
-        medication: firstItem?.drugName || 'Prescribed Medication',
-        dose: firstItem?.dosage || '1 Tablet daily',
-        form: firstItem?.instructions || 'Tablet',
-        quantity: `${firstItem?.quantity || 1} Pack`,
-      };
-    });
-
-    const appointments = patient.appointmentsAsPatient.map((a) => ({
-      id: a.id,
-      date: new Date(a.scheduledAt).toLocaleString(),
-      type: a.type || 'Consultation',
-      doctor: a.provider?.providerProfile
-        ? `${a.provider.providerProfile.title || 'Dr.'} ${a.provider.providerProfile.firstName} ${a.provider.providerProfile.lastName}`
-        : 'Dr. Oluwaseun Davies',
-    }));
-
-    const formatted = {
-      id: patient.id,
-      name,
-      badge: 'Active Patient',
-      avatarUrl: profile?.avatarUrl || undefined,
-      dob,
-      gender: profile?.gender || 'Unspecified',
-      email: patient.email || 'N/A',
-      serialNumber: `#09${patient.id.replace(/[^0-9]/g, '').slice(-2) || '10'}`,
-      phone: patient.phone || 'N/A',
-      address: 'Clinical Ward 1',
-      medicalHistory,
-      prescriptions,
-      appointments,
-      telemedicine: [],
-    };
-
-    res.status(200).json(successResponse(formatted));
+    res.status(200).json(successResponse(patient));
   } catch (error: unknown) {
     next(error);
   }

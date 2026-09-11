@@ -1,6 +1,6 @@
 FROM node:20-alpine AS builder
 
-RUN apk add --no-cache openssl curl
+RUN apk add --no-cache openssl openssl-dev curl
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ FROM node:20-alpine AS runner
 
 RUN apk add --no-cache curl
 
-WORKDIR /app/packages/db
+WORKDIR /app
 
 ENV NODE_ENV=production
 
@@ -25,4 +25,4 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/db ./packages/db
 
-CMD ["npx", "prisma", "migrate", "deploy"]
+CMD ["npx", "prisma", "migrate", "deploy", "--schema=packages/db/prisma/schema.prisma"]

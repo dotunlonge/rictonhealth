@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Account - 03-medical
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.

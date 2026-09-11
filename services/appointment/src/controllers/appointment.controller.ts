@@ -7,7 +7,70 @@ import {
   ValidationError,
   ForbiddenError,
   AppError,
+  redis,
 } from '@ricton/shared';
+
+/**
+ * Set the calling provider's weekly availability (upsert per dayOfWeek).
+ * HOSPITAL_ADMIN/SUPER_ADMIN may set availability for a providerId in the body.
+ */
+export const setAvailability = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const {
+      providerId: bodyProviderId,
+      dayOfWeek,
+      startTime,
+      endTime,
+      slotDurationMinutes,
+      isActive,
+    } = req.body as {
+      providerId?: string;
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      slotDurationMinutes?: number;
+      isActive?: boolean;
+    };
+
+    const providerId =
+      userPayload.role === UserRole.CONSULTANT ? userPayload.userId : bodyProviderId;
+    if (!providerId) {
+      throw new ValidationError('providerId is required');
+    }
+
+    const normalize = (t: string) => (t.length === 5 ? `${t}:00` : t);
+    const start = normalize(startTime);
+    const end = normalize(endTime);
+    if (start >= end) {
+      throw new ValidationError('startTime must be before endTime');
+    }
+
+    const availability = await prisma.providerAvailability.upsert({
+      where: {
+        providerId_dayOfWeek: { providerId, dayOfWeek },
+      },
+      create: {
+        providerId,
+        dayOfWeek,
+        startTime: start,
+        endTime: end,
+        slotDurationMinutes: slotDurationMinutes ?? 30,
+        isActive: isActive ?? true,
+      },
+      update: {
+        startTime: start,
+        endTime: end,
+        slotDurationMinutes: slotDurationMinutes ?? 30,
+        isActive: isActive ?? true,
+      },
+    });
+
+    res.status(200).json(successResponse(availability));
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const getAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -21,7 +84,7 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
 
     const targetDate = new Date(date as string);
     // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
-    const dayOfWeek = (targetDate.getDay() + 6) % 7;
+    const dayOfWeek = (targetDate.getUTCDay() + 6) % 7; // UTC: availability windows are stored/evaluated in UTC
 
     // Get provider's availability for this day
     const availability = await prisma.providerAvailability.findFirst({
@@ -39,13 +102,13 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     // Get all active/confirmed appointments for this provider on this date
     // Include cross-midnight appointments that might overlap with early morning slots
     const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setUTCHours(0, 0, 0, 0);
     const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     // Also check previous day for appointments that extend past midnight
     const prevDay = new Date(startOfDay);
-    prevDay.setDate(prevDay.getDate() - 1);
+    prevDay.setUTCDate(prevDay.getUTCDate() - 1);
 
     const appointments = await prisma.appointment.findMany({
       where: {
@@ -93,10 +156,10 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
 
     while (currentMinutes + slotDuration <= endMinutes) {
       const slotStart = new Date(targetDate);
-      slotStart.setHours(Math.floor(currentMinutes / 60), currentMinutes % 60, 0, 0);
+      slotStart.setUTCHours(Math.floor(currentMinutes / 60), currentMinutes % 60, 0, 0);
 
       const slotEnd = new Date(slotStart);
-      slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+      slotEnd.setUTCMinutes(slotEnd.getUTCMinutes() + slotDuration);
 
       // Check if this slot conflicts with any existing appointment
       const hasConflict = appointments.some((apt) => {
@@ -149,7 +212,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     }
 
     // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
-    const dayOfWeek = (scheduledDate.getDay() + 6) % 7;
+    const dayOfWeek = (scheduledDate.getUTCDay() + 6) % 7; // UTC
 
     // Check provider availability
     const availability = await prisma.providerAvailability.findFirst({
@@ -174,8 +237,8 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     }
 
     // Calculate requested time in minutes
-    const reqHour = scheduledDate.getHours();
-    const reqMin = scheduledDate.getMinutes();
+    const reqHour = scheduledDate.getUTCHours(); // UTC
+    const reqMin = scheduledDate.getUTCMinutes(); // UTC
     const reqMinutes = reqHour * 60 + reqMin;
     const startMinutes = startHour * 60 + startMin;
     const endMinutes = endHour * 60 + endMin;
@@ -190,38 +253,9 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       throw new ValidationError('Requested time must align to the provider slot grid');
     }
 
-    // Use the requested scheduledDate directly (not overwritten to startTime)
-    const slotStart = new Date(scheduledDate);
-    const slotEnd = new Date(slotStart);
-    slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
-
-    // Find conflicting appointments
-    const conflictingAppointments = await prisma.appointment.findMany({
-      where: {
-        providerId,
-        scheduledAt: {
-          gte: new Date(scheduledDate.setHours(0, 0, 0, 0)),
-          lte: new Date(scheduledDate.setHours(23, 59, 59, 999)),
-        },
-        status: {
-          in: [
-            AppointmentStatus.PENDING,
-            AppointmentStatus.CONFIRMED,
-            AppointmentStatus.IN_PROGRESS,
-          ],
-        },
-      },
-    });
-
-    const hasConflict = conflictingAppointments.some((apt) => {
-      const aptStart = new Date(apt.scheduledAt);
-      const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
-      return slotStart < aptEnd && slotEnd > aptStart;
-    });
-
-    if (hasConflict) {
-      throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
-    }
+    // Use immutable date instances
+    const slotStart = new Date(scheduledDate.getTime());
+    const slotEnd = new Date(slotStart.getTime() + slotDuration * 60000);
 
     // Derive hospitalId from provider if not provided, or validate it matches provider's hospital
     let finalHospitalId = hospitalId;
@@ -244,56 +278,137 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       }
     }
 
-    // Create appointment with telemedicine room in a single transaction
-    const appointment = await prisma.$transaction(async (tx) => {
-      const appt = await tx.appointment.create({
-        data: {
-          patientId: userPayload.userId,
-          providerId,
-          hospitalId: finalHospitalId,
-          scheduledAt: slotStart,
-          durationMinutes: slotDuration,
-          type,
-          reason,
-          status: AppointmentStatus.PENDING,
-        },
-        include: {
-          patient: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              patientProfile: true,
-            },
-          },
-          provider: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              providerProfile: true,
-            },
-          },
-        },
-      });
+    const lockKey = `lock:appointment:${providerId}:${slotStart.getTime()}`;
+    let lockAcquired = false;
+    try {
+      const lockRes = await redis.set(lockKey, '1', 'EX', 10, 'NX');
+      lockAcquired = lockRes === 'OK' || lockRes === true || lockRes === 1;
+    } catch (err) {
+      // Redis unavailable: proceed WITHOUT the best-effort lock. Correctness
+      // then rests on the Serializable transaction + overlap check below.
+      console.warn(
+        `[appointment] Redis slot-lock unavailable for ${lockKey}; relying on serializable guard`,
+        err
+      );
+      lockAcquired = true;
+    }
 
-      // Auto-create telemedicine room for VIDEO appointments
-      if (type === AppointmentType.VIDEO) {
-        await tx.telemedicineRoom.create({
-          data: {
-            providerId,
-            appointmentId: appt.id,
-            roomType: 'ONE_ON_ONE',
-            externalRoomId: `room-${appt.id}`,
-            status: 'CREATED',
+    if (!lockAcquired) {
+      throw new AppError(
+        'This time slot is currently being processed by another patient. Please try again or pick another time.',
+        409,
+        'APPOINTMENT_CONFLICT'
+      );
+    }
+
+    try {
+      let appointment;
+      try {
+        appointment = await prisma.$transaction(
+          async (tx) => {
+            const dayStart = new Date(slotStart.getTime());
+            dayStart.setUTCHours(0, 0, 0, 0);
+            const dayEnd = new Date(slotStart.getTime());
+            dayEnd.setUTCHours(23, 59, 59, 999); // UTC
+
+            const conflictingAppointments = await tx.appointment.findMany({
+              where: {
+                providerId,
+                scheduledAt: {
+                  gte: dayStart,
+                  lte: dayEnd,
+                },
+                status: {
+                  in: [
+                    AppointmentStatus.PENDING,
+                    AppointmentStatus.CONFIRMED,
+                    AppointmentStatus.IN_PROGRESS,
+                  ],
+                },
+              },
+            });
+
+            const hasConflict = conflictingAppointments.some((apt) => {
+              const aptStart = new Date(apt.scheduledAt);
+              const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
+              return slotStart < aptEnd && slotEnd > aptStart;
+            });
+
+            if (hasConflict) {
+              throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
+            }
+
+            const appt = await tx.appointment.create({
+              data: {
+                patientId: userPayload.userId,
+                providerId,
+                hospitalId: finalHospitalId,
+                scheduledAt: slotStart,
+                durationMinutes: slotDuration,
+                type,
+                reason,
+                status: AppointmentStatus.PENDING,
+              },
+              include: {
+                patient: {
+                  select: {
+                    id: true,
+                    email: true,
+                    phone: true,
+                    patientProfile: true,
+                  },
+                },
+                provider: {
+                  select: {
+                    id: true,
+                    email: true,
+                    phone: true,
+                    providerProfile: true,
+                  },
+                },
+              },
+            });
+
+            // Auto-create telemedicine room for VIDEO appointments. The external
+            // provider identity is provisioned explicitly at token time.
+            if (type === AppointmentType.VIDEO) {
+              await tx.telemedicineRoom.create({
+                data: {
+                  providerId,
+                  appointmentId: appt.id,
+                  roomType: 'ONE_ON_ONE',
+                  externalRoomId: `ricton-${appt.id}`,
+                  status: 'CREATED',
+                },
+              });
+            }
+
+            return appt;
           },
-        });
+          // Serializable so the in-transaction overlap check is race-safe even
+          // when the best-effort Redis slot lock is unavailable.
+          { isolationLevel: 'Serializable', timeout: 30000, maxWait: 15000 }
+        );
+      } catch (error) {
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          (error as { code?: string }).code === 'P2034'
+        ) {
+          throw new AppError(
+            'This time slot changed concurrently. Please reload availability and try again.',
+            409,
+            'APPOINTMENT_CONFLICT'
+          );
+        }
+        throw error;
       }
 
-      return appt;
-    });
-
-    res.status(201).json(successResponse(appointment));
+      res.status(201).json(successResponse(appointment));
+    } finally {
+      await redis.del(lockKey).catch(() => {});
+    }
   } catch (error) {
     next(error);
   }

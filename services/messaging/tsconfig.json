@@ -16,8 +16,21 @@
     "baseUrl": ".",
     "paths": {
       "@ricton/*": ["../../packages/*/src"]
-    }
+    },
+    "composite": true,
+    "rootDir": "src"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/auth-middleware"
+    }
+  ]
 }

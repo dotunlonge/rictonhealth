@@ -34,8 +34,6 @@ import {
 import { api } from '@/lib/api-client';
 import { useWalletState } from '@/store/useAppStore';
 
-
-
 const calendarDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function formatDate(iso: string) {
@@ -99,7 +97,10 @@ function computeProfileCompletion(user: any): {
 
   const steps = [
     { label: 'Setup account', done: hasUser },
-    { label: 'Upload profile photo', done: hasUser && !!(user?.avatarUrl || profile?.avatarUrl || user?.email) },
+    {
+      label: 'Upload profile photo',
+      done: hasUser && !!(user?.avatarUrl || profile?.avatarUrl || user?.email),
+    },
     { label: 'Personal information', done: hasUser },
     { label: 'Verification & credentials', done: hasUser },
   ];
@@ -108,7 +109,20 @@ function computeProfileCompletion(user: any): {
 }
 
 function buildMonthlyChart(trend: any[]): { month: string; value: number }[] {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
   const now = new Date();
   const currentMonthIdx = now.getMonth();
   const chartMonths: string[] = [];
@@ -181,16 +195,6 @@ function resolveUserInfo(user: any): { firstName: string; lastName: string; full
   return { firstName: '', lastName: '', fullName: '' };
 }
 
-function getInitialUserProfile() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const cached = localStorage.getItem('ricton_user');
-    return cached ? JSON.parse(cached) : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function DashboardPage() {
   const router = useRouter();
   const [activeNav, setActiveNav] = useState('Home');
@@ -200,7 +204,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Dynamic Real API Data State
-  const [userProfile, setUserProfile] = useState<any>(getInitialUserProfile);
+  const [userProfile, setUserProfile] = useState<any>(null);
   const [providerStats, setProviderStats] = useState<any>(null);
   const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([]);
   const { walletBalance: storeWallet, rewardsPoints: storeRewards } = useWalletState();
@@ -247,7 +251,7 @@ export default function DashboardPage() {
         }
 
         // 3. Wallet API
-        const walletRes = await api.get('/wallet');
+        const walletRes = await api.get('/wallets/me');
         if (walletRes.success && walletRes.data) {
           if (walletRes.data.balance !== undefined) {
             setWalletBalance(Number(walletRes.data.balance));
@@ -255,9 +259,12 @@ export default function DashboardPage() {
         }
 
         // 4. Wallet Transactions & Weekly Expenses
-        const txRes = await api.get('/wallet/transactions');
-        if (txRes.success && Array.isArray(txRes.data)) {
-          const totalWeekly = txRes.data.reduce((sum: number, t: any) => sum + (t.amount || 0), 0);
+        const txRes = await api.get('/wallets/transactions');
+        if (txRes.success && Array.isArray(txRes.data?.transactions)) {
+          const totalWeekly = txRes.data.transactions.reduce(
+            (sum: number, t: any) => sum + (Number(t.amount) || 0),
+            0
+          );
           setWeeklyTransactions(totalWeekly);
         }
 
@@ -298,29 +305,32 @@ export default function DashboardPage() {
     if (!searchQuery.trim()) return todaySchedules;
     const q = searchQuery.toLowerCase();
     return todaySchedules.filter(
-      (s) =>
-        getPatientName(s).toLowerCase().includes(q) ||
-        (s.type || '').toLowerCase().includes(q)
+      (s) => getPatientName(s).toLowerCase().includes(q) || (s.type || '').toLowerCase().includes(q)
     );
   }, [todaySchedules, searchQuery]);
 
   const totalAppointments = useMemo(() => {
     if (providerStats?.totalAppointments !== undefined) return providerStats.totalAppointments;
-    return upcomingAppointments.filter((a) => a.status === 'COMPLETED' || a.status === 'FULFILLED').length;
+    return upcomingAppointments.filter((a) => a.status === 'COMPLETED' || a.status === 'FULFILLED')
+      .length;
   }, [providerStats, upcomingAppointments]);
 
   const pendingAppointments = useMemo(() => {
     if (providerStats?.pendingAppointments !== undefined) return providerStats.pendingAppointments;
-    return upcomingAppointments.filter((a) => a.status === 'PENDING' || a.status === 'CREATED' || !a.status).length;
+    return upcomingAppointments.filter(
+      (a) => a.status === 'PENDING' || a.status === 'CREATED' || !a.status
+    ).length;
   }, [providerStats, upcomingAppointments]);
 
   const profileData = useMemo(() => computeProfileCompletion(userProfile), [userProfile]);
   const chartValues = useMemo(() => buildMonthlyChart(revenueTrend), [revenueTrend]);
 
-  const { daysInMonth, firstDayOfWeek, year: calYear, month: calMonth } = useMemo(
-    () => getCalendarGrid(monthOffset),
-    [monthOffset]
-  );
+  const {
+    daysInMonth,
+    firstDayOfWeek,
+    year: calYear,
+    month: calMonth,
+  } = useMemo(() => getCalendarGrid(monthOffset), [monthOffset]);
   const today = new Date();
   const isCurrentMonth = calYear === today.getFullYear() && calMonth === today.getMonth();
 
@@ -334,381 +344,415 @@ export default function DashboardPage() {
     <SidebarLayout allowedRoles={['PATIENT', 'CONSULTANT']}>
       <div className="space-y-8">
         {/* Welcome Header Banner */}
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-                Welcome back, {userFirstName}!
-                <Sparkles className="w-5 h-5 text-amber-500 inline-block" />
-              </h1>
-              <p className="text-xs text-slate-500 mt-1 font-medium">
-                Here is your healthcare schedule overview and performance metrics.
-              </p>
-            </div>
-            <Link
-              href="/telemedicine"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-md transition-all"
-            >
-              <Video className="w-4 h-4" />
-              <span>Start Virtual Session</span>
-            </Link>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              Welcome back, {userFirstName}!
+              <Sparkles className="w-5 h-5 text-amber-500 inline-block" />
+            </h1>
+            <p className="text-xs text-slate-500 mt-1 font-medium">
+              Here is your healthcare schedule overview and performance metrics.
+            </p>
           </div>
+          <Link
+            href="/telemedicine"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1877F2] hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-md transition-all"
+          >
+            <Video className="w-4 h-4" />
+            <span>Start Virtual Session</span>
+          </Link>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left Main Column (2 Spans) */}
-            <div className="lg:col-span-2 space-y-8">
-              {/* Next Appointment Card */}
-              <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                    <CalendarDays className="w-4 h-4 text-[#1877F2]" />
-                    <span>Next Scheduled Appointment</span>
-                  </h2>
-                  {nextAppointment && (
-                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                      Confirmed
-                    </span>
-                  )}
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Main Column (2 Spans) */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Next Appointment Card */}
+            <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <CalendarDays className="w-4 h-4 text-[#1877F2]" />
+                  <span>Next Scheduled Appointment</span>
+                </h2>
+                {nextAppointment && (
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                    Confirmed
+                  </span>
+                )}
+              </div>
 
-                {nextAppointment ? (
-                  <div className="flex flex-wrap items-center justify-between gap-6 pt-2">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold shadow-sm">
-                        <User className="w-6 h-6 text-slate-200" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-base text-slate-900">
-                          {userProfile?.role === 'PATIENT' ? getDoctorName(nextAppointment) : getPatientName(nextAppointment)}
-                        </p>
-                        <p className="text-xs font-semibold text-slate-500">
-                          {nextAppointment.type || 'General Consultation'}
-                        </p>
-                      </div>
+              {nextAppointment ? (
+                <div className="flex flex-wrap items-center justify-between gap-6 pt-2">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center text-lg font-bold shadow-sm">
+                      <User className="w-6 h-6 text-slate-200" />
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-6">
-                      <div className="flex items-center gap-2.5 text-slate-700 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-100">
-                        <Calendar className="w-4 h-4 text-[#1877F2]" />
-                        <span className="font-bold text-xs">
-                          {formatDate(nextAppointment.scheduledAt)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 text-slate-700 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-100">
-                        <Clock className="w-4 h-4 text-[#1877F2]" />
-                        <span className="font-bold text-xs">
-                          {formatTimeRange(nextAppointment.scheduledAt, nextAppointment.durationMinutes)}
-                        </span>
-                      </div>
+                    <div>
+                      <p className="font-bold text-base text-slate-900">
+                        {userProfile?.role === 'PATIENT'
+                          ? getDoctorName(nextAppointment)
+                          : getPatientName(nextAppointment)}
+                      </p>
+                      <p className="text-xs font-semibold text-slate-500">
+                        {nextAppointment.type || 'General Consultation'}
+                      </p>
                     </div>
                   </div>
-                ) : (
-                  <div className="py-6 text-center space-y-3">
-                    <p className="text-xs font-bold text-slate-500">No upcoming appointments scheduled</p>
+
+                  <div className="flex flex-wrap items-center gap-6">
+                    <div className="flex items-center gap-2.5 text-slate-700 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-100">
+                      <Calendar className="w-4 h-4 text-[#1877F2]" />
+                      <span className="font-bold text-xs">
+                        {formatDate(nextAppointment.scheduledAt)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 text-slate-700 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-100">
+                      <Clock className="w-4 h-4 text-[#1877F2]" />
+                      <span className="font-bold text-xs">
+                        {formatTimeRange(
+                          nextAppointment.scheduledAt,
+                          nextAppointment.durationMinutes
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="py-6 text-center space-y-3">
+                  <p className="text-xs font-bold text-slate-500">
+                    No upcoming appointments scheduled
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.push('/appointments')}
+                    className="px-5 py-2 bg-[#1877F2] text-white text-xs font-bold rounded-full shadow-xs hover:bg-[#1565C0] transition-all"
+                  >
+                    Book Consultation
+                  </button>
+                </div>
+              )}
+            </section>
+
+            {/* Total & Pending Appointment Stats */}
+            <section className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <article className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center gap-5">
+                <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Completed Appointments
+                  </p>
+                  <p className="text-2xl font-extrabold text-slate-900 mt-1">{totalAppointments}</p>
+                </div>
+              </article>
+
+              <article className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center gap-5">
+                <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shrink-0">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Pending Requests
+                  </p>
+                  <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                    {pendingAppointments}
+                  </p>
+                </div>
+              </article>
+            </section>
+
+            {/* Today Schedule List Section */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-bold text-base text-slate-900">Today&apos;s Schedule</h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {new Date().toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => router.push('/appointments')}
+                  className="px-4 py-2 border border-[#1877F2] text-[#1877F2] rounded-xl text-xs font-bold hover:bg-[#1877F2] hover:text-white transition-all shadow-xs"
+                >
+                  View All
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {filteredSchedules.length === 0 ? (
+                  <div className="bg-white border border-slate-200/90 rounded-2xl p-6 text-center space-y-2">
+                    <p className="text-xs font-bold text-slate-500">
+                      No scheduled consultations for today
+                    </p>
                     <button
                       type="button"
                       onClick={() => router.push('/appointments')}
-                      className="px-5 py-2 bg-[#1877F2] text-white text-xs font-bold rounded-full shadow-xs hover:bg-[#1565C0] transition-all"
+                      className="text-xs text-[#1877F2] font-bold hover:underline"
                     >
-                      Book Consultation
+                      + Book New Appointment
                     </button>
-                  </div>
-                )}
-              </section>
-
-              {/* Total & Pending Appointment Stats */}
-              <section className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <article className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center gap-5">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Completed Appointments
-                    </p>
-                    <p className="text-2xl font-extrabold text-slate-900 mt-1">{totalAppointments}</p>
-                  </div>
-                </article>
-
-                <article className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center gap-5">
-                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shrink-0">
-                    <Clock className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Pending Requests
-                    </p>
-                    <p className="text-2xl font-extrabold text-slate-900 mt-1">{pendingAppointments}</p>
-                  </div>
-                </article>
-              </section>
-
-              {/* Today Schedule List Section */}
-              <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900">Today&apos;s Schedule</h2>
-                    <p className="text-xs text-slate-500 font-medium">
-                      {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => router.push('/appointments')}
-                    className="px-4 py-2 border border-[#1877F2] text-[#1877F2] rounded-xl text-xs font-bold hover:bg-[#1877F2] hover:text-white transition-all shadow-xs"
-                  >
-                    View All
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  {filteredSchedules.length === 0 ? (
-                    <div className="bg-white border border-slate-200/90 rounded-2xl p-6 text-center space-y-2">
-                      <p className="text-xs font-bold text-slate-500">No scheduled consultations for today</p>
-                      <button
-                        type="button"
-                        onClick={() => router.push('/appointments')}
-                        className="text-xs text-[#1877F2] font-bold hover:underline"
-                      >
-                        + Book New Appointment
-                      </button>
-                    </div>
-                  ) : (
-                    filteredSchedules
-                      .slice(0, showAllSchedules ? filteredSchedules.length : 3)
-                      .map((sched, i) => (
-                        <div
-                          key={sched.id || i}
-                          className="bg-white border border-slate-200/90 hover:border-[#1877F2]/40 rounded-2xl p-5 shadow-xs flex items-center justify-between gap-4 transition-all"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#1877F2] border border-blue-100 flex items-center justify-center font-bold shrink-0">
-                              <User className="w-5 h-5" />
-                            </div>
-                            <div>
-                              <p className="font-bold text-sm text-slate-900">
-                                {userProfile?.role === 'PATIENT' ? getDoctorName(sched) : getPatientName(sched)}
-                              </p>
-                              <p className="text-xs text-slate-500">{sched.type || 'Consultation'}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2.5 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200/60">
-                            <Clock className="w-4 h-4 text-[#1877F2]" />
-                            <span className="font-bold text-xs text-slate-800">
-                              {formatTimeRange(sched.scheduledAt, sched.durationMinutes)}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </section>
-
-              {/* Earnings & Revenue Vector Chart Section */}
-              <section className="bg-white rounded-2xl p-7 shadow-xs border border-slate-200/80 space-y-6">
-                <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-6 gap-6">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-xs">
-                      <Coins className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                        {userProfile?.role === 'PATIENT' ? 'Weekly Health Spend' : 'Weekly Earning'}
-                      </p>
-                      <p className="text-2xl font-extrabold text-slate-900">
-                        ₦{weeklyTransactions.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Total Wallet Balance
-                    </p>
-                    <p className="text-2xl font-extrabold text-[#1877F2]">
-                      ₦{walletBalance.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Monthly Vector Bar Chart */}
-                <div className="h-52 flex items-end justify-between px-4 pb-2 border-b border-slate-200 gap-2">
-                  {chartValues.map((item) => (
-                    <div key={item.month} className="flex-1 flex flex-col items-center justify-end h-full">
-                      <div
-                        className="w-full max-w-[36px] bg-[#1877F2] hover:bg-blue-700 rounded-t-lg transition-all"
-                        style={{ height: `${item.value}px` }}
-                      />
-                      <span className="mt-3 text-[11px] font-semibold text-slate-500">{item.month}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-
-            {/* Right Column (1 Span) */}
-            <div className="space-y-8">
-              {/* Vector Calendar Widget Card */}
-              <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-6">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setMonthOffset((v) => v - 1)}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="font-bold text-sm text-slate-900">{getMonthName(monthOffset)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setMonthOffset((v) => v + 1)}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-7 gap-y-3 text-center text-xs font-semibold text-slate-400">
-                  {calendarDays.map((d) => (
-                    <span key={d}>{d}</span>
-                  ))}
-                  {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-                    <span key={`empty-${i}`} />
-                  ))}
-                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((date) => (
-                    <button
-                      key={date}
-                      type="button"
-                      onClick={() => setSelectedDate(date)}
-                      className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${
-                        selectedDate === date
-                          ? 'bg-[#1877F2] text-white shadow-md ring-2 ring-blue-300 scale-105'
-                          : isCurrentMonth && date === today.getDate()
-                          ? 'bg-blue-100 text-[#1877F2] font-black'
-                          : 'text-slate-700 hover:bg-slate-100'
-                      }`}
-                    >
-                      {date}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
-                  <span className="text-slate-500">Selected: <strong className="text-slate-900">{getMonthName(monthOffset)} {selectedDate}</strong></span>
-                  <button
-                    type="button"
-                    onClick={() => router.push('/appointments')}
-                    className="text-[#1877F2] font-bold hover:underline"
-                  >
-                    + Book Session
-                  </button>
-                </div>
-              </section>
-
-              {/* Complete Profile Progress */}
-              <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
-                <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
-                  Profile Verification Status
-                </h2>
-
-                <div className="flex items-center gap-5">
-                  <div className="relative w-16 h-16 rounded-full border-4 border-slate-100 border-t-[#1877F2] border-r-[#1877F2] flex items-center justify-center shrink-0">
-                    <span className="font-extrabold text-sm text-slate-900">
-                      {profileData.percentage}%
-                    </span>
-                  </div>
-
-                  <ol className="space-y-2 text-xs font-semibold text-slate-700 flex-1">
-                    {profileData.steps.map((step) => (
-                      <li
-                        key={step.label}
-                        onClick={() => router.push('/settings')}
-                        className="flex items-center justify-between cursor-pointer hover:text-[#1877F2] transition-colors"
-                      >
-                        <span>{step.label}</span>
-                        {step.done ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-slate-300" />
-                        )}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </section>
-
-              {/* Rating / Health Vitals Card */}
-              <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
-                <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
-                  {userProfile?.role === 'PATIENT' ? 'Patient Health Vitals' : 'Provider Rating'}
-                </h2>
-
-                {userProfile?.role === 'PATIENT' ? (
-                  <div className="space-y-3 text-xs">
-                    <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="font-bold text-slate-600">Heart Rate</span>
-                      <span className="font-extrabold text-[#1877F2]">72 bpm (Normal)</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="font-bold text-slate-600">Blood Pressure</span>
-                      <span className="font-extrabold text-emerald-600">120/80 mmHg</span>
-                    </div>
-                    <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="font-bold text-slate-600">Oxygen Saturation</span>
-                      <span className="font-extrabold text-cyan-600">99% SpO2</span>
-                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-2 flex-1">
-                      {[
-                        { label: 'Communication', pct: 98 },
-                        { label: 'Efficiency', pct: 92 },
-                        { label: 'Punctuality', pct: 95 },
-                      ].map((item) => (
-                        <div key={item.label} className="space-y-1">
-                          <div className="flex justify-between text-[11px] font-semibold text-slate-600">
-                            <span>{item.label}</span>
-                            <span>{item.pct}%</span>
+                  filteredSchedules
+                    .slice(0, showAllSchedules ? filteredSchedules.length : 3)
+                    .map((sched, i) => (
+                      <div
+                        key={sched.id || i}
+                        className="bg-white border border-slate-200/90 hover:border-[#1877F2]/40 rounded-2xl p-5 shadow-xs flex items-center justify-between gap-4 transition-all"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#1877F2] border border-blue-100 flex items-center justify-center font-bold shrink-0">
+                            <User className="w-5 h-5" />
                           </div>
-                          <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-emerald-500 rounded-full"
-                              style={{ width: `${item.pct}%` }}
-                            />
+                          <div>
+                            <p className="font-bold text-sm text-slate-900">
+                              {userProfile?.role === 'PATIENT'
+                                ? getDoctorName(sched)
+                                : getPatientName(sched)}
+                            </p>
+                            <p className="text-xs text-slate-500">{sched.type || 'Consultation'}</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
 
-                    <div className="flex flex-col items-center justify-center p-3.5 bg-amber-50 rounded-xl border border-amber-200 shrink-0">
-                      <div className="flex items-center gap-1 text-amber-600">
-                        <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                        <span className="text-xl font-black text-slate-900">{ratingScore.toFixed(1)}</span>
+                        <div className="flex items-center gap-2.5 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-200/60">
+                          <Clock className="w-4 h-4 text-[#1877F2]" />
+                          <span className="font-bold text-xs text-slate-800">
+                            {formatTimeRange(sched.scheduledAt, sched.durationMinutes)}
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase mt-1">Verified Rating</span>
-                    </div>
-                  </div>
+                    ))
                 )}
-              </section>
+              </div>
+            </section>
 
-              {/* Rewards Vector Card */}
-              <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center justify-between">
+            {/* Earnings & Revenue Vector Chart Section */}
+            <section className="bg-white rounded-2xl p-7 shadow-xs border border-slate-200/80 space-y-6">
+              <div className="flex flex-wrap items-center justify-between border-b border-slate-100 pb-6 gap-6">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center shadow-xs">
+                    <Coins className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      {userProfile?.role === 'PATIENT' ? 'Weekly Health Spend' : 'Weekly Earning'}
+                    </p>
+                    <p className="text-2xl font-extrabold text-slate-900">
+                      ₦{weeklyTransactions.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
                 <div>
-                  <h2 className="font-bold text-xs text-slate-500 uppercase tracking-wider">
-                    Rewards Points
-                  </h2>
-                  <p className="text-2xl font-extrabold text-slate-900 mt-1">
-                    {rewardsBalance.toLocaleString()} PTS
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Total Wallet Balance
+                  </p>
+                  <p className="text-2xl font-extrabold text-[#1877F2]">
+                    ₦{walletBalance.toLocaleString()}
                   </p>
                 </div>
-                <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
-                  <Award className="w-6 h-6" />
-                </div>
-              </section>
-            </div>
+              </div>
+
+              {/* Monthly Vector Bar Chart */}
+              <div className="h-52 flex items-end justify-between px-4 pb-2 border-b border-slate-200 gap-2">
+                {chartValues.map((item) => (
+                  <div
+                    key={item.month}
+                    className="flex-1 flex flex-col items-center justify-end h-full"
+                  >
+                    <div
+                      className="w-full max-w-[36px] bg-[#1877F2] hover:bg-blue-700 rounded-t-lg transition-all"
+                      style={{ height: `${item.value}px` }}
+                    />
+                    <span className="mt-3 text-[11px] font-semibold text-slate-500">
+                      {item.month}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
+
+          {/* Right Column (1 Span) */}
+          <div className="space-y-8">
+            {/* Vector Calendar Widget Card */}
+            <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-6">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setMonthOffset((v) => v - 1)}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="font-bold text-sm text-slate-900">
+                  {getMonthName(monthOffset)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setMonthOffset((v) => v + 1)}
+                  className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-y-3 text-center text-xs font-semibold text-slate-400">
+                {calendarDays.map((d) => (
+                  <span key={d}>{d}</span>
+                ))}
+                {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                  <span key={`empty-${i}`} />
+                ))}
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((date) => (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => setSelectedDate(date)}
+                    className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                      selectedDate === date
+                        ? 'bg-[#1877F2] text-white shadow-md ring-2 ring-blue-300 scale-105'
+                        : isCurrentMonth && date === today.getDate()
+                          ? 'bg-blue-100 text-[#1877F2] font-black'
+                          : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {date}
+                  </button>
+                ))}
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                <span className="text-slate-500">
+                  Selected:{' '}
+                  <strong className="text-slate-900">
+                    {getMonthName(monthOffset)} {selectedDate}
+                  </strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => router.push('/appointments')}
+                  className="text-[#1877F2] font-bold hover:underline"
+                >
+                  + Book Session
+                </button>
+              </div>
+            </section>
+
+            {/* Complete Profile Progress */}
+            <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
+              <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                Profile Verification Status
+              </h2>
+
+              <div className="flex items-center gap-5">
+                <div className="relative w-16 h-16 rounded-full border-4 border-slate-100 border-t-[#1877F2] border-r-[#1877F2] flex items-center justify-center shrink-0">
+                  <span className="font-extrabold text-sm text-slate-900">
+                    {profileData.percentage}%
+                  </span>
+                </div>
+
+                <ol className="space-y-2 text-xs font-semibold text-slate-700 flex-1">
+                  {profileData.steps.map((step) => (
+                    <li
+                      key={step.label}
+                      onClick={() => router.push('/settings')}
+                      className="flex items-center justify-between cursor-pointer hover:text-[#1877F2] transition-colors"
+                    >
+                      <span>{step.label}</span>
+                      {step.done ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-slate-300" />
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+
+            {/* Rating / Health Vitals Card */}
+            <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 space-y-4">
+              <h2 className="font-bold text-sm text-slate-900 uppercase tracking-wider">
+                {userProfile?.role === 'PATIENT' ? 'Patient Health Vitals' : 'Provider Rating'}
+              </h2>
+
+              {userProfile?.role === 'PATIENT' ? (
+                <div className="space-y-3 text-xs">
+                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="font-bold text-slate-600">Heart Rate</span>
+                    <span className="font-extrabold text-[#1877F2]">72 bpm (Normal)</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="font-bold text-slate-600">Blood Pressure</span>
+                    <span className="font-extrabold text-emerald-600">120/80 mmHg</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                    <span className="font-bold text-slate-600">Oxygen Saturation</span>
+                    <span className="font-extrabold text-cyan-600">99% SpO2</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-2 flex-1">
+                    {[
+                      { label: 'Communication', pct: 98 },
+                      { label: 'Efficiency', pct: 92 },
+                      { label: 'Punctuality', pct: 95 },
+                    ].map((item) => (
+                      <div key={item.label} className="space-y-1">
+                        <div className="flex justify-between text-[11px] font-semibold text-slate-600">
+                          <span>{item.label}</span>
+                          <span>{item.pct}%</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-500 rounded-full"
+                            style={{ width: `${item.pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-col items-center justify-center p-3.5 bg-amber-50 rounded-xl border border-amber-200 shrink-0">
+                    <div className="flex items-center gap-1 text-amber-600">
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      <span className="text-xl font-black text-slate-900">
+                        {ratingScore.toFixed(1)}
+                      </span>
+                    </div>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase mt-1">
+                      Verified Rating
+                    </span>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Rewards Vector Card */}
+            <section className="bg-white rounded-2xl p-6 shadow-xs border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-xs text-slate-500 uppercase tracking-wider">
+                  Rewards Points
+                </h2>
+                <p className="text-2xl font-extrabold text-slate-900 mt-1">
+                  {rewardsBalance.toLocaleString()} PTS
+                </p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                <Award className="w-6 h-6" />
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
     </SidebarLayout>
   );

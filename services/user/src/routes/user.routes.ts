@@ -37,8 +37,12 @@ router.put(
 router.get('/providers', validateQuery(GetProvidersQuerySchema), userController.getProviders);
 router.get('/providers/:id', userController.getProviderById);
 
-// Dashboards require specific roles
-router.get('/patients', userController.getPatients);
+// PHI routes require clinical roles. PATIENT self-access is enforced inside the controller.
+router.get(
+  '/patients',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  userController.getPatients
+);
 router.get('/patients/:id', userController.getPatientById);
 
 router.get(

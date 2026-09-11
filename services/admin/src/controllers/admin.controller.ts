@@ -1,10 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
+import bcrypt from 'bcrypt';
 import { prisma, UserRole, UserStatus } from '@ricton/db';
-import { successResponse, NotFoundError, ValidationError, ErrorDetails } from '@ricton/shared';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  ErrorDetails,
+} from '@ricton/shared';
 import {
   AdminUserListQuerySchema,
   AdminUpdateUserStatusSchema,
   AdminVerifyProviderSchema,
+  AdminProvisionUserSchema,
   AdminHospitalCreateSchema,
   AdminHospitalUpdateSchema,
   AdminAuditLogQuerySchema,
@@ -82,13 +90,44 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
+const sanitizeAdminUser = (user: Record<string, unknown>) => {
+  const {
+    // stripped: never leave the service boundary
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    passwordHash,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    twoFactorSecret,
+    ...safe
+  } = user as Record<string, unknown> & {
+    passwordHash?: unknown;
+    twoFactorSecret?: unknown;
+  };
+  return safe;
+};
+
 export const getUserById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
     const user = await prisma.user.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        phoneVerified: true,
+        oauthProvider: true,
+        consentVersion: true,
+        consentAt: true,
+        lastLoginAt: true,
+        twoFactorEnabled: true,
+        tokenVersion: true,
+        hospitalId: true,
+        createdAt: true,
+        updatedAt: true,
         patientProfile: true,
         providerProfile: true,
         pharmacyProfile: true,
@@ -99,7 +138,90 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
       throw new NotFoundError('User not found');
     }
 
-    res.status(200).json(successResponse(user));
+    res.status(200).json(successResponse(sanitizeAdminUser(user as Record<string, unknown>)));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Provision a privileged user (SUPER_ADMIN only, route-gated + active-gated).
+ * The ONLY creation path for HOSPITAL_ADMIN, since public registration and
+ * OAuth accept self-serve roles exclusively. Provisioned users start ACTIVE
+ * with verified contact (admin identity-proofed at creation).
+ */
+export const provisionUser = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const bodyResult = AdminProvisionUserSchema.safeParse(req.body);
+    if (!bodyResult.success) {
+      throw new ValidationError(
+        'Invalid request body',
+        bodyResult.error.errors as unknown as ErrorDetails
+      );
+    }
+    const { email, phone, password, role, hospitalId } = bodyResult.data;
+
+    const existingUser = await prisma.user.findFirst({
+      where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
+      select: { id: true },
+    });
+    if (existingUser) {
+      throw new ConflictError('User already exists with this email or phone');
+    }
+
+    if (hospitalId) {
+      const hospital = await prisma.hospital.findUnique({
+        where: { id: hospitalId },
+        select: { id: true },
+      });
+      if (!hospital) {
+        throw new NotFoundError('Hospital not found');
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          phone,
+          passwordHash,
+          role: role as UserRole,
+          status: UserStatus.ACTIVE,
+          emailVerified: Boolean(email),
+          phoneVerified: Boolean(phone),
+          hospitalId: hospitalId || null,
+        },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          emailVerified: true,
+          phoneVerified: true,
+          hospitalId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: req.user?.userId || null,
+          action: 'USER_PROVISIONED',
+          resourceType: 'User',
+          resourceId: created.id,
+          metadata: { role, hospitalId: hospitalId || null },
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+      return created;
+    });
+
+    res
+      .status(201)
+      .json(successResponse(sanitizeAdminUser(user as unknown as Record<string, unknown>)));
   } catch (error) {
     next(error);
   }
@@ -128,6 +250,18 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
       const updated = await tx.user.update({
         where: { id },
         data: { status: status as UserStatus },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          role: true,
+          status: true,
+          emailVerified: true,
+          phoneVerified: true,
+          lastLoginAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
 
       await tx.auditLog.create({
@@ -148,7 +282,7 @@ export const updateUserStatus = async (req: Request, res: Response, next: NextFu
     res.status(200).json(
       successResponse({
         message: `User status updated to ${status}`,
-        user: updatedUser,
+        user: sanitizeAdminUser(updatedUser as unknown as Record<string, unknown>),
       })
     );
   } catch (error) {
@@ -168,12 +302,24 @@ export const verifyUser = async (req: Request, res: Response, next: NextFunction
     const updatedUser = await prisma.user.update({
       where: { id },
       data: { emailVerified: true, phoneVerified: true, status: 'ACTIVE' },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        phoneVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     res.status(200).json(
       successResponse({
         message: 'User verified successfully',
-        user: updatedUser,
+        user: sanitizeAdminUser(updatedUser as unknown as Record<string, unknown>),
       })
     );
   } catch (error) {
@@ -288,8 +434,12 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
 
 export const listHospitals = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
     const hospitals = await prisma.hospital.findMany({
       orderBy: { createdAt: 'desc' },
+      take,
+      skip,
     });
 
     res.status(200).json(successResponse(hospitals));
@@ -312,7 +462,17 @@ export const createHospital = async (req: Request, res: Response, next: NextFunc
     const hospitalData = bodyResult.data;
 
     const hospital = await prisma.hospital.create({
-      data: hospitalData,
+      data: {
+        name: hospitalData.name,
+        email: hospitalData.email,
+        phone: hospitalData.phone,
+        address: {
+          line1: hospitalData.address,
+          city: hospitalData.city,
+          state: hospitalData.state,
+          country: hospitalData.country,
+        },
+      },
     });
 
     await prisma.auditLog.create({
@@ -366,9 +526,36 @@ export const updateHospital = async (req: Request, res: Response, next: NextFunc
       );
     }
 
+    const existing = await prisma.hospital.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundError('Hospital not found');
+
+    const hospitalData = bodyResult.data;
+    const currentAddress =
+      existing.address && typeof existing.address === 'object' && !Array.isArray(existing.address)
+        ? (existing.address as Record<string, unknown>)
+        : {};
+    const hasAddressUpdate = Boolean(
+      hospitalData.address || hospitalData.city || hospitalData.state || hospitalData.country
+    );
+
     const hospital = await prisma.hospital.update({
       where: { id },
-      data: bodyResult.data,
+      data: {
+        name: hospitalData.name,
+        email: hospitalData.email,
+        phone: hospitalData.phone,
+        ...(hasAddressUpdate
+          ? {
+              address: {
+                ...currentAddress,
+                ...(hospitalData.address ? { line1: hospitalData.address } : {}),
+                ...(hospitalData.city ? { city: hospitalData.city } : {}),
+                ...(hospitalData.state ? { state: hospitalData.state } : {}),
+                ...(hospitalData.country ? { country: hospitalData.country } : {}),
+              },
+            }
+          : {}),
+      },
     });
 
     await prisma.auditLog.create({
@@ -461,22 +648,50 @@ export const getAnalytics = async (req: Request, res: Response, next: NextFuncti
 
     const totalRevenue = payments._sum.amount ? Number(payments._sum.amount) : 0;
 
-    const topProviders = await prisma.providerProfile.findMany({
+    // Real per-provider aggregates (single groupBy, no N+1, no full scans).
+    const appointmentsByProvider = await prisma.appointment.groupBy({
+      by: ['providerId'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
       take: 10,
     });
+    const topProviderIds = appointmentsByProvider.map((g) => g.providerId);
+    const topProfiles = topProviderIds.length
+      ? await prisma.providerProfile.findMany({
+          where: { userId: { in: topProviderIds } },
+        })
+      : [];
+    const profileByUserId = new Map(topProfiles.map((p) => [p.userId, p]));
+    const topProvidersFormatted = appointmentsByProvider.map((g) => {
+      const p = profileByUserId.get(g.providerId);
+      return {
+        id: p?.id ?? g.providerId,
+        name: p ? `${p.firstName} ${p.lastName}` : g.providerId,
+        appointmentsCount: g._count.id,
+        rating: p?.rating ? Number(p.rating) : null,
+      };
+    });
 
-    const topProvidersFormatted = topProviders.map((p) => ({
-      id: p.id,
-      name: `${p.firstName} ${p.lastName}`,
-      appointmentsCount: 0,
-      revenue: 0,
-      rating: p.rating ? Number(p.rating) : null,
-    }));
-
+    // Bounded 30-day daily growth series (aggregate-only, no row hydration).
+    const dayAgo30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [usersByDay, appointmentsByDay, revenueByDay] = await Promise.all([
+      prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
+        SELECT date_trunc('day', "createdAt") AS day, COUNT(*)::int AS count
+        FROM "users" WHERE "createdAt" >= ${dayAgo30}
+        GROUP BY 1 ORDER BY 1`,
+      prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
+        SELECT date_trunc('day', "scheduledAt") AS day, COUNT(*)::int AS count
+        FROM "appointments" WHERE "scheduledAt" >= ${dayAgo30}
+        GROUP BY 1 ORDER BY 1`,
+      prisma.$queryRaw<Array<{ day: Date; total: unknown }>>`
+        SELECT date_trunc('day', "createdAt") AS day, COALESCE(SUM("amount"), 0) AS total
+        FROM "payments" WHERE "status" = 'SUCCESS' AND "createdAt" >= ${dayAgo30}
+        GROUP BY 1 ORDER BY 1`,
+    ]);
     const growthData = {
-      userGrowth: [],
-      appointmentGrowth: [],
-      revenueGrowth: [],
+      userGrowth: usersByDay.map((r) => ({ date: r.day, count: Number(r.count) })),
+      appointmentGrowth: appointmentsByDay.map((r) => ({ date: r.day, count: Number(r.count) })),
+      revenueGrowth: revenueByDay.map((r) => ({ date: r.day, total: Number(r.total) })),
     };
 
     res.status(200).json(

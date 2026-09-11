@@ -1,0 +1,10 @@
+appId: com.ricton.health
+name: Foundation - essential authentication controls have stable accessible labels
+---
+- clearState
+- launchApp
+- assertVisible: Email address
+- assertVisible: Password
+- assertVisible: Sign in securely
+- tapOn: Show password
+- assertVisible: Hide password

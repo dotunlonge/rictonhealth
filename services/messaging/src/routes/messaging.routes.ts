@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
-import { rateLimit } from '@ricton/shared';
+import { idempotency, rateLimit } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import {
   listConversations,
   getConversationMessages,
@@ -28,9 +29,9 @@ router.post('/threads', createConversation);
 router.get('/conversations/:id', getConversationMessages);
 router.get('/threads/:id', getConversationMessages);
 
-// Send message (accepts body or content)
-router.post('/conversations/:id/messages', sendMessage);
-router.post('/threads/:id/messages', sendMessage);
+// Send message (accepts body or content; idempotent on retry)
+router.post('/conversations/:id/messages', idempotency(prisma), sendMessage);
+router.post('/threads/:id/messages', idempotency(prisma), sendMessage);
 
 // Mark read
 router.patch('/conversations/:id/read', markAsRead);

@@ -74,6 +74,11 @@ export const UpdateProfileInputSchema = registry.register(
   z.object({
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    avatarUrl: z
+      .string()
+      .url()
+      .refine((url) => url.startsWith('https://'), 'Avatar URL must use HTTPS')
+      .optional(),
     dateOfBirth: z.string().optional(),
     gender: z.string().optional(),
     bloodType: z.string().optional(),
@@ -82,6 +87,32 @@ export const UpdateProfileInputSchema = registry.register(
     consultationFee: z.number().optional(),
     title: z.string().optional(),
     pharmacyName: z.string().optional(),
+    // Hospital Onboarding fields
+    hospitalName: z.string().optional(),
+    registrationNumber: z.string().optional(),
+    cacNumber: z.string().optional(),
+    facilityTier: z.string().optional(),
+    ownershipType: z.string().optional(),
+    address: z.union([z.string(), z.record(z.unknown())]).optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    emergencyPhone: z.string().optional(),
+    supportEmail: z.string().optional(),
+    website: z.string().optional(),
+    totalBeds: z.union([z.string(), z.number()]).optional(),
+    icuBeds: z.union([z.string(), z.number()]).optional(),
+    operatingRooms: z.union([z.string(), z.number()]).optional(),
+    ambulances: z.union([z.string(), z.number()]).optional(),
+    departments: z.array(z.string()).optional(),
+    medicalDirector: z.record(z.unknown()).optional(),
+    documents: z.record(z.unknown()).optional(),
+    // Bank details
+    bankName: z.string().optional(),
+    bankCode: z.string().optional(),
+    accountNumber: z.string().optional(),
+    accountName: z.string().optional(),
+    bankDetails: z.record(z.unknown()).optional(),
+    settlementFrequency: z.string().optional(),
   })
 );
 
@@ -131,6 +162,38 @@ registry.registerPath({
           schema: GetUserResponseSchema,
         },
       },
+    },
+    401: {
+      description: 'Unauthorized',
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/api/users/me',
+  summary: 'Update current user profile',
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: UpdateProfileInputSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'User profile updated successfully',
+      content: {
+        'application/json': {
+          schema: GetUserResponseSchema,
+        },
+      },
+    },
+    400: {
+      description: 'Validation error',
     },
     401: {
       description: 'Unauthorized',

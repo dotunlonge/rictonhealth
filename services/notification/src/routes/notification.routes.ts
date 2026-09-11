@@ -152,6 +152,27 @@ router.post('/push-token', notificationController.registerPushToken);
 
 /**
  * @openapi
+ * /api/notifications/push-token/{token}:
+ *   delete:
+ *     summary: Revoke push notification token
+ *     tags:
+ *       - Notifications
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: token
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Token revoked
+ */
+router.delete('/push-token/:token', notificationController.revokePushToken);
+
+/**
+ * @openapi
  * /api/notifications/{id}:
  *   get:
  *     summary: Get notification by ID

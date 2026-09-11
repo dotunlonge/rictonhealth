@@ -5,15 +5,7 @@ import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useAppStore } from '@/store/useAppStore';
 import { api } from '@/lib/api-client';
 import { Wallet, CreditCard, ArrowUpRight, ArrowDownLeft, Plus, History } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface Transaction {
   id: string;
@@ -26,7 +18,7 @@ interface Transaction {
 
 export default function WalletPage() {
   const { user, walletBalance, fetchWallet } = useAppStore();
-  const [balance, setBalance] = useState<number>(walletBalance || 0);
+  const balance = walletBalance || 0;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -35,16 +27,19 @@ export default function WalletPage() {
     async function loadData() {
       setLoading(true);
       await fetchWallet();
-      const res = await api.get('/wallet/transactions');
-      if (res.success && Array.isArray(res.data)) {
+      const res = await api.get<{ transactions: any[] }>('/wallets/transactions');
+      if (res.success && Array.isArray(res.data?.transactions)) {
         setTransactions(
-          res.data.map((t: any, idx: number) => ({
-            id: t.id || `TX-${100 + idx}`,
-            type: t.type || 'PAYMENT',
-            description: t.description || 'Health Consultation Service',
+          res.data.transactions.map((t: any) => ({
+            id: t.id,
+            type: t.type === 'CREDIT' ? 'DEPOSIT' : t.type === 'DEBIT' ? 'WITHDRAWAL' : 'PAYMENT',
+            description: t.description || 'Wallet transaction',
             amount: Number(t.amount) || 0,
-            date: new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            status: 'COMPLETED',
+            date: new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            status: t.status || 'COMPLETED',
           }))
         );
       } else {
@@ -57,38 +52,46 @@ export default function WalletPage() {
 
   const handleTopUp = async () => {
     const amount = 10000;
-    const res = await api.post('/wallet/topup', { amount });
-    const newBal = balance + amount;
-    setBalance(newBal);
-    setTransactions((prev) => [
+    // Server-authoritative funding: initialize Paystack checkout, redirect to
+    // pay, and let the webhook credit the wallet. Never credit locally.
+    const res = await api.post<{ authorizationUrl?: string; reference?: string }>(
+      '/wallets/topup',
+      { amount },
       {
-        id: res.data?.id || `TX-${Date.now().toString().slice(-4)}`,
-        type: 'DEPOSIT',
-        description: 'Instant Wallet Fund Deposit',
-        amount,
-        date: 'Just now',
-        status: 'COMPLETED',
-      },
-      ...prev,
-    ]);
-    setActionMsg(`Wallet successfully funded with ₦${amount.toLocaleString()}`);
-    setTimeout(() => setActionMsg(null), 4000);
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}`,
+      }
+    );
+    if (!res.success || !res.data?.authorizationUrl) {
+      setActionMsg(`Failed: ${res.error?.message || 'Could not initialize payment'}`);
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
+    setActionMsg(`Redirecting to Paystack to complete ₦${amount.toLocaleString()} payment…`);
+    window.location.href = res.data.authorizationUrl;
   };
 
   const monthlyExpenses = useMemo(() => {
-    return transactions
-      .filter((t) => t.type !== 'DEPOSIT')
-      .reduce((sum, t) => sum + t.amount, 0);
+    return transactions.filter((t) => t.type !== 'DEPOSIT').reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
   const chartData = useMemo(() => {
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    return days.map((day) => {
-      const total = transactions
-        .filter((t) => t.date.toLowerCase().includes(day.toLowerCase()))
-        .reduce((sum, t) => sum + t.amount, 0);
-      return { day, revenue: total };
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayTotals: Record<string, number> = {};
+    dayNames.forEach((d) => (dayTotals[d] = 0));
+    transactions.forEach((t) => {
+      const parsed = new Date(t.date);
+      if (!isNaN(parsed.getTime())) {
+        const dayName = dayNames[parsed.getDay()];
+        dayTotals[dayName] += t.amount;
+      }
     });
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => ({
+      day,
+      revenue: dayTotals[day],
+    }));
   }, [transactions]);
 
   return (
@@ -124,7 +127,9 @@ export default function WalletPage() {
         {/* Top Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-gradient-to-br from-[#0A192F] to-[#1E3A8A] text-white rounded-3xl p-6 shadow-xl space-y-4 border border-slate-800">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Available Wallet Balance</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Available Wallet Balance
+            </span>
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-bold text-blue-300">₦</span>
               <span className="text-4xl font-black">{balance.toLocaleString()}</span>
@@ -135,23 +140,35 @@ export default function WalletPage() {
           </div>
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">This Month Expenses</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              This Month Expenses
+            </span>
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-bold text-slate-500">₦</span>
-              <span className="text-3xl font-black text-slate-900">{monthlyExpenses.toLocaleString()}</span>
+              <span className="text-3xl font-black text-slate-900">
+                {monthlyExpenses.toLocaleString()}
+              </span>
             </div>
-            <p className="text-[11px] font-semibold text-slate-500">{transactions.length} Total Health Transactions</p>
+            <p className="text-[11px] font-semibold text-slate-500">
+              {transactions.length} Total Health Transactions
+            </p>
           </div>
 
           <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Payment Account</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Payment Account
+            </span>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
                 <CreditCard className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-900">{user?.email || 'Ricton Health Wallet'}</p>
-                <p className="text-[10px] font-semibold text-slate-400">Verified Health Payout Account</p>
+                <p className="text-xs font-bold text-slate-900">
+                  {user?.email || 'Ricton Health Wallet'}
+                </p>
+                <p className="text-[10px] font-semibold text-slate-400">
+                  Verified Health Payout Account
+                </p>
               </div>
             </div>
           </div>
@@ -182,11 +199,15 @@ export default function WalletPage() {
             </h2>
             <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
               {loading ? (
-                <div className="p-4 text-center text-xs text-slate-400 font-bold">Loading transactions...</div>
+                <div className="p-4 text-center text-xs text-slate-400 font-bold">
+                  Loading transactions...
+                </div>
               ) : transactions.length === 0 ? (
                 <div className="p-8 text-center space-y-2">
                   <Wallet className="w-8 h-8 text-slate-300 mx-auto" />
-                  <p className="text-xs font-bold text-slate-600">No transaction activity recorded</p>
+                  <p className="text-xs font-bold text-slate-600">
+                    No transaction activity recorded
+                  </p>
                   <button
                     type="button"
                     onClick={handleTopUp}
@@ -197,17 +218,28 @@ export default function WalletPage() {
                 </div>
               ) : (
                 transactions.map((tx) => (
-                  <div key={tx.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                  <div
+                    key={tx.id}
+                    className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between"
+                  >
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                          tx.type === 'DEPOSIT' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-[#1877F2]'
+                          tx.type === 'DEPOSIT'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-blue-100 text-[#1877F2]'
                         }`}
                       >
-                        {tx.type === 'DEPOSIT' ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                        {tx.type === 'DEPOSIT' ? (
+                          <ArrowDownLeft className="w-4 h-4" />
+                        ) : (
+                          <ArrowUpRight className="w-4 h-4" />
+                        )}
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">{tx.description}</p>
+                        <p className="text-xs font-bold text-slate-900 truncate max-w-[140px]">
+                          {tx.description}
+                        </p>
                         <p className="text-[10px] font-semibold text-slate-400">{tx.date}</p>
                       </div>
                     </div>

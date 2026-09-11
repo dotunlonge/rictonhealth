@@ -1,6 +1,11 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  deploymentId: process.env.DEPLOYMENT_VERSION,
+  // Dev only: allow the loopback aliases developers actually use, otherwise
+  // client chunks are blocked and pages render dead (no hydration, no clicks).
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   async rewrites() {
     return [
       {
@@ -28,8 +33,12 @@ const nextConfig: NextConfig = {
         destination: 'http://localhost:3006/api/analytics/:path*',
       },
       {
-        source: '/api/wallet/:path*',
-        destination: 'http://localhost:3008/api/wallet/:path*',
+        source: '/api/wallets/:path*',
+        destination: 'http://localhost:3008/api/wallets/:path*',
+      },
+      {
+        source: '/api/smartguard/:path*',
+        destination: 'http://localhost:3017/api/smartguard/:path*',
       },
       {
         source: '/api/rewards/:path*',
@@ -37,7 +46,31 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/api/notifications/:path*',
-        destination: 'http://localhost:3009/api/notifications/:path*',
+        destination: 'http://localhost:3016/api/notifications/:path*',
+      },
+      {
+        source: '/api/payments/:path*',
+        destination: 'http://localhost:3007/api/payments/:path*',
+      },
+      {
+        source: '/api/pharmacy/:path*',
+        destination: 'http://localhost:3014/api/pharmacy/:path*',
+      },
+      {
+        source: '/api/messages/:path*',
+        destination: 'http://localhost:3012/api/messages/:path*',
+      },
+      {
+        source: '/api/addresses/:path*',
+        destination: 'http://localhost:3015/api/addresses/:path*',
+      },
+      {
+        source: '/api/subscriptions/:path*',
+        destination: 'http://localhost:3009/api/subscriptions/:path*',
+      },
+      {
+        source: '/api/admin/:path*',
+        destination: 'http://localhost:3010/api/admin/:path*',
       },
     ];
   },

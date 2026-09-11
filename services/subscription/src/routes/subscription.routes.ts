@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
-import { rateLimit } from '@ricton/shared';
+import { idempotency, rateLimit } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import * as subscriptionController from '../controllers/subscription.controller';
 
 const router = Router();
@@ -69,7 +70,7 @@ router.get('/my', subscriptionController.getMySubscription);
  *       200:
  *         description: Payment URL for subscription upgrade
  */
-router.post('/upgrade', subscriptionController.upgradeSubscription);
+router.post('/upgrade', idempotency(prisma), subscriptionController.upgradeSubscription);
 
 /**
  * @openapi

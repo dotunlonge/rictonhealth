@@ -11,7 +11,7 @@ function getDefaultOrigins(): string[] {
 
 export function createCors() {
   const rawOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o: string) => o.trim())
     : getDefaultOrigins();
 
   const allowedOrigins = rawOrigins.filter(Boolean);

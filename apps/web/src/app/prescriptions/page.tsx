@@ -1,447 +1,528 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
-import { Pill, Search, Plus, FileText, CheckCircle2, Clock } from 'lucide-react';
+import { CheckCircle2, Clock, FileText, Pill, Plus, Search } from 'lucide-react';
 
-interface PrescriptionItem {
+type PrescriptionStatus = 'DRAFT' | 'SIGNED' | 'SENT_TO_PHARMACY' | 'DISPENSED' | 'CANCELLED';
+
+type PrescriptionLine = {
   id: string;
-  patientName: string;
-  date: string;
-  time: string;
-  medication: string;
-  strength: string;
+  drugName: string;
   dosage: string;
+  quantity: number;
   frequency: string;
-  form: string;
-  quantity: string;
-  status: 'Delivered' | 'Pending';
-  doctor: string;
+  duration: string;
+  instructions: string | null;
+};
+
+type RelatedUser = {
+  email?: string | null;
+  patientProfile?: { firstName?: string; lastName?: string } | null;
+  providerProfile?: { firstName?: string; lastName?: string } | null;
+};
+
+type Prescription = {
+  id: string;
+  patientId: string;
+  providerId: string;
+  pharmacyId: string | null;
+  status: PrescriptionStatus;
+  signedAt: string | null;
+  createdAt: string;
+  notes: string | null;
+  items: PrescriptionLine[];
+  patient?: RelatedUser;
+  provider?: RelatedUser;
+};
+
+type Pharmacy = {
+  id: string;
+  pharmacyProfile: { pharmacyName: string; address: string } | null;
+};
+
+const STATUSES: Array<'ALL' | PrescriptionStatus> = [
+  'ALL',
+  'DRAFT',
+  'SIGNED',
+  'SENT_TO_PHARMACY',
+  'DISPENSED',
+  'CANCELLED',
+];
+
+function personName(user: RelatedUser | undefined, kind: 'patient' | 'provider') {
+  const profile = kind === 'patient' ? user?.patientProfile : user?.providerProfile;
+  const name = `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim();
+  if (name) return kind === 'provider' ? `Dr. ${name}` : name;
+  return user?.email || '—';
 }
 
 export default function PrescriptionsPage() {
-  const { user, fetchPrescriptions } = useAppStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'All' | 'Delivered' | 'Pending'>('All');
-  const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([]);
-  const [showAddPane, setShowAddPane] = useState(false);
-  const [selectedPrescription, setSelectedPrescription] = useState<PrescriptionItem | null>(null);
+  const { user } = useAppStore();
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+  const [selectedPharmacy, setSelectedPharmacy] = useState<Record<string, string>>({});
+  const [otpCodes, setOtpCodes] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<'ALL' | PrescriptionStatus>('ALL');
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [patientSearch, setPatientSearch] = useState('');
+  const [drugName, setDrugName] = useState('');
+  const [dosage, setDosage] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [frequency, setFrequency] = useState('');
+  const [duration, setDuration] = useState('');
 
-  // New Prescription Form State
-  const [newPatientName, setNewPatientName] = useState('');
-  const [newMedication, setNewMedication] = useState('');
-  const [newDosage, setNewDosage] = useState('500mg');
-  const [newFrequency, setNewFrequency] = useState('Every 12hrs');
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    const [prescriptionResult, pharmacyResult] = await Promise.all([
+      api.get<Prescription[]>('/prescriptions'),
+      api.get<Pharmacy[]>('/pharmacy/pharmacies'),
+    ]);
+    setPrescriptions(
+      prescriptionResult.success && Array.isArray(prescriptionResult.data)
+        ? prescriptionResult.data
+        : []
+    );
+    setPharmacies(
+      pharmacyResult.success && Array.isArray(pharmacyResult.data) ? pharmacyResult.data : []
+    );
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      await fetchPrescriptions();
-      const res = await api.get('/pharmacy/prescriptions');
-      const rawList = res.success
-        ? Array.isArray(res.data)
-          ? res.data
-          : res.data?.prescriptions || []
-        : [];
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadData]);
 
-      setPrescriptions(
-        rawList.map((p: any, idx: number) => ({
-          id: p.id || `RX-10${idx + 1}`,
-          patientName:
-            p.patientName ||
-            (p.patient
-              ? `${p.patient.firstName || ''} ${p.patient.lastName || ''}`.trim() || p.patient.email
-              : user?.firstName
-              ? `${user.firstName} ${user.lastName || ''}`.trim()
-              : 'Patient Record'),
-          date: p.createdAt
-            ? new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-            : new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          time: p.createdAt
-            ? new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : '09:00 AM',
-          medication: p.medicationName || p.medication || 'Prescribed Medication',
-          strength: p.dosage || '500mg',
-          dosage: '1 Unit',
-          frequency: p.frequency || 'Daily',
-          form: 'Tablet',
-          quantity: '1 Pack',
-          status: p.status === 'FULFILLED' || p.status === 'Delivered' ? 'Delivered' : 'Pending',
-          doctor: p.doctorName || (p.provider ? `Dr. ${p.provider.firstName || ''} ${p.provider.lastName || ''}`.trim() : 'Attending Specialist'),
-        }))
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return prescriptions.filter((prescription) => {
+      if (status !== 'ALL' && prescription.status !== status) return false;
+      if (!query) return true;
+      return (
+        prescription.id.toLowerCase().includes(query) ||
+        personName(prescription.patient, 'patient').toLowerCase().includes(query) ||
+        prescription.items.some((item) => item.drugName.toLowerCase().includes(query))
       );
-      setLoading(false);
-    }
-    loadData();
-  }, [fetchPrescriptions, user]);
-
-  const handleCreatePrescription = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const res = await api.post('/pharmacy/prescriptions', {
-      patientName: newPatientName,
-      medicationName: newMedication,
-      dosage: newDosage,
-      frequency: newFrequency,
     });
+  }, [prescriptions, search, status]);
 
-    const newItem: PrescriptionItem = {
-      id: res.data?.id || `RX-${Math.floor(100 + Math.random() * 900)}`,
-      patientName: newPatientName || (user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Patient Record'),
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      medication: newMedication || 'Amoxicillin',
-      strength: newDosage,
-      dosage: '1 Unit',
-      frequency: newFrequency,
-      form: 'Tablet',
-      quantity: '1 Pack',
-      status: 'Pending',
-      doctor: user?.firstName ? `Dr. ${user.firstName} ${user.lastName || ''}` : 'Attending Specialist',
-    };
-
-    setPrescriptions((prev) => [newItem, ...prev]);
-    setShowAddPane(false);
-    setNewPatientName('');
-    setNewMedication('');
+  const finishAction = async (result: Awaited<ReturnType<typeof api.post>>, success: string) => {
+    setBusyId(null);
+    if (!result.success) {
+      setMessage({
+        error: true,
+        text: result.error?.message || 'The request could not be completed.',
+      });
+      return;
+    }
+    setMessage({ error: false, text: success });
+    await loadData();
   };
 
-  const filteredPrescriptions = prescriptions.filter((p) => {
-    const matchesSearch =
-      p.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.medication.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFilter = sortBy === 'All' || p.status === sortBy;
-    return matchesSearch && matchesFilter;
-  });
+  const requestSigningCode = async (prescription: Prescription) => {
+    if (!user?.email && !user?.phone) {
+      setMessage({
+        error: true,
+        text: 'Your account has no verified delivery channel for a signing code.',
+      });
+      return;
+    }
+    setBusyId(prescription.id);
+    const destination = user.email ? { email: user.email } : { phone: user.phone };
+    const result = await api.post('/auth/otp/send', destination);
+    setBusyId(null);
+    setMessage({
+      error: !result.success,
+      text: result.success
+        ? 'Signing code sent.'
+        : result.error?.message || 'Unable to send a signing code.',
+    });
+  };
+
+  const signPrescription = async (prescription: Prescription) => {
+    const otpCode = otpCodes[prescription.id]?.trim();
+    if (!otpCode) {
+      setMessage({ error: true, text: 'Enter the six-digit signing code.' });
+      return;
+    }
+    setBusyId(prescription.id);
+    const result = await api.post(`/prescriptions/${prescription.id}/sign`, { otpCode });
+    await finishAction(result, 'Prescription signed.');
+  };
+
+  const sendToPharmacy = async (prescription: Prescription) => {
+    const pharmacyId = selectedPharmacy[prescription.id];
+    if (!pharmacyId) {
+      setMessage({ error: true, text: 'Choose a pharmacy first.' });
+      return;
+    }
+    setBusyId(prescription.id);
+    const result = await api.patch(`/prescriptions/${prescription.id}/send-to-pharmacy`, {
+      pharmacyId,
+    });
+    await finishAction(result, 'Prescription sent to the selected pharmacy.');
+  };
+
+  const fulfillPrescription = async (prescription: Prescription) => {
+    setBusyId(prescription.id);
+    const result = await api.post('/pharmacy/prescriptions/fulfill', {
+      prescriptionId: prescription.id,
+      deliveryType: 'PICKUP',
+    });
+    await finishAction(result, 'Prescription fulfilled and a priced pickup order was created.');
+  };
+
+  const createPrescription = async (event: FormEvent) => {
+    event.preventDefault();
+    setCreating(true);
+    setMessage(null);
+    const lookup = await api.get<{ patients: Array<{ id: string }> }>(
+      `/users/patients?search=${encodeURIComponent(patientSearch.trim())}&limit=5`
+    );
+    const patientId = lookup.success ? lookup.data?.patients?.[0]?.id : undefined;
+    if (!patientId) {
+      setCreating(false);
+      setMessage({ error: true, text: 'No matching patient was found.' });
+      return;
+    }
+
+    const result = await api.post('/prescriptions', {
+      patientId,
+      items: [
+        {
+          drugName: drugName.trim(),
+          dosage: dosage.trim(),
+          quantity: Number(quantity),
+          frequency: frequency.trim(),
+          duration: duration.trim(),
+        },
+      ],
+    });
+    setCreating(false);
+    if (!result.success) {
+      setMessage({ error: true, text: result.error?.message || 'Unable to create prescription.' });
+      return;
+    }
+    setShowCreate(false);
+    setPatientSearch('');
+    setDrugName('');
+    setDosage('');
+    setQuantity('1');
+    setFrequency('');
+    setDuration('');
+    setMessage({ error: false, text: 'Draft prescription created.' });
+    await loadData();
+  };
 
   return (
     <SidebarLayout>
-      <div className="space-y-8 max-w-6xl mx-auto">
-        {/* Header Title */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <Pill className="w-6 h-6 text-[#1877F2]" /> Electronic Prescriptions & Refills (E-Rx)
+            <h1 className="flex items-center gap-2 text-2xl font-extrabold text-slate-900">
+              <Pill className="h-6 w-6 text-[#1877F2]" /> Electronic prescriptions
             </h1>
-            <p className="text-xs font-semibold text-slate-500 mt-1">
-              Issue, track, and verify digital prescriptions for direct pharmacy fulfillment
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              Live prescription status, assignment, and fulfillment
             </p>
           </div>
+          {user?.role === 'CONSULTANT' && (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 rounded-full bg-[#1877F2] px-5 py-2.5 text-xs font-bold text-white"
+            >
+              <Plus className="h-4 w-4" /> Issue prescription
+            </button>
+          )}
+        </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAddPane(true)}
-            className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+        {message && (
+          <div
+            className={`rounded-xl border p-3 text-xs font-bold ${message.error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
           >
-            <Plus className="w-4 h-4" />
-            <span>Issue New E-Prescription</span>
-          </button>
-        </div>
+            {message.text}
+          </div>
+        )}
 
-        {/* Search & Status Filters */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="relative w-80">
-            <Search className="absolute inset-y-0 left-3.5 my-auto text-slate-400 w-4 h-4" />
+        <div className="flex flex-wrap gap-3">
+          <label className="relative min-w-64 flex-1">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <input
-              type="text"
-              placeholder="Search patient, Rx ID, or medication..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-full text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2] shadow-xs"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search prescription, patient, or medication"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-xs"
             />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500">Status Filter:</span>
-            <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-              {(['All', 'Pending', 'Delivered'] as const).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setSortBy(tab)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                    sortBy === tab ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-          </div>
+          </label>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value as typeof status)}
+            className="rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold"
+          >
+            {STATUSES.map((value) => (
+              <option key={value} value={value}>
+                {value.replaceAll('_', ' ')}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* Prescriptions Table Card */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-100 font-bold uppercase tracking-wider">
-                  <th className="pb-4 px-4">Rx ID & Patient</th>
-                  <th className="pb-4 px-4">Medication & Dosage</th>
-                  <th className="pb-4 px-4">Prescribed Date</th>
-                  <th className="pb-4 px-4">Attending Doctor</th>
-                  <th className="pb-4 px-4">Status</th>
-                  <th className="pb-4 px-4 text-right">Action</th>
+        <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <table className="w-full min-w-[900px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-100 uppercase tracking-wide text-slate-400">
+                <th className="px-3 pb-4">Prescription</th>
+                <th className="px-3 pb-4">Medication</th>
+                <th className="px-3 pb-4">Created</th>
+                <th className="px-3 pb-4">Status</th>
+                <th className="px-3 pb-4">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="py-10 text-center text-slate-400">
+                    Loading prescriptions…
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-xs font-bold text-slate-400">
-                      Loading electronic prescriptions...
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-10 text-center text-slate-400">
+                    No prescriptions match these filters.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((prescription) => (
+                  <tr key={prescription.id} className="align-top">
+                    <td className="px-3 py-4">
+                      <div className="flex gap-2">
+                        <FileText className="h-4 w-4 text-[#1877F2]" />
+                        <div>
+                          <p className="font-bold text-slate-900">
+                            {personName(prescription.patient, 'patient')}
+                          </p>
+                          <p className="mt-1 max-w-48 truncate text-[10px] text-slate-400">
+                            {prescription.id}
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            {personName(prescription.provider, 'provider')}
+                          </p>
+                        </div>
+                      </div>
                     </td>
-                  </tr>
-                ) : filteredPrescriptions.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center space-y-3">
-                      <Pill className="w-10 h-10 text-slate-300 mx-auto" />
-                      <p className="text-xs font-bold text-slate-600">No active electronic prescriptions found</p>
-                      <button
-                        type="button"
-                        onClick={() => setShowAddPane(true)}
-                        className="text-xs text-[#1877F2] font-bold hover:underline"
+                    <td className="px-3 py-4">
+                      {prescription.items.map((item) => (
+                        <div key={item.id} className="mb-2">
+                          <p className="font-bold text-slate-900">
+                            {item.drugName} · {item.dosage}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            {item.quantity} · {item.frequency} · {item.duration}
+                          </p>
+                          {item.instructions && (
+                            <p className="text-[10px] text-slate-400">{item.instructions}</p>
+                          )}
+                        </div>
+                      ))}
+                    </td>
+                    <td className="px-3 py-4 text-slate-600">
+                      {new Date(prescription.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-4">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${prescription.status === 'DISPENSED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}
                       >
-                        + Issue Digital Prescription
-                      </button>
+                        {prescription.status === 'DISPENSED' ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <Clock className="h-3 w-3" />
+                        )}
+                        {prescription.status.replaceAll('_', ' ')}
+                      </span>
                     </td>
-                  </tr>
-                ) : (
-                  filteredPrescriptions.map((rx) => (
-                    <tr key={rx.id} className="group hover:bg-slate-50/80 transition-colors">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="font-extrabold text-slate-900 text-xs">{rx.patientName}</p>
-                            <p className="text-[10px] font-semibold text-slate-400">{rx.id}</p>
+                    <td className="px-3 py-4">
+                      {user?.role === 'CONSULTANT' && prescription.status === 'DRAFT' && (
+                        <div className="space-y-2">
+                          <input
+                            inputMode="numeric"
+                            maxLength={6}
+                            value={otpCodes[prescription.id] || ''}
+                            onChange={(event) =>
+                              setOtpCodes((current) => ({
+                                ...current,
+                                [prescription.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="6-digit code"
+                            className="w-32 rounded-lg border border-slate-200 px-3 py-2"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={busyId === prescription.id}
+                              onClick={() => requestSigningCode(prescription)}
+                              className="rounded-lg border border-blue-200 px-3 py-2 font-bold text-[#1877F2] disabled:opacity-50"
+                            >
+                              Send code
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId === prescription.id}
+                              onClick={() => signPrescription(prescription)}
+                              className="rounded-lg bg-[#1877F2] px-3 py-2 font-bold text-white disabled:opacity-50"
+                            >
+                              Sign
+                            </button>
                           </div>
                         </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <p className="font-extrabold text-slate-900 text-xs">{rx.medication} ({rx.strength})</p>
-                        <p className="text-[10px] font-semibold text-slate-400">{rx.dosage} • {rx.frequency}</p>
-                      </td>
-                      <td className="py-4 px-4 font-semibold text-slate-700">{rx.date}</td>
-                      <td className="py-4 px-4 font-bold text-[#1877F2]">{rx.doctor}</td>
-                      <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                            rx.status === 'Delivered' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {rx.status === 'Delivered' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          <span>{rx.status}</span>
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPrescription(rx)}
-                          className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
-                        >
-                          View Details
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                      )}
+                      {user?.role === 'PATIENT' && prescription.status === 'SIGNED' && (
+                        <div className="space-y-2">
+                          <select
+                            value={selectedPharmacy[prescription.id] || ''}
+                            onChange={(event) =>
+                              setSelectedPharmacy((current) => ({
+                                ...current,
+                                [prescription.id]: event.target.value,
+                              }))
+                            }
+                            className="w-48 rounded-lg border border-slate-200 px-2 py-2"
+                          >
+                            <option value="">Choose pharmacy</option>
+                            {pharmacies.map((pharmacy) => (
+                              <option key={pharmacy.id} value={pharmacy.id}>
+                                {pharmacy.pharmacyProfile?.pharmacyName || pharmacy.id}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={busyId === prescription.id}
+                            onClick={() => sendToPharmacy(prescription)}
+                            className="block rounded-lg bg-[#1877F2] px-3 py-2 font-bold text-white disabled:opacity-50"
+                          >
+                            Send to pharmacy
+                          </button>
+                        </div>
+                      )}
+                      {user?.role === 'PHARMACIST' &&
+                        prescription.status === 'SENT_TO_PHARMACY' && (
+                          <button
+                            type="button"
+                            disabled={busyId === prescription.id}
+                            onClick={() => fulfillPrescription(prescription)}
+                            className="rounded-lg bg-[#1877F2] px-3 py-2 font-bold text-white disabled:opacity-50"
+                          >
+                            Fulfill from inventory
+                          </button>
+                        )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-
-        {/* Issue New Prescription Modal */}
-        {showAddPane && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs" onClick={() => setShowAddPane(false)} />
-            <form onSubmit={handleCreatePrescription} className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h2 className="text-base font-extrabold text-slate-900">Issue E-Prescription</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAddPane(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Patient Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. John Doe"
-                    value={newPatientName}
-                    onChange={(e) => setNewPatientName(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Medication Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Amoxicillin Trihydrate"
-                    value={newMedication}
-                    onChange={(e) => setNewMedication(e.target.value)}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Dosage / Strength</label>
-                    <input
-                      type="text"
-                      value={newDosage}
-                      onChange={(e) => setNewDosage(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-slate-700 mb-1">Frequency</label>
-                    <input
-                      type="text"
-                      value={newFrequency}
-                      onChange={(e) => setNewFrequency(e.target.value)}
-                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-3 bg-[#1877F2] text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
-              >
-                Issue Digital Prescription
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* Prescription Detail Modal (E-Prescription page 1-14 H.pdf) */}
-        {selectedPrescription && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs" onClick={() => setSelectedPrescription(null)} />
-            <div className="relative bg-white rounded-3xl p-8 shadow-2xl max-w-xl w-full z-10 space-y-6 animate-in fade-in zoom-in-95 border border-slate-100">
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 text-[#1877F2] flex items-center justify-center font-bold">
-                    <Pill className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Official Electronic Prescription</span>
-                    <h2 className="text-lg font-black text-slate-900">{selectedPrescription.id}</h2>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedPrescription(null)}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-xs hover:bg-slate-200"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Digital Prescription Header Info */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 text-xs">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient</span>
-                  <h4 className="font-extrabold text-slate-900">{selectedPrescription.patientName}</h4>
-                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5">ID: P-90218 • Age 32</p>
-                </div>
-
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Attending Prescriber</span>
-                  <h4 className="font-extrabold text-[#1877F2]">{selectedPrescription.doctor}</h4>
-                  <p className="text-[10px] text-slate-500 font-semibold mt-0.5">MDCN Lic #78192-CAR</p>
-                </div>
-              </div>
-
-              {/* Prescribed Drugs Detail Box */}
-              <div className="space-y-3 pt-2">
-                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Prescribed Medication & Directions</h3>
-                <div className="p-4 bg-blue-50/50 border border-blue-200/80 rounded-2xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-black text-slate-900">{selectedPrescription.medication}</h4>
-                    <span className="px-2.5 py-0.5 bg-blue-100 text-[#1877F2] text-[10px] font-extrabold rounded-full">
-                      {selectedPrescription.form}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-blue-100 font-semibold text-slate-700">
-                    <div>
-                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Strength</span>
-                      {selectedPrescription.strength}
-                    </div>
-                    <div>
-                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Frequency</span>
-                      {selectedPrescription.frequency}
-                    </div>
-                    <div>
-                      <span className="block text-[9px] uppercase text-slate-400 font-bold">Quantity</span>
-                      {selectedPrescription.quantity}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Refills & Delivery Status */}
-              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/60 text-xs">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#1877F2]" />
-                  <div>
-                    <h5 className="font-bold text-slate-900">Authorized Refills: 2 Remaining</h5>
-                    <p className="text-[10px] text-slate-500 font-semibold">Valid until Nov 2026</p>
-                  </div>
-                </div>
-
-                <span
-                  className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                    selectedPrescription.status === 'Delivered'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-amber-100 text-amber-800'
-                  }`}
-                >
-                  {selectedPrescription.status}
-                </span>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => alert(`Downloading official PDF copy of E-Prescription ${selectedPrescription.id}...`)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-2xl text-xs transition-all text-center"
-                >
-                  Download PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    alert(`Prescription ${selectedPrescription.id} submitted for pharmacy delivery!`);
-                    setSelectedPrescription(null);
-                  }}
-                  className="flex-1 py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-md shadow-blue-500/20 text-center"
-                >
-                  Order Pharmacy Delivery
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
+
+      {showCreate && user?.role === 'CONSULTANT' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => setShowCreate(false)}
+          />
+          <form
+            onSubmit={createPrescription}
+            className="relative z-10 grid w-full max-w-lg grid-cols-2 gap-4 rounded-3xl bg-white p-7 shadow-2xl"
+          >
+            <h2 className="col-span-2 text-lg font-extrabold text-slate-900">
+              Issue draft prescription
+            </h2>
+            <label className="col-span-2 text-xs font-bold">
+              Patient name
+              <input
+                required
+                value={patientSearch}
+                onChange={(event) => setPatientSearch(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <label className="col-span-2 text-xs font-bold">
+              Medication
+              <input
+                required
+                value={drugName}
+                onChange={(event) => setDrugName(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <label className="text-xs font-bold">
+              Dosage
+              <input
+                required
+                value={dosage}
+                onChange={(event) => setDosage(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <label className="text-xs font-bold">
+              Quantity
+              <input
+                required
+                min="1"
+                type="number"
+                value={quantity}
+                onChange={(event) => setQuantity(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <label className="text-xs font-bold">
+              Frequency
+              <input
+                required
+                value={frequency}
+                onChange={(event) => setFrequency(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <label className="text-xs font-bold">
+              Duration
+              <input
+                required
+                value={duration}
+                onChange={(event) => setDuration(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-200 p-3 font-normal"
+              />
+            </label>
+            <div className="col-span-2 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="rounded-xl border border-slate-200 px-5 py-3 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={creating}
+                className="rounded-xl bg-[#1877F2] px-5 py-3 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {creating ? 'Creating…' : 'Create draft'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </SidebarLayout>
   );
 }

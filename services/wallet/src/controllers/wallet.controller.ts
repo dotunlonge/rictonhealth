@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, WalletTransactionType, WalletReferenceType } from '@ricton/db';
+import { prisma, Prisma, WalletTransactionType, WalletReferenceType } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -42,6 +42,181 @@ interface PaystackInitializeResponse {
   };
 }
 
+export interface AtomicWalletOperationOptions {
+  walletId: string;
+  amount: number;
+  referenceType: WalletReferenceType;
+  referenceId?: string;
+  description: string;
+}
+
+export async function creditWalletAtomic(opts: AtomicWalletOperationOptions) {
+  const { walletId, amount, referenceType, referenceId, description } = opts;
+
+  return prisma.$transaction(
+    async (tx) => {
+      // Fast-path idempotency check; the @@unique([walletId, referenceId])
+      // constraint below is the real race guard.
+      if (referenceId) {
+        const existing = await tx.walletTransaction.findFirst({
+          where: { walletId, referenceId },
+        });
+        if (existing) {
+          return existing;
+        }
+      }
+
+      // Claim the transaction record first if referenceId is provided to ensure
+      // that concurrent or replayed requests with the same referenceId cannot
+      // mutate the balance before uniqueness is established.
+      let txRecord: any;
+      if (referenceId) {
+        try {
+          txRecord = await tx.walletTransaction.create({
+            data: {
+              walletId,
+              type: WalletTransactionType.CREDIT,
+              amount,
+              balanceAfter: 0,
+              referenceType,
+              referenceId,
+              description,
+            },
+          });
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            const raced = await tx.walletTransaction.findFirst({
+              where: { walletId, referenceId },
+            });
+            if (raced) return raced;
+          }
+          throw err;
+        }
+      }
+
+      const updatedWallet = await tx.wallet.update({
+        where: { id: walletId },
+        data: {
+          balance: { increment: amount },
+        },
+      });
+
+      if (txRecord) {
+        return await tx.walletTransaction.update({
+          where: { id: txRecord.id },
+          data: {
+            balanceAfter: updatedWallet.balance,
+          },
+        });
+      }
+
+      return await tx.walletTransaction.create({
+        data: {
+          walletId,
+          type: WalletTransactionType.CREDIT,
+          amount,
+          balanceAfter: updatedWallet.balance,
+          referenceType,
+          referenceId,
+          description,
+        },
+      });
+    },
+    { timeout: 30000, maxWait: 15000 }
+  );
+}
+
+export async function debitWalletAtomic(opts: AtomicWalletOperationOptions) {
+  const { walletId, amount, referenceType, referenceId, description } = opts;
+
+  return prisma.$transaction(
+    async (tx) => {
+      // Fast-path idempotency check
+      if (referenceId) {
+        const existing = await tx.walletTransaction.findFirst({
+          where: { walletId, referenceId },
+        });
+        if (existing) {
+          return existing;
+        }
+      }
+
+      // Claim transaction record first if referenceId is provided
+      let txRecord: any;
+      if (referenceId) {
+        try {
+          txRecord = await tx.walletTransaction.create({
+            data: {
+              walletId,
+              type: WalletTransactionType.DEBIT,
+              amount,
+              balanceAfter: 0,
+              referenceType,
+              referenceId,
+              description,
+            },
+          });
+        } catch (err) {
+          if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+            const raced = await tx.walletTransaction.findFirst({
+              where: { walletId, referenceId },
+            });
+            if (raced) return raced;
+          }
+          throw err;
+        }
+      }
+
+      // Conditional decrement: the balance floor is enforced by the database,
+      // so concurrent debits cannot overdraft.
+      const decremented = await tx.wallet.updateMany({
+        where: { id: walletId, balance: { gte: amount } },
+        data: {
+          balance: { decrement: amount },
+        },
+      });
+
+      if (decremented.count === 0) {
+        const currentWallet = await tx.wallet.findUnique({
+          where: { id: walletId },
+          select: { id: true, balance: true },
+        });
+        if (!currentWallet) {
+          throw new NotFoundError('Wallet not found');
+        }
+        throw new ValidationError('Insufficient wallet balance');
+      }
+
+      const updatedWallet = await tx.wallet.findUniqueOrThrow({
+        where: { id: walletId },
+        select: { balance: true },
+      });
+
+      if (txRecord) {
+        return await tx.walletTransaction.update({
+          where: { id: txRecord.id },
+          data: {
+            balanceAfter: updatedWallet.balance,
+          },
+        });
+      }
+
+      return await tx.walletTransaction.create({
+        data: {
+          walletId,
+          type: WalletTransactionType.DEBIT,
+          amount,
+          balanceAfter: updatedWallet.balance,
+          referenceType,
+          referenceId,
+          description,
+        },
+      });
+    },
+    { timeout: 30000, maxWait: 15000 }
+  );
+}
+
 export const getMyWallet = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
@@ -62,26 +237,16 @@ export const getMyWallet = async (req: Request, res: Response, next: NextFunctio
         data: {
           userId,
           currency: 'NGN',
+          balance: 0,
         },
         include: { transactions: true },
       });
     }
 
-    // Calculate balance
-    const transactions = await prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id },
-    });
-
-    const balance = transactions.reduce((acc, tx) => {
-      if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-      if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-      return acc;
-    }, 0);
-
     res.status(200).json(
       successResponse({
         ...wallet,
-        balance,
+        balance: Number(wallet.balance),
       })
     );
   } catch (error) {
@@ -317,6 +482,21 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
     const event = req.body;
 
+    if (event.event === 'charge.success') {
+      // Reconcile provider payload before crediting: reject non-NGN, missing
+      // references, or non-positive amounts instead of trusting them blindly.
+      const currency = event.data?.currency;
+      if (currency && currency !== 'NGN') {
+        throw new ValidationError(`Unsupported webhook currency: ${currency}`);
+      }
+      if (!event.data?.reference || typeof event.data?.amount !== 'number') {
+        throw new ValidationError('Webhook payload missing reference or amount');
+      }
+      if (event.data.amount <= 0) {
+        throw new ValidationError('Webhook amount must be positive');
+      }
+    }
+
     if (event.event === 'charge.success' && event.data.channel === 'dedicated_nuban') {
       const customerEmail = event.data.customer.email;
       const amountInNaira = event.data.amount / 100;
@@ -327,36 +507,13 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       });
 
       if (user && user.wallet) {
-        // Find current balance to save snapshot
-        const transactions = await prisma.walletTransaction.findMany({
-          where: { walletId: user.wallet.id },
+        await creditWalletAtomic({
+          walletId: user.wallet.id,
+          amount: amountInNaira,
+          referenceType: WalletReferenceType.TOPUP,
+          referenceId: event.data.reference,
+          description: 'Wallet top-up via Bank Transfer',
         });
-        const currentBalance = transactions.reduce((acc, tx) => {
-          if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-          if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-          return acc;
-        }, 0);
-
-        // Prevent duplicate webhooks by checking reference
-        const existingTx = await prisma.walletTransaction.findFirst({
-          where: {
-            referenceId: event.data.reference,
-          },
-        });
-
-        if (!existingTx) {
-          await prisma.walletTransaction.create({
-            data: {
-              walletId: user.wallet.id,
-              type: WalletTransactionType.CREDIT,
-              amount: amountInNaira,
-              balanceAfter: currentBalance + amountInNaira,
-              description: 'Wallet top-up via Bank Transfer',
-              referenceType: WalletReferenceType.TOPUP,
-              referenceId: event.data.reference,
-            },
-          });
-        }
       }
     }
 
@@ -375,46 +532,23 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           include: { wallet: true },
         });
 
-        // Create wallet if it doesn't exist (user might have topped up before creating wallet)
         let wallet = user?.wallet;
         if (!wallet && user) {
           wallet = await prisma.wallet.upsert({
             where: { userId: user.id },
-            create: { userId: user.id },
+            create: { userId: user.id, balance: 0 },
             update: {},
           });
         }
 
         if (user && wallet) {
-          // Check for duplicate
-          const existingTx = await prisma.walletTransaction.findFirst({
-            where: {
-              referenceId: event.data.reference,
-            },
+          await creditWalletAtomic({
+            walletId: wallet.id,
+            amount: amountInNaira,
+            referenceType: WalletReferenceType.TOPUP,
+            referenceId: event.data.reference,
+            description: 'Wallet top-up via Card/Bank Transfer',
           });
-
-          if (!existingTx) {
-            const transactions = await prisma.walletTransaction.findMany({
-              where: { walletId: wallet.id },
-            });
-            const currentBalance = transactions.reduce((acc, tx) => {
-              if (tx.type === WalletTransactionType.CREDIT) return acc + Number(tx.amount);
-              if (tx.type === WalletTransactionType.DEBIT) return acc - Number(tx.amount);
-              return acc;
-            }, 0);
-
-            await prisma.walletTransaction.create({
-              data: {
-                walletId: wallet.id,
-                type: WalletTransactionType.CREDIT,
-                amount: amountInNaira,
-                balanceAfter: currentBalance + amountInNaira,
-                description: 'Wallet top-up via Card/Bank Transfer',
-                referenceType: WalletReferenceType.TOPUP,
-                referenceId: event.data.reference,
-              },
-            });
-          }
         }
       }
     }

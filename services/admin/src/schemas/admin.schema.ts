@@ -34,16 +34,32 @@ export const AdminVerifyProviderSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Provisioning (SUPER_ADMIN only): the ONLY way privileged roles come into
+// existence, since public registration and OAuth are capped at self-serve
+// roles. Provisioned users start ACTIVE (admin identity-proofed).
+// NOTE: HOSPITAL_ADMIN has no profile model yet, so display names derive
+// from the email local-part until one is introduced.
+export const AdminProvisionUserSchema = z
+  .object({
+    email: z.string().email().optional(),
+    phone: z.string().min(7).optional(),
+    password: z.string().min(8),
+    role: z.enum(['HOSPITAL_ADMIN']),
+    hospitalId: z.string().uuid().optional(),
+  })
+  .refine((data) => data.email || data.phone, {
+    message: 'Either email or phone is required',
+    path: ['email'],
+  });
+
 export const AdminHospitalCreateSchema = z.object({
   name: z.string().min(1),
-  description: z.string().optional(),
   address: z.string().min(1),
   city: z.string().min(1),
   state: z.string().min(1),
   country: z.string().min(1),
   email: z.string().email(),
   phone: z.string().min(10),
-  website: z.string().url().optional(),
 });
 
 // Update schema - all fields optional as updates are partial
@@ -114,15 +130,10 @@ export const AdminHospitalResponseSchema = registry.register(
   z.object({
     id: z.string(),
     name: z.string(),
-    description: z.string().nullable(),
-    address: z.string(),
-    city: z.string(),
-    state: z.string(),
-    country: z.string(),
-    email: z.string(),
-    phone: z.string(),
-    website: z.string().nullable(),
-    status: z.enum(['ACTIVE', 'INACTIVE']),
+    address: z.record(z.unknown()).nullable(),
+    email: z.string().nullable(),
+    phone: z.string().nullable(),
+    isActive: z.boolean(),
     createdAt: z.string().datetime(),
   })
 );
@@ -184,6 +195,7 @@ export type AdminUserListQuerySchema = z.infer<typeof AdminUserListQuerySchema>;
 export type AdminUserResponseSchema = z.infer<typeof AdminUserResponseSchema>;
 export type AdminUpdateUserStatusSchema = z.infer<typeof AdminUpdateUserStatusSchema>;
 export type AdminVerifyProviderSchema = z.infer<typeof AdminVerifyProviderSchema>;
+export type AdminProvisionUserSchema = z.infer<typeof AdminProvisionUserSchema>;
 export type AdminHospitalCreateSchema = z.infer<typeof AdminHospitalCreateSchema>;
 export type AdminHospitalUpdateSchema = z.infer<typeof AdminHospitalUpdateSchema>;
 export type AdminAuditLogQuerySchema = z.infer<typeof AdminAuditLogQuerySchema>;

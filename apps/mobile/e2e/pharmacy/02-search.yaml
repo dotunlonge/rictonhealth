@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Pharmacy - 02-search
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.

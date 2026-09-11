@@ -237,37 +237,40 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
       throw new ValidationError('Either message body or file attachment is required');
     }
 
-    const message = await prisma.$transaction(async (tx) => {
-      const newMessage = await tx.chatMessage.create({
-        data: {
-          threadId: id,
-          senderId: userPayload.userId,
-          body: validatedData.body || null,
-          fileUrl: validatedData.fileUrl || null,
-          fileName: validatedData.fileName || null,
-          fileSize: validatedData.fileSize || null,
-        },
-        include: {
-          sender: {
-            select: userSelect,
+    const message = await prisma.$transaction(
+      async (tx) => {
+        const newMessage = await tx.chatMessage.create({
+          data: {
+            threadId: id,
+            senderId: userPayload.userId,
+            body: validatedData.body || null,
+            fileUrl: validatedData.fileUrl || null,
+            fileName: validatedData.fileName || null,
+            fileSize: validatedData.fileSize || null,
           },
-        },
-      });
+          include: {
+            sender: {
+              select: userSelect,
+            },
+          },
+        });
 
-      await tx.chatMessageReceipt.create({
-        data: {
-          messageId: newMessage.id,
-          userId: userPayload.userId,
-        },
-      });
+        await tx.chatMessageReceipt.create({
+          data: {
+            messageId: newMessage.id,
+            userId: userPayload.userId,
+          },
+        });
 
-      await tx.chatThread.update({
-        where: { id },
-        data: { updatedAt: new Date() },
-      });
+        await tx.chatThread.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+        });
 
-      return newMessage;
-    });
+        return newMessage;
+      },
+      { timeout: 30000, maxWait: 15000 }
+    );
 
     res.status(201).json(
       successResponse({
@@ -313,42 +316,48 @@ export const markAsRead = async (req: Request, res: Response, next: NextFunction
     }
 
     if (validatedData.markAll) {
-      await prisma.$transaction(async (tx) => {
-        const unreadMessages = await tx.chatMessage.findMany({
-          where: {
-            threadId: id,
-            receipts: {
-              none: {
-                userId: userPayload.userId,
+      await prisma.$transaction(
+        async (tx) => {
+          const unreadMessages = await tx.chatMessage.findMany({
+            where: {
+              threadId: id,
+              receipts: {
+                none: {
+                  userId: userPayload.userId,
+                },
               },
             },
-          },
-          select: { id: true },
-        });
-
-        if (unreadMessages.length > 0) {
-          await tx.chatMessageReceipt.createMany({
-            data: unreadMessages.map((msg) => ({
-              messageId: msg.id,
-              userId: userPayload.userId,
-            })),
-            skipDuplicates: true,
+            select: { id: true },
           });
-        }
-      });
+
+          if (unreadMessages.length > 0) {
+            await tx.chatMessageReceipt.createMany({
+              data: unreadMessages.map((msg) => ({
+                messageId: msg.id,
+                userId: userPayload.userId,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        },
+        { timeout: 30000, maxWait: 15000 }
+      );
 
       res.status(200).json(successResponse({ success: true, markedCount: 'all' }));
     } else if (validatedData.messageIds && validatedData.messageIds.length > 0) {
-      await prisma.$transaction(async (tx) => {
-        const data = validatedData.messageIds!.map((messageId) => ({
-          messageId,
-          userId: userPayload.userId,
-        }));
-        await tx.chatMessageReceipt.createMany({
-          data,
-          skipDuplicates: true,
-        });
-      });
+      await prisma.$transaction(
+        async (tx) => {
+          const data = validatedData.messageIds!.map((messageId) => ({
+            messageId,
+            userId: userPayload.userId,
+          }));
+          await tx.chatMessageReceipt.createMany({
+            data,
+            skipDuplicates: true,
+          });
+        },
+        { timeout: 30000, maxWait: 15000 }
+      );
 
       res
         .status(200)
@@ -377,27 +386,23 @@ export const createConversation = async (req: Request, res: Response, next: Next
 
     const allParticipantIds = [...new Set([userPayload.userId, ...validatedData.participantIds])];
 
-    const conversation = await prisma.$transaction(async (tx) => {
-      const thread = await tx.chatThread.create({
-        data: {
-          participants: {
-            create: allParticipantIds.map((userId) => ({
-              userId,
-            })),
-          },
+    const conversation = await prisma.chatThread.create({
+      data: {
+        participants: {
+          create: allParticipantIds.map((userId) => ({
+            userId,
+          })),
         },
-        include: {
-          participants: {
-            include: {
-              user: {
-                select: userSelect,
-              },
+      },
+      include: {
+        participants: {
+          include: {
+            user: {
+              select: userSelect,
             },
           },
         },
-      });
-
-      return thread;
+      },
     });
 
     res.status(201).json(

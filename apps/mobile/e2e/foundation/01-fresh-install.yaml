@@ -1,0 +1,10 @@
+appId: com.ricton.health
+name: Foundation - fresh install opens secure sign in
+---
+- clearState
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen
+- assertVisible: Sign in to Ricton
+- assertNotVisible:
+    id: patient.home.screen

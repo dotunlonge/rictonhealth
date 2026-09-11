@@ -1,0 +1,11 @@
+appId: com.ricton.health
+name: Auth - invalid login shows error, stays unauthenticated
+---
+- clearState
+- launchApp
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: auth.signIn.error
+- assertNotVisible:
+    id: patient.home.screen

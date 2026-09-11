@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Booking - 08-paystack-cancel
+---
+- clearState
+- launchApp
+# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.

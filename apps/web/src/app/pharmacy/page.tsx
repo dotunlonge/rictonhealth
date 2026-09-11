@@ -3,30 +3,29 @@
 import { useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
-import { ShoppingBag, Package, CheckCircle2, ShoppingCart, Search, Pill, ShieldCheck } from 'lucide-react';
-import { useAppStore } from '@/store/useAppStore';
+import Link from 'next/link';
+import { ShoppingBag, CheckCircle2, ShoppingCart, Search, Pill, ShieldCheck } from 'lucide-react';
 
 interface PharmacyProduct {
   id: string;
   name: string;
-  category: string;
-  price: number;
+  category: string | null;
+  price: number | string;
   stock: number;
-  description: string;
+  description: string | null;
   requiresPrescription: boolean;
-  imageUrl?: string;
+  imageUrl: string | null;
 }
 
 interface PharmacyOrder {
   id: string;
-  items: Array<{ productId: string; quantity: number; price: number }>;
-  totalAmount: number;
+  items: Array<{ productId: string | null; drugName: string; quantity: number }>;
+  totalAmount: number | string;
   status: string;
   createdAt: string;
 }
 
 export default function PharmacyPage() {
-  const { user } = useAppStore();
   const [products, setProducts] = useState<PharmacyProduct[]>([]);
   const [orders, setOrders] = useState<PharmacyOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,40 +37,25 @@ export default function PharmacyPage() {
   useEffect(() => {
     async function loadPharmacyData() {
       setLoading(true);
-      const prodRes = await api.get('/pharmacy/products');
-      const rawProds = prodRes.success
-        ? Array.isArray(prodRes.data)
-          ? prodRes.data
-          : prodRes.data?.products || []
-        : [];
+      const prodRes = await api.get<{ products: PharmacyProduct[] }>('/pharmacy/products');
+      setProducts(prodRes.success ? prodRes.data?.products || [] : []);
 
-      setProducts(
-        rawProds.map((p: any) => ({
-          id: p.id,
-          name: p.name || 'Pharmaceutical Product',
-          category: p.category || 'General Health',
-          price: Number(p.price) || 0,
-          stock: p.stock ?? 0,
-          description: p.description || 'Verified pharmaceutical grade formulation.',
-          requiresPrescription: Boolean(p.requiresPrescription),
-        }))
-      );
-
-      const ordRes = await api.get('/pharmacy/orders');
-      if (ordRes.success && ordRes.data) {
-        setOrders(Array.isArray(ordRes.data) ? ordRes.data : ordRes.data.orders || []);
-      }
+      const ordRes = await api.get<{ orders: PharmacyOrder[] }>('/pharmacy/orders');
+      setOrders(ordRes.success ? ordRes.data?.orders || [] : []);
       setLoading(false);
     }
     loadPharmacyData();
   }, []);
 
   const handleOrderProduct = async (product: PharmacyProduct) => {
+    if (product.requiresPrescription) {
+      setOrderMsg('Failed: Send your signed prescription to this pharmacy before fulfillment.');
+      return;
+    }
     setOrderingId(product.id);
     setOrderMsg(null);
     const res = await api.post('/pharmacy/orders', {
-      items: [{ productId: product.id, quantity: 1, price: product.price }],
-      totalAmount: product.price,
+      items: [{ productId: product.id, quantity: 1 }],
     });
 
     setOrderingId(null);
@@ -79,7 +63,7 @@ export default function PharmacyPage() {
       setOrderMsg(`Order for ${product.name} submitted successfully!`);
       if (res.data) setOrders((prev) => [res.data, ...prev]);
     } else {
-      setOrderMsg(`Order processed successfully!`);
+      setOrderMsg(`Failed: ${res.error?.message || 'Could not place order'}`);
     }
     setTimeout(() => setOrderMsg(null), 4000);
   };
@@ -87,7 +71,7 @@ export default function PharmacyPage() {
   const filteredProducts = products.filter(
     (p) =>
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase())
+      (p.category || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -97,10 +81,12 @@ export default function PharmacyPage() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <ShoppingBag className="w-6 h-6 text-[#1877F2]" /> Online Pharmacy & Prescription Store
+              <ShoppingBag className="w-6 h-6 text-[#1877F2]" /> Online Pharmacy & Prescription
+              Store
             </h1>
             <p className="text-xs font-semibold text-slate-500 mt-1">
-              Order verified medications, prescription refills, and healthcare supplements with direct home delivery
+              Order verified medications, prescription refills, and healthcare supplements with
+              direct home delivery
             </p>
           </div>
 
@@ -122,7 +108,9 @@ export default function PharmacyPage() {
                 type="button"
                 onClick={() => setActiveTab('STORE')}
                 className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                  activeTab === 'STORE' ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  activeTab === 'STORE'
+                    ? 'bg-[#1877F2] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Store Front
@@ -131,7 +119,9 @@ export default function PharmacyPage() {
                 type="button"
                 onClick={() => setActiveTab('ORDERS')}
                 className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-                  activeTab === 'ORDERS' ? 'bg-[#1877F2] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  activeTab === 'ORDERS'
+                    ? 'bg-[#1877F2] text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 My Orders ({orders.length})
@@ -141,7 +131,13 @@ export default function PharmacyPage() {
         </div>
 
         {orderMsg && (
-          <div className="p-4 rounded-2xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-2">
+          <div
+            className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+              orderMsg.startsWith('Failed:')
+                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            }`}
+          >
             <CheckCircle2 className="w-4 h-4" />
             <span>{orderMsg}</span>
           </div>
@@ -156,7 +152,9 @@ export default function PharmacyPage() {
           ) : filteredProducts.length === 0 ? (
             <div className="p-12 text-center space-y-3 bg-white rounded-3xl border border-slate-200/80">
               <Pill className="w-10 h-10 text-slate-300 mx-auto" />
-              <p className="text-xs font-bold text-slate-600">No pharmacy products found in catalog</p>
+              <p className="text-xs font-bold text-slate-600">
+                No pharmacy products found in catalog
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -167,9 +165,11 @@ export default function PharmacyPage() {
                 >
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="px-3 py-1 bg-blue-50 text-[#1877F2] text-[10px] font-extrabold uppercase rounded-full tracking-wider">
-                        {prod.category}
-                      </span>
+                      {prod.category && (
+                        <span className="px-3 py-1 bg-blue-50 text-[#1877F2] text-[10px] font-extrabold uppercase rounded-full tracking-wider">
+                          {prod.category}
+                        </span>
+                      )}
                       {prod.requiresPrescription && (
                         <span className="px-2.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-full flex items-center gap-1">
                           <ShieldCheck className="w-3 h-3" /> Rx Required
@@ -183,28 +183,54 @@ export default function PharmacyPage() {
                       </div>
                       <div>
                         <h2 className="font-extrabold text-slate-900 text-sm">{prod.name}</h2>
-                        <p className="text-xs text-slate-500 font-semibold mt-1 leading-snug line-clamp-2">
-                          {prod.description}
-                        </p>
+                        {prod.description && (
+                          <p className="text-xs text-slate-500 font-semibold mt-1 leading-snug line-clamp-2">
+                            {prod.description}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Price</span>
-                      <span className="text-lg font-black text-slate-900">₦{prod.price.toLocaleString()}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Price
+                      </span>
+                      <span className="text-lg font-black text-slate-900">
+                        ₦{Number(prod.price).toLocaleString()}
+                      </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOrderProduct(prod)}
-                      disabled={orderingId === prod.id}
-                      className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
-                    >
-                      <ShoppingCart className="w-3.5 h-3.5" />
-                      <span>{orderingId === prod.id ? 'Ordering...' : 'Order Now'}</span>
-                    </button>
+                    <div className="text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleOrderProduct(prod)}
+                        disabled={
+                          prod.requiresPrescription || prod.stock <= 0 || orderingId === prod.id
+                        }
+                        className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                        <span>
+                          {orderingId === prod.id
+                            ? 'Ordering...'
+                            : prod.stock <= 0
+                              ? 'Out of stock'
+                              : prod.requiresPrescription
+                                ? 'Prescription required'
+                                : 'Order Now'}
+                        </span>
+                      </button>
+                      {prod.requiresPrescription && (
+                        <Link
+                          href="/prescriptions"
+                          className="mt-2 block text-[10px] font-bold text-[#1877F2] hover:underline"
+                        >
+                          Send prescription to a pharmacy
+                        </Link>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -216,17 +242,27 @@ export default function PharmacyPage() {
             <h2 className="text-base font-bold text-slate-900">Pharmacy Order History</h2>
             <div className="space-y-3">
               {orders.length === 0 ? (
-                <div className="p-8 text-center text-xs font-bold text-slate-400">No previous pharmacy orders placed yet.</div>
+                <div className="p-8 text-center text-xs font-bold text-slate-400">
+                  No previous pharmacy orders placed yet.
+                </div>
               ) : (
-                orders.map((ord, idx) => (
-                  <div key={ord.id || idx} className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs">
+                orders.map((ord) => (
+                  <div
+                    key={ord.id}
+                    className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs"
+                  >
                     <div>
-                      <p className="font-bold text-slate-900">Order #{ord.id || idx + 1}</p>
+                      <p className="font-bold text-slate-900">
+                        {ord.items.map((item) => item.drugName).join(', ') || `Order #${ord.id}`}
+                      </p>
                       <p className="text-[10px] text-slate-400 font-semibold">
-                        {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString() : 'Recent Order'}
+                        {new Date(ord.createdAt).toLocaleDateString()} ·{' '}
+                        {ord.status.replaceAll('_', ' ')}
                       </p>
                     </div>
-                    <span className="font-black text-[#1877F2]">₦{(ord.totalAmount || 0).toLocaleString()}</span>
+                    <span className="font-black text-[#1877F2]">
+                      ₦{Number(ord.totalAmount).toLocaleString()}
+                    </span>
                   </div>
                 ))
               )}

@@ -54,7 +54,17 @@ Thumbs.db
 
 # TypeScript/JavaScript build output
 *.js.map
+*.d.ts.map
 *.tsbuildinfo
+
+# Compiled TS artifacts must never sit next to sources (stale copies shadow
+# the .ts files in ts-node/jest resolution). Hand-written .js without a .ts
+# sibling (e.g. jest configs, scripts) is unaffected. The tracked
+# packages/shared/src/types/opossum.d.ts is a hand-written declaration.
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+services/*/src/**/*.js
+services/*/src/**/*.d.ts
 
 # Test coverage
 .nyc_output/

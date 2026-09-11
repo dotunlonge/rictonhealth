@@ -36,14 +36,12 @@ export const AdminVerifyProviderSchema = z.object({
 
 export const AdminHospitalCreateSchema = z.object({
   name: z.string().min(1),
-  description: z.string().optional(),
   address: z.string().min(1),
   city: z.string().min(1),
   state: z.string().min(1),
   country: z.string().min(1),
   email: z.string().email(),
   phone: z.string().min(10),
-  website: z.string().url().optional(),
 });
 
 // Update schema - all fields optional as updates are partial
@@ -114,15 +112,10 @@ export const AdminHospitalResponseSchema = registry.register(
   z.object({
     id: z.string(),
     name: z.string(),
-    description: z.string().nullable(),
-    address: z.string(),
-    city: z.string(),
-    state: z.string(),
-    country: z.string(),
-    email: z.string(),
-    phone: z.string(),
-    website: z.string().nullable(),
-    status: z.enum(['ACTIVE', 'INACTIVE']),
+    address: z.record(z.unknown()).nullable(),
+    email: z.string().nullable(),
+    phone: z.string().nullable(),
+    isActive: z.boolean(),
     createdAt: z.string().datetime(),
   })
 );

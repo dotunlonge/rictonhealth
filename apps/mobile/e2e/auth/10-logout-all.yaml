@@ -1,0 +1,6 @@
+appId: com.ricton.health
+name: Auth - logout-all invalidates sessions everywhere
+---
+- clearState
+- launchApp
+# TODO: login on A+B -> POST /api/auth/logout-all -> both unauthenticated (Phase 2 device run)

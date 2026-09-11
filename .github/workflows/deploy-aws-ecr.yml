@@ -15,10 +15,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 22.13
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22.13.x'
           cache: 'npm'
 
       - name: Install Dependencies
@@ -29,6 +29,26 @@ jobs:
 
       - name: Run Typecheck
         run: npm run typecheck
+
+      - name: Typecheck Web
+        run: npx tsc --noEmit -p apps/web/tsconfig.json
+
+      - name: Typecheck Mobile
+        run: npx tsc --noEmit -p apps/mobile/tsconfig.json
+
+      - name: Run Contract Tests (no Docker)
+        run: npm run test:contracts
+
+      - name: Lint and Build Web
+        run: |
+          npm -w apps/web run lint
+          npm -w apps/web run build
+
+      - name: Test Mobile
+        run: npm -w apps/mobile run test:ci
+
+      - name: Run Integration Tests
+        run: ./scripts/test-e2e.sh
 
   build-and-push-ecr:
     name: 🚀 Build & Push Docker Images to AWS ECR
@@ -64,10 +84,131 @@ jobs:
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-2' }}
+          IMAGE_TAG: ${{ github.sha }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
         run: |
           chmod +x scripts/aws-ecr-push.sh
           ./scripts/aws-ecr-push.sh
 
-      - name: Deploy Containers with Production Environment
+  deploy-to-staging:
+    name: 🚀 Deploy to Staging (docker compose)
+    needs: build-and-push-ecr
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Prepare deployment bundle
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-2' }}
+          IMAGE_TAG: ${{ github.sha }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          REFRESH_SECRET: ${{ secrets.REFRESH_SECRET }}
+          OTP_SECRET: ${{ secrets.OTP_SECRET }}
+          INTERNAL_API_SECRET: ${{ secrets.INTERNAL_API_SECRET }}
+          INTERNAL_NOTIFICATION_URL: ${{ secrets.INTERNAL_NOTIFICATION_URL }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY }}
+          NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          APPLE_CLIENT_ID: ${{ secrets.APPLE_CLIENT_ID }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_API_KEY: ${{ secrets.TWILIO_API_KEY }}
+          TWILIO_API_SECRET: ${{ secrets.TWILIO_API_SECRET }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          TELEMEDICINE_CALLBACK_URL: ${{ secrets.TELEMEDICINE_CALLBACK_URL }}
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
-          echo "✅ AWS ECR images successfully pushed. Containers configured to load production environment via: docker compose -f docker-compose.prod.yml --env-file .env.production up -d"
+          cat > .env.production <<EOF
+          NODE_ENV="production"
+          DATABASE_URL="${DATABASE_URL}"
+          REDIS_URL="${REDIS_URL}"
+          REDIS_PASSWORD="${REDIS_PASSWORD}"
+          JWT_SECRET="${JWT_SECRET}"
+          REFRESH_SECRET="${REFRESH_SECRET}"
+          OTP_SECRET="${OTP_SECRET}"
+          INTERNAL_API_SECRET="${INTERNAL_API_SECRET}"
+          INTERNAL_NOTIFICATION_URL="${INTERNAL_NOTIFICATION_URL}"
+          ALLOWED_ORIGINS="${ALLOWED_ORIGINS}"
+          FRONTEND_URL="${FRONTEND_URL}"
+          AWS_REGION="${AWS_REGION}"
+          AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID}"
+          IMAGE_TAG="${IMAGE_TAG}"
+          NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}"
+          PAYSTACK_SECRET_KEY="${PAYSTACK_SECRET_KEY}"
+          PAYSTACK_PUBLIC_KEY="${PAYSTACK_PUBLIC_KEY}"
+          NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY="${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}"
+          GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}"
+          GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}"
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID}"
+          APPLE_CLIENT_ID="${APPLE_CLIENT_ID}"
+          TWILIO_ACCOUNT_SID="${TWILIO_ACCOUNT_SID}"
+          TWILIO_API_KEY="${TWILIO_API_KEY}"
+          TWILIO_API_SECRET="${TWILIO_API_SECRET}"
+          TWILIO_AUTH_TOKEN="${TWILIO_AUTH_TOKEN}"
+          TWILIO_PHONE_NUMBER="${TWILIO_PHONE_NUMBER}"
+          TELEMEDICINE_CALLBACK_URL="${TELEMEDICINE_CALLBACK_URL}"
+          LIVEKIT_URL="${LIVEKIT_URL}"
+          LIVEKIT_API_KEY="${LIVEKIT_API_KEY}"
+          LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET}"
+          SENDGRID_API_KEY="${SENDGRID_API_KEY}"
+          SENDGRID_FROM_EMAIL="${SENDGRID_FROM_EMAIL}"
+          SENTRY_DSN="${SENTRY_DSN}"
+          AWS_S3_BUCKET_NAME="${AWS_S3_BUCKET_NAME}"
+          AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+          AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+          EOF
+
+      - name: Sync bundle to staging host
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER || 'ubuntu' }}
+          STAGING_SSH_PRIVATE_KEY: ${{ secrets.STAGING_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$STAGING_HOST" ] || [ -z "$STAGING_SSH_PRIVATE_KEY" ]; then
+            echo "::error::STAGING_HOST and STAGING_SSH_PRIVATE_KEY secrets are required for deployment."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$STAGING_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/id_ed25519 "${STAGING_USER}@${STAGING_HOST}" "mkdir -p /opt/ricton/gateway /opt/ricton/scripts"
+          scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml .env.production openapi.yaml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/"
+          scp -i ~/.ssh/id_ed25519 gateway/kong.yml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/gateway/"
+
+      - name: Run migrations and deploy containers
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER || 'ubuntu' }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${STAGING_USER}@${STAGING_HOST}" '
+            set -e
+            cd /opt/ricton
+            export AWS_ACCOUNT_ID=$(grep -oP "(?<=^AWS_ACCOUNT_ID=\").*(?=\")" .env.production)
+            export AWS_REGION=$(grep -oP "(?<=^AWS_REGION=\").*(?=\")" .env.production)
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d redis
+            docker compose -f docker-compose.prod.yml --env-file .env.production run --rm db-migrate
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --pull always
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps
+          '

@@ -56,6 +56,7 @@ export async function cleanDatabase() {
   await prisma.pharmacyProfile.deleteMany();
   await prisma.hospital.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.outboxEvent.deleteMany();
 
   const keys = await redis.keys('*');
   if (keys.length > 0) {

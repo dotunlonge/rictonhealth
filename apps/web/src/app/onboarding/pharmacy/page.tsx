@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
@@ -23,13 +23,48 @@ import {
 } from 'lucide-react';
 
 const STEPS = [
-  { id: 1, title: 'Pharmacy Basic Info', description: 'Store name, type & PCN registration', icon: Pill },
-  { id: 2, title: 'Location & Contact', description: 'Physical store address & support line', icon: MapPin },
-  { id: 3, title: 'Operating Hours', description: '24/7 availability & daily time slots', icon: Clock },
-  { id: 4, title: 'Superintendent Pharmacist', description: 'Head pharmacist & license details', icon: UserCheck },
-  { id: 5, title: 'Delivery & Services', description: 'Express delivery, compounding & OTC', icon: Truck },
-  { id: 6, title: 'Payout & Settlement', description: 'Bank account for prescription payouts', icon: CreditCard },
-  { id: 7, title: 'PCN License Upload', description: 'Premises license & PCN verification', icon: FileCheck2 },
+  {
+    id: 1,
+    title: 'Pharmacy Basic Info',
+    description: 'Store name, type & PCN registration',
+    icon: Pill,
+  },
+  {
+    id: 2,
+    title: 'Location & Contact',
+    description: 'Physical store address & support line',
+    icon: MapPin,
+  },
+  {
+    id: 3,
+    title: 'Operating Hours',
+    description: '24/7 availability & daily time slots',
+    icon: Clock,
+  },
+  {
+    id: 4,
+    title: 'Superintendent Pharmacist',
+    description: 'Head pharmacist & license details',
+    icon: UserCheck,
+  },
+  {
+    id: 5,
+    title: 'Delivery & Services',
+    description: 'Express delivery, compounding & OTC',
+    icon: Truck,
+  },
+  {
+    id: 6,
+    title: 'Payout & Settlement',
+    description: 'Bank account for prescription payouts',
+    icon: CreditCard,
+  },
+  {
+    id: 7,
+    title: 'PCN License Upload',
+    description: 'Premises license & PCN verification',
+    icon: FileCheck2,
+  },
 ];
 
 export default function PharmacyOnboardingPage() {
@@ -57,30 +92,26 @@ export default function PharmacyOnboardingPage() {
     openTime: '08:00',
     closeTime: '22:00',
     // Step 4
-    superintendentName: currentUser ? `Pharm. ${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() : '',
+    superintendentName: currentUser
+      ? `Pharm. ${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim()
+      : '',
     superintendentLicense: '',
     // Step 5
-    services: ['Prescription Filling', 'Express Home Delivery', 'Over-the-Counter (OTC)', 'Health Screenings'],
+    services: [
+      'Prescription Filling',
+      'Express Home Delivery',
+      'Over-the-Counter (OTC)',
+      'Health Screenings',
+    ],
     // Step 6
     bankName: '',
     accountNumber: '',
-    accountName: currentUser ? `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() : '',
+    accountName: currentUser
+      ? `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim()
+      : '',
     // Step 7
     pcnLicenseUploaded: false,
   });
-
-  useEffect(() => {
-    if (currentUser) {
-      const fullName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim();
-      setFormData((prev) => ({
-        ...prev,
-        supportEmail: prev.supportEmail || currentUser.email || '',
-        supportPhone: prev.supportPhone || currentUser.phone || '',
-        superintendentName: prev.superintendentName || (fullName ? `Pharm. ${fullName}` : ''),
-        accountName: prev.accountName || fullName || '',
-      }));
-    }
-  }, [currentUser]);
 
   const fillDevData = () => {
     setFormData({
@@ -97,7 +128,13 @@ export default function PharmacyOnboardingPage() {
       closeTime: '22:00',
       superintendentName: 'Pharm. Kemi Adebayo',
       superintendentLicense: 'PCN/PHARM/90182',
-      services: ['Prescription Filling', 'Express Home Delivery', 'Over-the-Counter (OTC)', 'Health Screenings', 'Vaccinations'],
+      services: [
+        'Prescription Filling',
+        'Express Home Delivery',
+        'Over-the-Counter (OTC)',
+        'Health Screenings',
+        'Vaccinations',
+      ],
       bankName: 'Guaranty Trust Bank',
       accountNumber: '0123456789',
       accountName: 'Medplus Pharmacy Nigeria Ltd',
@@ -165,21 +202,20 @@ export default function PharmacyOnboardingPage() {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    try {
-      const res = await api.put('/users/me', {
-        pharmacyProfile: {
-          pharmacyName: formData.pharmacyName,
-          address: formData.address,
-          pcnLicense: formData.registrationNumber,
-          metadata: formData,
-        },
-      });
+    setFormError('');
+    // Flat shape: the backend persists pharmacyName plus top-level bank fields.
+    const res = await api.put('/users/me', {
+      pharmacyName: formData.pharmacyName,
+      bankName: formData.bankName,
+      accountNumber: formData.accountNumber,
+      accountName: formData.accountName,
+    });
+    setSubmitting(false);
 
-      setSubmitting(false);
+    if (res.success && res.data) {
       router.push('/dashboard');
-    } catch (err) {
-      console.warn('Pharmacy onboarding error', err);
-      router.push('/dashboard');
+    } else {
+      setFormError(res.error?.message || 'Could not save your pharmacy profile. Please try again.');
     }
   };
 
@@ -204,12 +240,16 @@ export default function PharmacyOnboardingPage() {
           </div>
           <div>
             <span className="text-lg font-black tracking-tight text-slate-900">Ricton Health</span>
-            <span className="block text-[10px] font-bold text-[#1877F2] uppercase tracking-wider">Pharmacy Partner Portal</span>
+            <span className="block text-[10px] font-bold text-[#1877F2] uppercase tracking-wider">
+              Pharmacy Partner Portal
+            </span>
           </div>
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto pr-2">
-          <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Premises Verification Progress</h2>
+          <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+            Premises Verification Progress
+          </h2>
           <div className="space-y-4">
             {STEPS.map((s) => {
               const isActive = step === s.id;
@@ -223,8 +263,8 @@ export default function PharmacyOnboardingPage() {
                     isActive
                       ? 'bg-blue-50 border border-blue-200/80 text-[#1877F2]'
                       : isPast
-                      ? 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                      : 'opacity-50 text-slate-400'
+                        ? 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                        : 'opacity-50 text-slate-400'
                   }`}
                 >
                   <div
@@ -232,15 +272,21 @@ export default function PharmacyOnboardingPage() {
                       isActive
                         ? 'bg-[#1877F2] text-white shadow-md'
                         : isPast
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-slate-200 text-slate-500'
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 text-slate-500'
                     }`}
                   >
                     {isPast ? '✓' : s.id}
                   </div>
                   <div>
-                    <h3 className={`text-xs font-bold ${isActive ? 'text-slate-900' : 'text-slate-700'}`}>{s.title}</h3>
-                    <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">{s.description}</p>
+                    <h3
+                      className={`text-xs font-bold ${isActive ? 'text-slate-900' : 'text-slate-700'}`}
+                    >
+                      {s.title}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-medium leading-tight mt-0.5">
+                      {s.description}
+                    </p>
                   </div>
                 </div>
               );
@@ -249,8 +295,13 @@ export default function PharmacyOnboardingPage() {
         </div>
 
         <div className="pt-6 border-t border-slate-100 text-center">
-          <p className="text-[11px] font-semibold text-slate-400">Need assistance with PCN registration?</p>
-          <a href="mailto:support@ricton.com" className="text-xs font-bold text-[#1877F2] hover:underline mt-1 block">
+          <p className="text-[11px] font-semibold text-slate-400">
+            Need assistance with PCN registration?
+          </p>
+          <a
+            href="mailto:support@ricton.com"
+            className="text-xs font-bold text-[#1877F2] hover:underline mt-1 block"
+          >
             Contact PCN Support Desk
           </a>
         </div>
@@ -267,7 +318,9 @@ export default function PharmacyOnboardingPage() {
                   Step {step} of 7
                 </span>
                 <h1 className="text-2xl font-black text-slate-900 mt-2">{STEPS[step - 1].title}</h1>
-                <p className="text-xs text-slate-500 font-semibold mt-1">{STEPS[step - 1].description}</p>
+                <p className="text-xs text-slate-500 font-semibold mt-1">
+                  {STEPS[step - 1].description}
+                </p>
               </div>
 
               <div className="w-12 h-12 rounded-2xl bg-blue-50 text-[#1877F2] flex items-center justify-center shrink-0">
@@ -317,7 +370,9 @@ export default function PharmacyOnboardingPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Pharmacy Category</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Pharmacy Category
+                    </label>
                     <select
                       value={formData.pharmacyType}
                       onChange={(e) => updateForm('pharmacyType', e.target.value)}
@@ -383,8 +438,12 @@ export default function PharmacyOnboardingPage() {
               <div className="space-y-5">
                 <div className="p-4 bg-blue-50/60 rounded-2xl border border-blue-200/80 flex items-center justify-between">
                   <div>
-                    <h4 className="text-xs font-black text-slate-900">24/7 Emergency Prescription Dispensing</h4>
-                    <p className="text-[11px] text-slate-500 font-medium">Store accepts round-the-clock digital orders</p>
+                    <h4 className="text-xs font-black text-slate-900">
+                      24/7 Emergency Prescription Dispensing
+                    </h4>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      Store accepts round-the-clock digital orders
+                    </p>
                   </div>
                   <input
                     type="checkbox"
@@ -432,7 +491,9 @@ export default function PharmacyOnboardingPage() {
             {/* Step 5: Services */}
             {step === 5 && (
               <div className="space-y-4">
-                <label className="block text-xs font-bold text-slate-700">Select active pharmacy services</label>
+                <label className="block text-xs font-bold text-slate-700">
+                  Select active pharmacy services
+                </label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {[
                     'Prescription Filling',
@@ -479,7 +540,10 @@ export default function PharmacyOnboardingPage() {
                         const selectedBank = banks.find((b) => b.name === bankName);
                         if (selectedBank) {
                           setVerifyingAccount(true);
-                          const name = await resolveAccount(formData.accountNumber, selectedBank.code);
+                          const name = await resolveAccount(
+                            formData.accountNumber,
+                            selectedBank.code
+                          );
                           setVerifyingAccount(false);
                           if (name) updateForm('accountName', name);
                         }
@@ -525,7 +589,10 @@ export default function PharmacyOnboardingPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      Account Beneficiary Name {verifyingAccount && <span className="text-blue-500 font-normal">(Verifying...)</span>}
+                      Account Beneficiary Name{' '}
+                      {verifyingAccount && (
+                        <span className="text-blue-500 font-normal">(Verifying...)</span>
+                      )}
                     </label>
                     <input
                       type="text"
@@ -552,7 +619,9 @@ export default function PharmacyOnboardingPage() {
                 >
                   <Upload className="w-10 h-10 text-[#1877F2] mx-auto mb-2" />
                   <h4 className="text-xs font-extrabold text-slate-900">
-                    {formData.pcnLicenseUploaded ? 'PCN Premises Operating License Uploaded ✓' : 'Upload Official PCN Premises License'}
+                    {formData.pcnLicenseUploaded
+                      ? 'PCN Premises Operating License Uploaded ✓'
+                      : 'Upload Official PCN Premises License'}
                   </h4>
                 </div>
               </div>
@@ -565,7 +634,9 @@ export default function PharmacyOnboardingPage() {
                 onClick={handlePrev}
                 disabled={step === 1 || submitting}
                 className={`px-5 py-2.5 rounded-full text-xs font-bold transition-all flex items-center gap-1 ${
-                  step === 1 ? 'opacity-0 pointer-events-none' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  step === 1
+                    ? 'opacity-0 pointer-events-none'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                 }`}
               >
                 <ChevronLeft className="w-4 h-4" /> Back

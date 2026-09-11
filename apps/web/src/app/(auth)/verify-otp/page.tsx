@@ -19,17 +19,22 @@ function VerifyOtpContent() {
     setErrorMsg('');
     setSuccessMsg('');
 
-    const res = await api.post('/auth/otp/verify', {
-      value: email,
-      code,
-      type: 'EMAIL_VERIFICATION',
+    const res = await api.post<{
+      token: string;
+      refreshToken: string;
+      user: { role: string };
+    }>('/auth/verify/confirm', {
+      email,
+      otp: code,
     });
 
     setIsLoading(false);
 
-    const role = searchParams.get('role') || '';
-
     if (res.success) {
+      if (res.data?.token) {
+        api.setToken(res.data.token, res.data.refreshToken ?? null, res.data?.user?.role ?? null);
+      }
+      const role = res.data?.user.role;
       setSuccessMsg('Account verified successfully! Redirecting to setup...');
       setTimeout(() => {
         if (role === 'HOSPITAL_ADMIN') {
@@ -39,7 +44,7 @@ function VerifyOtpContent() {
         } else if (role === 'PHARMACIST') {
           router.push('/onboarding/pharmacy');
         } else {
-          router.push('/login');
+          router.push('/dashboard');
         }
       }, 1500);
     } else {
@@ -52,7 +57,12 @@ function VerifyOtpContent() {
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center space-y-3">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-[#1c7bcf] text-white shadow-md mx-auto">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+            />
           </svg>
         </div>
         <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -118,7 +128,13 @@ function VerifyOtpContent() {
 
 export default function VerifyOtpPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-500 font-semibold">Loading...</div>}>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-slate-500 font-semibold">
+          Loading...
+        </div>
+      }
+    >
       <VerifyOtpContent />
     </Suspense>
   );

@@ -7,10 +7,11 @@ export const ProductSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
-  price: z.number().positive(),
-  category: z.string(),
+  price: z.union([z.number().nonnegative(), z.string().regex(/^\d+(\.\d+)?$/)]),
+  category: z.string().nullable(),
   imageUrl: z.string().url().nullable(),
   stock: z.number().int().nonnegative(),
+  requiresPrescription: z.boolean(),
   isActive: z.boolean(),
   pharmacyId: z.string().uuid(),
   createdAt: z.string().datetime(),
@@ -18,20 +19,34 @@ export const ProductSchema = z.object({
 
 export const PharmacyOrderSchema = z.object({
   id: z.string().uuid(),
-  userId: z.string().uuid(),
+  patientId: z.string().uuid(),
   pharmacyId: z.string().uuid(),
-  status: z.enum(['PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']),
-  totalAmount: z.number().positive(),
-  deliveryType: z.enum(['HOME_DELIVERY', 'PICKUP']),
-  deliveryAddress: z.string().nullable(),
+  prescriptionId: z.string().uuid().nullable(),
+  status: z.enum([
+    'PLACED',
+    'CONFIRMED',
+    'PREPARING',
+    'READY_FOR_PICKUP',
+    'OUT_FOR_DELIVERY',
+    'DELIVERED',
+    'CANCELLED',
+  ]),
+  totalAmount: z.union([z.number().nonnegative(), z.string().regex(/^\d+(\.\d+)?$/)]),
+  deliveryType: z.enum(['DELIVERY', 'PICKUP']),
+  deliveryAddress: z.unknown().nullable(),
+  notes: z.string().nullable(),
   items: z.array(
     z.object({
-      productId: z.string().uuid(),
+      id: z.string().uuid(),
+      productId: z.string().uuid().nullable(),
+      drugName: z.string(),
       quantity: z.number().int().positive(),
-      unitPrice: z.number().positive(),
+      unitPrice: z.union([z.number().nonnegative(), z.string().regex(/^\d+(\.\d+)?$/)]),
+      subtotal: z.union([z.number().nonnegative(), z.string().regex(/^\d+(\.\d+)?$/)]),
     })
   ),
   createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
 });
 
 export const CartItemSchema = z.object({
@@ -40,10 +55,11 @@ export const CartItemSchema = z.object({
 });
 
 export const CreateOrderSchema = z.object({
-  pharmacyId: z.string().uuid(),
   items: z.array(CartItemSchema).min(1),
-  deliveryType: z.enum(['HOME_DELIVERY', 'PICKUP']),
-  deliveryAddress: z.string().optional(),
+  prescriptionId: z.string().uuid().optional(),
+  deliveryType: z.enum(['DELIVERY', 'PICKUP']).optional(),
+  deliveryAddress: z.unknown().optional(),
+  notes: z.string().max(2000).optional(),
 });
 
 import { registry } from '@ricton/shared';

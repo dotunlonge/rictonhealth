@@ -95,6 +95,23 @@ export const GetAvailabilityQuerySchema = registry.register(
   })
 );
 
+export const SetAvailabilityInputSchema = registry.register(
+  'SetAvailabilityInput',
+  z.object({
+    dayOfWeek: z.number().int().min(0).max(6).describe('0=Monday..6=Sunday, evaluated in UTC'),
+    startTime: z
+      .string()
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+      .describe('Window start, UTC HH:MM'),
+    endTime: z
+      .string()
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+      .describe('Window end, UTC HH:MM'),
+    slotDurationMinutes: z.number().int().positive().max(480).default(30),
+    isActive: z.boolean().default(true),
+  })
+);
+
 export const GetAppointmentsQuerySchema = registry.register(
   'GetAppointmentsQuery',
   z.object({
@@ -116,6 +133,7 @@ export type ListAppointmentsResponseSchema = z.infer<typeof ListAppointmentsResp
 export type CreateAppointmentSchema = z.infer<typeof CreateAppointmentSchema>;
 export type UpdateAppointmentStatusSchema = z.infer<typeof UpdateAppointmentStatusSchema>;
 export type GetAvailabilityQuerySchema = z.infer<typeof GetAvailabilityQuerySchema>;
+export type SetAvailabilityInputSchema = z.infer<typeof SetAvailabilityInputSchema>;
 export type GetAppointmentsQuerySchema = z.infer<typeof GetAppointmentsQuerySchema>;
 
 registry.registerPath({

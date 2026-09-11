@@ -201,16 +201,58 @@ export const registerPushToken = async (req: Request, res: Response, next: NextF
       throw new ValidationError('Push token is required');
     }
 
-    // Store in Redis or database for push notification delivery
-    // This is a simplified implementation - in production, use a dedicated tokens table
-    const key = `push_token:${userPayload.userId}:${platform || 'mobile'}`;
-
-    // Using a simple storage approach - integrate with Redis in production
-    console.log(`Registering push token for user ${userPayload.userId}: ${key}`);
+    // Persist the token (upsert on re-registration) so push delivery can
+    // target this device. Stale tokens for other devices are left intact.
+    await prisma.pushToken.upsert({
+      where: {
+        userId_token: { userId: userPayload.userId, token },
+      },
+      create: {
+        userId: userPayload.userId,
+        token,
+        platform: platform || 'mobile',
+        isActive: true,
+        lastUsedAt: new Date(),
+      },
+      update: {
+        platform: platform || 'mobile',
+        isActive: true,
+        lastUsedAt: new Date(),
+      },
+    });
 
     res.status(200).json(
       successResponse({
         message: 'Push token registered successfully',
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Revoke push notification token (logout / device removal).
+ * Idempotent: unknown tokens still return success so callers cannot
+ * enumerate other users' device tokens.
+ */
+export const revokePushToken = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { token } = req.params;
+
+    if (!token) {
+      throw new ValidationError('Push token is required');
+    }
+
+    await prisma.pushToken.updateMany({
+      where: { userId: userPayload.userId, token },
+      data: { isActive: false },
+    });
+
+    res.status(200).json(
+      successResponse({
+        message: 'Push token revoked successfully',
       })
     );
   } catch (error) {

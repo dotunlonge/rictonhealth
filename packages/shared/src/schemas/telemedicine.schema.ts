@@ -29,9 +29,22 @@ export const GetTokenResponseSchema = registry.register(
   })
 );
 
+export const JoinRoomResponseSchema = registry.register(
+  'JoinRoomResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      joined: z.literal(true),
+      roomId: z.string().uuid(),
+      joinedAt: z.string().datetime(),
+    }),
+  })
+);
+
 // Type exports
 export type TelemedicineRoomSchema = z.infer<typeof TelemedicineRoomSchema>;
 export type GetTokenResponseSchema = z.infer<typeof GetTokenResponseSchema>;
+export type JoinRoomResponseSchema = z.infer<typeof JoinRoomResponseSchema>;
 
 registry.registerPath({
   method: 'post',
@@ -76,6 +89,54 @@ registry.registerPath({
       description: 'Join token issued successfully',
       content: { 'application/json': { schema: GetTokenResponseSchema } },
     },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/telemedicine/rooms/{id}/join',
+  summary: 'Confirm that an authenticated participant connected to the video room',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    {
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    },
+  ],
+  responses: {
+    200: {
+      description: 'Participant and room lifecycle updated',
+      content: { 'application/json': { schema: JoinRoomResponseSchema } },
+    },
+    401: { description: 'Unauthorized' },
+    403: { description: 'Not a participant, outside the join window, or room ended' },
+    404: { description: 'Room not found' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/telemedicine/meetings/{id}/join',
+  summary: 'Confirm that an authenticated participant connected to the video meeting',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    {
+      name: 'id',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    },
+  ],
+  responses: {
+    200: {
+      description: 'Participant and room lifecycle updated',
+      content: { 'application/json': { schema: JoinRoomResponseSchema } },
+    },
+    401: { description: 'Unauthorized' },
+    403: { description: 'Not a participant, outside the join window, or room ended' },
+    404: { description: 'Room not found' },
   },
 });
 

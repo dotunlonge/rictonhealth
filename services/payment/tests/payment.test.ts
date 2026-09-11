@@ -1,5 +1,18 @@
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.PAYSTACK_SECRET_KEY = 'sk_test_mocked';
+process.env.INTERNAL_API_SECRET = 'test-internal-api-secret-32-characters-minimum';
+
+jest.mock('@ricton/shared/jobs', () => ({
+  webhookQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
+jest.mock('@ricton/shared', () => {
+  const actual = jest.requireActual('@ricton/shared');
+  const { createRedisMock } = jest.requireActual(
+    '../../../packages/shared/src/__tests__/helpers/redis-mock'
+  );
+  return { __esModule: true, ...actual, redis: createRedisMock() };
+});
 
 import request from 'supertest';
 import express from 'express';
@@ -7,11 +20,12 @@ import crypto from 'crypto';
 
 import paymentRoutes from '../src/routes/payment.routes';
 import { prisma, UserRole, PaymentType, PaymentStatus } from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
+import { errorResponse, redis } from '@ricton/shared';
 import {
   createUser,
   createAuthToken,
   createPayment,
+  cleanDatabase,
 } from '../../../packages/shared/src/__tests__/factories';
 
 const app = express();
@@ -29,9 +43,19 @@ app.use(
 );
 
 describe('Payment Controller Integration', () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+    redis.disconnect();
+  });
+
   beforeEach(async () => {
-    await prisma.payment.deleteMany();
-    await prisma.user.deleteMany();
+    await cleanDatabase();
+    // Node ships native fetch: install a per-test mock for Paystack calls.
+    (global.fetch as unknown as jest.Mock) = jest.fn();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   const mockPaystackInitialize = (
@@ -55,7 +79,13 @@ describe('Payment Controller Integration', () => {
   });
 
   const mockPaystackVerify = (
-    overrides: { status?: string; id?: number; message?: string } = {}
+    overrides: {
+      status?: string;
+      id?: number;
+      message?: string;
+      amount?: number;
+      currency?: string;
+    } = {}
   ) => ({
     ok: true,
     json: async () => ({
@@ -65,12 +95,16 @@ describe('Payment Controller Integration', () => {
         status: overrides.status || 'success',
         id: overrides.id ?? 9876543,
         reference: 'mock_ref_to_verify',
+        amount: overrides.amount ?? 1_500_000,
+        currency: overrides.currency ?? 'NGN',
       },
     }),
   });
 
+  // Paystack reports the failure inside a 200 body; the breaker only throws
+  // on transport-level non-2xx.
   const mockPaystackError = (message = 'Paystack error') => ({
-    ok: false,
+    ok: true,
     json: async () => ({
       status: false,
       message,
@@ -158,10 +192,16 @@ describe('Payment Controller Integration', () => {
       const user = await createUser({ role: UserRole.PATIENT });
       const token = createAuthToken(user);
 
+      await createPayment({
+        userId: user.id,
+        providerReference: 'mock_ref_verify_fail',
+        status: PaymentStatus.PENDING,
+      });
+
       (global.fetch as jest.Mock).mockResolvedValueOnce(mockPaystackError('Not found'));
 
       const res = await request(app)
-        .get('/api/payments/verify/nonexistent_ref')
+        .get('/api/payments/verify/mock_ref_verify_fail')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(400);
@@ -228,6 +268,8 @@ describe('Payment Controller Integration', () => {
           id: 11223344,
           reference: 'mock_webhook_ref',
           status: 'success',
+          amount: 1_500_000,
+          currency: 'NGN',
         },
       };
 
