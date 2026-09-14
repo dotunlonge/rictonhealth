@@ -1,7 +1,7 @@
 import { Worker, Queue } from 'bullmq';
 import { prisma } from '@ricton/db';
 import { logger } from '../logger';
-import { redis } from '../redis';
+import { bullmqConnection } from '../redis';
 import { emailQueue } from './index';
 
 // Single source of truth for the premium price is the subscription service
@@ -176,7 +176,7 @@ export async function runSubscriptionRenewals(now = new Date()): Promise<Renewal
 }
 
 export const subscriptionRenewalQueue = new Queue('subscription-renewals', {
-  connection: redis,
+  connection: bullmqConnection,
   defaultJobOptions: { removeOnComplete: 50, removeOnFail: 20, attempts: 3 },
 });
 
@@ -188,7 +188,7 @@ export function startRenewalWorker() {
       logger.info(result, 'Subscription renewal sweep completed');
       return result;
     },
-    { connection: redis }
+    { connection: bullmqConnection }
   );
   worker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, err: err?.message }, 'Renewal sweep failed');

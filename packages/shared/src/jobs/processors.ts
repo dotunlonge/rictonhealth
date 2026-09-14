@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq';
 import { prisma } from '@ricton/db';
 import { logger } from '../logger';
-import { redis } from '../redis';
+import { bullmqConnection } from '../redis';
 import { EmailJob, SmsJob, NotificationJob, WebhookJob } from './types';
 import { startRenewalWorker, scheduleRenewalSweep } from './renewals';
 import { startOutboxWorker, scheduleOutboxRelay } from './outbox';
@@ -149,7 +149,7 @@ const processWebhook = async (job: { data: WebhookJob }) => {
 };
 
 export const startJobProcessors = () => {
-  const emailWorker = new Worker('email', processEmail, { connection: redis });
+  const emailWorker = new Worker('email', processEmail, { connection: bullmqConnection });
   emailWorker.on('completed', (job: any) => {
     logger.info(`[EmailWorker] Job ${job.id} completed`);
   });
@@ -157,7 +157,7 @@ export const startJobProcessors = () => {
     logger.error(`[EmailWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const smsWorker = new Worker('sms', processSms, { connection: redis });
+  const smsWorker = new Worker('sms', processSms, { connection: bullmqConnection });
   smsWorker.on('completed', (job: any) => {
     logger.info(`[SmsWorker] Job ${job.id} completed`);
   });
@@ -165,7 +165,9 @@ export const startJobProcessors = () => {
     logger.error(`[SmsWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const notificationWorker = new Worker('notification', processNotification, { connection: redis });
+  const notificationWorker = new Worker('notification', processNotification, {
+    connection: bullmqConnection,
+  });
   notificationWorker.on('completed', (job: any) => {
     logger.info(`[NotificationWorker] Job ${job.id} completed`);
   });
@@ -173,7 +175,7 @@ export const startJobProcessors = () => {
     logger.error(`[NotificationWorker] Job ${job?.id} failed: ${err.message}`);
   });
 
-  const webhookWorker = new Worker('webhook', processWebhook, { connection: redis });
+  const webhookWorker = new Worker('webhook', processWebhook, { connection: bullmqConnection });
   webhookWorker.on('completed', (job: any) => {
     logger.info(`[WebhookWorker] Job ${job.id} completed`);
   });

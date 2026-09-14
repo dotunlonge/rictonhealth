@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { redis } from '../redis';
+import { bullmqConnection } from '../redis';
 
 const defaultJobOptions = {
   removeOnComplete: 100,
@@ -11,13 +11,16 @@ const defaultJobOptions = {
   },
 };
 
-export const emailQueue = new Queue('email', { connection: redis, defaultJobOptions });
-export const smsQueue = new Queue('sms', { connection: redis, defaultJobOptions });
+export const emailQueue = new Queue('email', { connection: bullmqConnection, defaultJobOptions });
+export const smsQueue = new Queue('sms', { connection: bullmqConnection, defaultJobOptions });
 export const notificationQueue = new Queue('notification', {
-  connection: redis,
+  connection: bullmqConnection,
   defaultJobOptions,
 });
-export const webhookQueue = new Queue('webhook', { connection: redis, defaultJobOptions });
+export const webhookQueue = new Queue('webhook', {
+  connection: bullmqConnection,
+  defaultJobOptions,
+});
 
 export * from './processors';
 export * from './renewals';

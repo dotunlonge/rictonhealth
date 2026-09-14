@@ -1,7 +1,7 @@
 import { Worker, Queue } from 'bullmq';
 import { prisma } from '@ricton/db';
 import { logger } from '../logger';
-import { redis } from '../redis';
+import { bullmqConnection, redis } from '../redis';
 import { sendEmailViaProvider, sendSmsViaProvider } from './processors';
 
 // Transactional outbox for OTP / password-reset delivery.
@@ -113,7 +113,7 @@ export async function runOutboxRelayOnce(now = new Date()): Promise<{
 }
 
 export const outboxQueue = new Queue('outbox', {
-  connection: redis,
+  connection: bullmqConnection,
   defaultJobOptions: { removeOnComplete: 50, removeOnFail: 20, attempts: 1 },
 });
 
@@ -125,7 +125,7 @@ export function startOutboxWorker() {
       logger.info(result, 'Outbox relay sweep completed');
       return result;
     },
-    { connection: redis }
+    { connection: bullmqConnection }
   );
   worker.on('failed', (job, err) => {
     logger.error({ jobId: job?.id, err: err?.message }, 'Outbox relay failed');
