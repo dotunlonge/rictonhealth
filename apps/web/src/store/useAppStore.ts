@@ -80,11 +80,14 @@ interface AppState {
   prescriptions: Prescription[];
   notifications: NotificationItem[];
   walletBalance: number;
+  walletStatus: 'idle' | 'loading' | 'ready' | 'error';
+  walletError: string | null;
   rewardsPoints: number;
   isLoading: boolean;
   error: string | null;
 
   // Actions
+  restoreSession: () => Promise<boolean>;
   fetchUser: () => Promise<UserProfile | null>;
   updateUserOptimistic: (patch: Partial<UserProfile>) => void;
   fetchAppointments: () => Promise<void>;
@@ -105,6 +108,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   prescriptions: [],
   notifications: [],
   walletBalance: 0,
+  walletStatus: 'idle',
+  walletError: null,
   rewardsPoints: 0,
   isLoading: false,
   error: null,
@@ -123,6 +128,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
     if (current) {
       set({ user: { ...current, ...patch } });
     }
+  },
+
+  restoreSession: async () => {
+    const refreshed = await api.refreshAccessToken();
+    if (!refreshed) return false;
+    const user = await get().fetchUser();
+    return Boolean(user);
   },
 
   fetchUser: async () => {
@@ -212,13 +224,23 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   fetchWallet: async () => {
+    set({ walletStatus: 'loading', walletError: null });
     try {
       const res = await api.get<{ balance: number }>('/wallets/me');
       if (res.success && res.data?.balance !== undefined) {
-        set({ walletBalance: res.data.balance });
+        set({ walletBalance: res.data.balance, walletStatus: 'ready', walletError: null });
+      } else {
+        set({
+          walletStatus: 'error',
+          walletError: res.error?.message || 'Wallet balance could not be loaded',
+        });
       }
     } catch (err: unknown) {
       console.warn('Failed fetching wallet balance', err);
+      set({
+        walletStatus: 'error',
+        walletError: err instanceof Error ? err.message : 'Wallet balance could not be loaded',
+      });
     }
   },
 
@@ -241,6 +263,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
       prescriptions: [],
       notifications: [],
       walletBalance: 0,
+      walletStatus: 'idle',
+      walletError: null,
       rewardsPoints: 0,
     });
   },
@@ -252,6 +276,8 @@ export const useWalletState = () =>
   useAppStore(
     useShallow((state) => ({
       walletBalance: state.walletBalance,
+      walletStatus: state.walletStatus,
+      walletError: state.walletError,
       rewardsPoints: state.rewardsPoints,
       fetchWallet: state.fetchWallet,
       fetchRewards: state.fetchRewards,
@@ -286,6 +312,7 @@ export const useAuthActions = () =>
   useAppStore(
     useShallow((state) => ({
       setUser: state.setUser,
+      restoreSession: state.restoreSession,
       fetchUser: state.fetchUser,
       updateUserOptimistic: state.updateUserOptimistic,
       logout: state.logout,

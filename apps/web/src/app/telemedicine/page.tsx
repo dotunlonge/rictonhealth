@@ -39,6 +39,8 @@ export default function TelemedicinePage() {
   const router = useRouter();
   const { user } = useAppStore();
   const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [statusFilter, setStatusFilter] = useState<'All' | 'ACTIVE' | 'ENDED' | 'CREATED'>('All');
   const [creating, setCreating] = useState(false);
@@ -104,10 +106,25 @@ export default function TelemedicinePage() {
     }
   };
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!joinCode.trim()) return;
-    router.push(`/telemedicine/${joinCode.trim()}`);
+    const code = joinCode.trim();
+    if (!code || joining) return;
+    // Authorize before navigating: POST /rooms/:id/join is membership-checked
+    // server-side and returns 404/403 for unknown or unauthorized rooms, so a
+    // mistyped code surfaces a visible error instead of a dead room page.
+    setJoining(true);
+    setJoinError(null);
+    const res = await api.post(`/telemedicine/rooms/${encodeURIComponent(code)}/join`);
+    setJoining(false);
+    if (res.success) {
+      router.push(`/telemedicine/${encodeURIComponent(code)}`);
+    } else {
+      setJoinError(
+        res.error?.message ||
+          'We could not join that room. Check the room ID from your appointment and try again.'
+      );
+    }
   };
 
   const filteredMeetings = meetings.filter(
@@ -161,22 +178,42 @@ export default function TelemedicinePage() {
             </div>
           </div>
 
-          <form onSubmit={handleJoin} className="flex gap-3 max-w-md">
+          <form
+            onSubmit={handleJoin}
+            className="flex gap-3 max-w-md"
+            aria-label="Join video room by ID"
+          >
+            <label htmlFor="tele-room-code" className="sr-only">
+              Video room ID from your appointment
+            </label>
             <input
+              id="tele-room-code"
               type="text"
-              placeholder="e.g. ROOM-8012"
+              placeholder="Paste the room ID from your appointment"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
+              aria-invalid={joinError ? true : undefined}
+              aria-describedby={joinError ? 'tele-join-error' : undefined}
               className="flex-1 px-4 py-2.5 bg-slate-900/80 border border-slate-700/80 rounded-2xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
             />
             <button
               type="submit"
-              className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all flex items-center gap-1.5 shadow-md"
+              disabled={joining || !joinCode.trim()}
+              className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-2xl text-xs transition-all flex items-center gap-1.5 shadow-md"
             >
-              <span>Join Room</span>
+              <span>{joining ? 'Joining…' : 'Join Room'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
+          {joinError && (
+            <p
+              id="tele-join-error"
+              role="alert"
+              className="text-xs font-semibold text-rose-300 max-w-md"
+            >
+              {joinError}
+            </p>
+          )}
         </div>
 
         {/* Consultation Rooms List */}
@@ -239,7 +276,7 @@ export default function TelemedicinePage() {
                           {room.providerName}
                         </h3>
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase ${
+                          className={`px-2 py-0.5 rounded-full text-xs font-extrabold uppercase ${
                             room.status === 'ACTIVE'
                               ? 'bg-emerald-100 text-emerald-700'
                               : room.status === 'CREATED'

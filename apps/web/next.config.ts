@@ -74,7 +74,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  transpilePackages: ['recharts', 'react-is'],
+  transpilePackages: ['recharts', 'react-is', '@ricton/design-tokens'],
 };
 
 export default nextConfig;

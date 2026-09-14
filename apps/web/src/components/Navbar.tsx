@@ -1,10 +1,50 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useAppStore, useAuthActions, useCurrentUser, type UserRole } from '@/store/useAppStore';
+import { hasSessionHints } from '@/lib/api-client';
+
+function homeForRole(role: UserRole | undefined): string {
+  if (role === 'SUPER_ADMIN') return '/admin';
+  if (role === 'HOSPITAL_ADMIN') return '/dashboard/hospital';
+  if (role === 'PHARMACIST') return '/dashboard/pharmacy';
+  return '/dashboard';
+}
 
 export default function Navbar() {
+  const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const user = useCurrentUser();
+  const { restoreSession, logout } = useAuthActions();
+  const [restoring, setRestoring] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !useAppStore.getState().user && hasSessionHints();
+  });
+
+  // Session-aware chrome: on cold loads, attempt a silent restore ONLY if
+  // session hints exist and user is not yet in store. Otherwise render immediately.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!useAppStore.getState().user && hasSessionHints()) {
+        await restoreSession();
+      }
+      if (!cancelled) setRestoring(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreSession]);
+
+  const authed = user !== null;
+
+  const handleLogout = () => {
+    logout();
+    setIsMobileMenuOpen(false);
+    router.replace('/login');
+  };
 
   const navLinks = [
     { name: 'Home', href: '/' },
@@ -13,6 +53,9 @@ export default function Navbar() {
     { name: 'Pricing', href: '/#pricing' },
     { name: 'About us', href: '/#about-us' },
   ];
+
+  const displayName = user?.firstName || user?.email?.split('@')[0] || 'Account';
+  const dashboardHref = homeForRole(user?.role);
 
   return (
     <header className="w-full bg-white/95 backdrop-blur-md border-b border-slate-100 sticky top-0 z-50 transition-all">
@@ -40,23 +83,59 @@ export default function Navbar() {
           ))}
         </nav>
 
-        {/* Desktop Action Buttons (Login / Register) */}
+        {/* Desktop Action Buttons */}
         <div className="hidden md:flex items-center gap-5">
-          <Link
-            href="/login"
-            className="text-base font-bold text-slate-700 hover:text-sky-600 transition-colors px-2 py-1"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="px-6 py-2.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-base shadow-md shadow-sky-600/20 transition-all active:scale-[0.99] flex items-center gap-1.5"
-          >
-            <span>Register</span>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
+          {restoring ? (
+            <span
+              role="status"
+              aria-label="Checking session"
+              className="h-6 w-24 animate-pulse rounded-full bg-slate-100"
+            />
+          ) : authed ? (
+            <>
+              <Link
+                href={dashboardHref}
+                className="px-6 py-2.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-base shadow-md shadow-sky-600/20 transition-all active:scale-[0.99]"
+              >
+                Dashboard
+              </Link>
+              <div className="flex items-center gap-3">
+                <span className="text-base font-semibold text-slate-700 max-w-[160px] truncate">
+                  {displayName}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="text-base font-bold text-slate-700 hover:text-sky-600 transition-colors px-2 py-1"
+                >
+                  Log out
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="text-base font-bold text-slate-700 hover:text-sky-600 transition-colors px-2 py-1"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/register"
+                className="px-6 py-2.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white font-bold text-base shadow-md shadow-sky-600/20 transition-all active:scale-[0.99] flex items-center gap-1.5"
+              >
+                <span>Register</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile Hamburger Toggle */}
@@ -70,9 +149,19 @@ export default function Navbar() {
           >
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isMobileMenuOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
               ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
               )}
             </svg>
           </button>
@@ -96,20 +185,41 @@ export default function Navbar() {
           </nav>
 
           <div className="pt-4 border-t border-slate-100 flex flex-col gap-3">
-            <Link
-              href="/login"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="w-full py-3.5 px-4 rounded-2xl border border-slate-300 font-bold text-center text-slate-800 hover:bg-slate-50 transition-colors"
-            >
-              Log in
-            </Link>
-            <Link
-              href="/register"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="w-full py-3.5 px-4 rounded-2xl bg-sky-600 font-bold text-center text-white shadow-md hover:bg-sky-700 transition-colors"
-            >
-              Register Account
-            </Link>
+            {authed ? (
+              <>
+                <Link
+                  href={dashboardHref}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-sky-600 font-bold text-center text-white shadow-md hover:bg-sky-700 transition-colors"
+                >
+                  Go to Dashboard
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full py-3.5 px-4 rounded-2xl border border-slate-300 font-bold text-center text-slate-800 hover:bg-slate-50 transition-colors"
+                >
+                  Log out{displayName ? ` (${displayName})` : ''}
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full py-3.5 px-4 rounded-2xl border border-slate-300 font-bold text-center text-slate-800 hover:bg-slate-50 transition-colors"
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-sky-600 font-bold text-center text-white shadow-md hover:bg-sky-700 transition-colors"
+                >
+                  Register Account
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

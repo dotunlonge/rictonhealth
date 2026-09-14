@@ -60,14 +60,44 @@ function personName(user: RelatedUser | undefined, kind: 'patient' | 'provider')
 }
 
 export default function PrescriptionsPage() {
-  const { user } = useAppStore();
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const { user, prescriptions: storePrescriptions } = useAppStore();
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>(() => {
+    const raw = storePrescriptions || [];
+    return raw.map((r: any) => ({
+      id: r.id,
+      patientId: r.patientId || '',
+      providerId: r.providerId || '',
+      pharmacyId: r.pharmacyId || null,
+      status: (r.status?.toUpperCase() || 'DRAFT') as PrescriptionStatus,
+      signedAt: r.signedAt || null,
+      createdAt: r.date || new Date().toISOString(),
+      notes: r.notes || null,
+      items: [
+        {
+          id: `${r.id}-item-1`,
+          drugName: r.medication || 'Medication',
+          dosage: r.dosage || '',
+          quantity: r.quantity || 1,
+          frequency: r.frequency || '',
+          duration: '',
+          instructions: null,
+        },
+      ],
+      patient: {
+        patientProfile: {
+          firstName: r.patientName?.split(' ')[0],
+          lastName: r.patientName?.split(' ')[1],
+        },
+      },
+      provider: { providerProfile: { firstName: r.doctor } },
+    }));
+  });
   const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
   const [selectedPharmacy, setSelectedPharmacy] = useState<Record<string, string>>({});
   const [otpCodes, setOtpCodes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'ALL' | PrescriptionStatus>('ALL');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !(storePrescriptions && storePrescriptions.length > 0));
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null);
   const [showCreate, setShowCreate] = useState(false);

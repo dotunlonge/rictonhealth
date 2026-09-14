@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
 import { Calendar, Plus, Clock, CheckCircle2, XCircle, Search, User } from 'lucide-react';
@@ -16,23 +16,107 @@ interface AppointmentRecord {
   status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED';
 }
 
-export default function AppointmentsPage() {
+function AppointmentsContent() {
   const router = useRouter();
-  const { user } = useAppStore();
-  const [appointmentsList, setAppointmentsList] = useState<AppointmentRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const providerIdParam = searchParams.get('providerId') || '';
+  const scheduledAtParam = searchParams.get('scheduledAt') || '';
+  const dateParam = searchParams.get('date') || '';
+  const bookParam = searchParams.get('book') || '';
+
+  const { user, appointments: storeAppointments } = useAppStore();
+  const [appointmentsList, setAppointmentsList] = useState<AppointmentRecord[]>(() => {
+    const list = storeAppointments || [];
+    return list.map((a: any) => ({
+      id: a.id,
+      patientName: a.patientName || 'Patient Record',
+      doctorName: a.doctorName || 'Medical Specialist',
+      scheduledAt: a.scheduledAt || '',
+      type: a.type || 'VIDEO',
+      status: a.status || 'CONFIRMED',
+    }));
+  });
+  const [loading, setLoading] = useState(() => !(storeAppointments && storeAppointments.length > 0));
   const [searchQuery, setSearchQuery] = useState('');
   const [statusTab, setStatusTab] = useState<'ALL' | 'CONFIRMED' | 'PENDING' | 'CANCELLED'>('ALL');
-  const [showBookModal, setShowBookModal] = useState(false);
 
-  // New Booking State
+  // Deep links into the Schedule Consultation modal:
+  // - Doctor profile "Schedule" CTAs pass ?providerId=…&scheduledAt=…
+  // - Dashboard calendar "+ Book Consultation" passes ?date=YYYY-MM-DD&book=true
+  // - Dashboard "Book Consultation" (empty state) passes ?book=true
+  const hasDeepLink = () => {
+    return (
+      providerIdParam !== '' ||
+      dateParam !== '' ||
+      bookParam === 'true' ||
+      bookParam === '1' ||
+      scheduledAtParam !== ''
+    );
+  };
+  const [showBookModal, setShowBookModal] = useState(() => hasDeepLink());
+
+  // New Booking State — built around the provider's REAL availability grid.
+  // The backend rejects any slot outside the provider's configured windows
+  // ("Provider is not available on this day" / "outside the availability
+  // window" / "must align to the provider slot grid"), so the modal only
+  // ever submits a slot returned by GET /appointments/slots/:providerId.
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
-  const [selectedDoctorId, setSelectedDoctorId] = useState('');
+  const [selectedDoctorId, setSelectedDoctorId] = useState(() => providerIdParam);
   const [consultType, setConsultType] = useState<'VIDEO' | 'IN_PERSON'>('VIDEO');
-  const [apptDateTime, setApptDateTime] = useState('');
+  const [slotDate, setSlotDate] = useState(() => {
+    if (scheduledAtParam) {
+      const d = new Date(scheduledAtParam);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    // Dashboard calendar deep link (?date=YYYY-MM-DD): validate shape
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      return dateParam;
+    }
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const tomYear = tomorrow.getFullYear();
+    const tomMonth = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const tomDay = String(tomorrow.getDate()).padStart(2, '0');
+    return `${tomYear}-${tomMonth}-${tomDay}`;
+  });
+  const [slots, setSlots] = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState(() => {
+    if (scheduledAtParam) {
+      const d = new Date(scheduledAtParam);
+      if (!Number.isNaN(d.getTime())) return d.toISOString();
+    }
+    return '';
+  });
+  const [doctorError, setDoctorError] = useState<string | null>(null);
   const [bookingMsg, setBookingMsg] = useState<string | null>(null);
   const [bookingError, setBookingError] = useState(false);
   const [booking, setBooking] = useState(false);
+
+  // Synchronize modal state if query parameters change or deep link is navigated to
+  useEffect(() => {
+    const isDeep =
+      providerIdParam !== '' ||
+      dateParam !== '' ||
+      bookParam === 'true' ||
+      bookParam === '1' ||
+      scheduledAtParam !== '';
+    if (isDeep) {
+      setShowBookModal(true);
+      if (providerIdParam) {
+        setSelectedDoctorId(providerIdParam);
+      }
+      if (scheduledAtParam) {
+        const d = new Date(scheduledAtParam);
+        if (!Number.isNaN(d.getTime())) {
+          setSlotDate(d.toISOString().slice(0, 10));
+          setSelectedSlot(d.toISOString());
+        }
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        setSlotDate(dateParam);
+      }
+    }
+  }, [providerIdParam, dateParam, bookParam, scheduledAtParam]);
 
   useEffect(() => {
     async function loadData() {
@@ -45,6 +129,9 @@ export default function AppointmentsPage() {
       if (docRes.success) {
         const docs = Array.isArray(docRes.data) ? docRes.data : docRes.data?.providers || [];
         setDoctorsList(docs);
+        if (docs.length === 1 && !selectedDoctorId && !providerIdParam) {
+          setSelectedDoctorId(docs[0].userId || docs[0].id);
+        }
       }
 
       const rawAppts = apptRes.success
@@ -86,10 +173,74 @@ export default function AppointmentsPage() {
       setLoading(false);
     }
     loadData();
-  }, []);
+  }, [providerIdParam, selectedDoctorId]);
+
+  const closeBookModal = () => {
+    setShowBookModal(false);
+    setSlots([]);
+    setSlotsError(null);
+    setSelectedSlot('');
+    setDoctorError(null);
+    setBookingMsg(null);
+    if (typeof window !== 'undefined' && window.location.search) {
+      router.replace('/appointments');
+    }
+  };
+
+  // Load the provider's real availability grid whenever doctor or date changes.
+  useEffect(() => {
+    if (!showBookModal || !selectedDoctorId) return;
+    let cancelled = false;
+    (async () => {
+      setSlotsLoading(true);
+      setSlotsError(null);
+      const res = await api.get(
+        `/appointments/slots/${encodeURIComponent(selectedDoctorId)}?date=${encodeURIComponent(slotDate)}`
+      );
+      if (cancelled) return;
+      setSlotsLoading(false);
+      if (res.success) {
+        const list = Array.isArray(res.data) ? res.data : res.data?.slots || [];
+        setSlots(list.filter((s: unknown) => typeof s === 'string'));
+        // Drop a preselected slot if it is no longer on the grid.
+        setSelectedSlot((prev) => (prev && list.includes(prev) ? prev : ''));
+      } else {
+        setSlots([]);
+        // Never surface a raw "Validation error" string to patients — it is
+        // a wire-protocol detail, not an explanation of what went wrong.
+        const raw = res.error?.message || '';
+        setSlotsError(
+          !raw || /validation error/i.test(raw)
+            ? 'We couldn’t check this doctor’s availability right now. Please try again.'
+            : raw
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showBookModal, selectedDoctorId, slotDate]);
 
   const handleBookAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (booking) return;
+
+    // The backend requires a real provider — there is no "first available"
+    // concept server-side, so an empty choice must stop here with guidance
+    // instead of a red 400 from the API.
+    if (!selectedDoctorId) {
+      setDoctorError('Please choose a medical specialist first.');
+      return;
+    }
+    setDoctorError(null);
+
+    if (!selectedSlot) {
+      setBookingMsg('Please pick an available time slot for this doctor.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 4000);
+      return;
+    }
+
     setBooking(true);
     const providerId =
       doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId)?.userId ||
@@ -101,16 +252,22 @@ export default function AppointmentsPage() {
         ? `Dr. ${selectedDoc.firstName || ''} ${selectedDoc.lastName || ''}`.trim()
         : 'Medical Specialist';
 
-    // Backend requires a full RFC datetime aligned to minute boundaries.
-    const scheduledAt = apptDateTime
-      ? new Date(apptDateTime).toISOString()
-      : new Date().toISOString();
-
-    const res = await api.post('/appointments', {
-      providerId,
-      scheduledAt,
-      type: consultType,
-    });
+    // selectedSlot always comes from the availability grid, so it is
+    // future-dated, minute-aligned, inside the provider window, and free.
+    const res = await api.post(
+      '/appointments',
+      {
+        providerId,
+        scheduledAt: selectedSlot,
+        type: consultType,
+      },
+      {
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}`,
+      }
+    );
 
     setBooking(false);
 
@@ -121,7 +278,7 @@ export default function AppointmentsPage() {
           ? `${user.firstName} ${user.lastName || ''}`.trim()
           : user?.email || 'Patient Record',
         doctorName,
-        scheduledAt: new Date(res.data.scheduledAt || scheduledAt).toLocaleDateString('en-US', {
+        scheduledAt: new Date(res.data.scheduledAt || selectedSlot).toLocaleDateString('en-US', {
           month: 'short',
           day: 'numeric',
           year: 'numeric',
@@ -131,12 +288,16 @@ export default function AppointmentsPage() {
       };
 
       setAppointmentsList((prev) => [newAppt, ...prev]);
-      setShowBookModal(false);
+      closeBookModal();
       setBookingMsg('Appointment request sent. Awaiting provider confirmation.');
       setBookingError(false);
       setTimeout(() => setBookingMsg(null), 4000);
     } else {
-      setBookingMsg(res.error?.message || 'Failed to book appointment. Please try again.');
+      // Rare now (slot taken in a race, availability changed): say exactly
+      // that and invite picking another slot instead of a dead end.
+      const raw = res.error?.message || 'Failed to book appointment. Please try again.';
+      const taken = /taken|conflict|processing|overlap/i.test(raw);
+      setBookingMsg(taken ? 'That slot was just taken. Please pick another available time.' : raw);
       setBookingError(true);
       setTimeout(() => setBookingMsg(null), 6000);
     }
@@ -187,6 +348,7 @@ export default function AppointmentsPage() {
 
         {bookingMsg && (
           <div
+            role={bookingError ? 'alert' : 'status'}
             className={`p-4 rounded-2xl text-xs font-bold border flex items-center gap-2 ${
               bookingError
                 ? 'bg-red-50 text-red-700 border-red-200'
@@ -359,7 +521,7 @@ export default function AppointmentsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
               className="absolute inset-0 bg-slate-900/30 backdrop-blur-xs"
-              onClick={() => setShowBookModal(false)}
+              onClick={closeBookModal}
             />
             <form
               onSubmit={handleBookAppointment}
@@ -369,7 +531,8 @@ export default function AppointmentsPage() {
                 <h2 className="text-base font-extrabold text-slate-900">Schedule Consultation</h2>
                 <button
                   type="button"
-                  onClick={() => setShowBookModal(false)}
+                  onClick={closeBookModal}
+                  aria-label="Close schedule consultation dialog"
                   className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold flex items-center justify-center text-xs"
                 >
                   ✕
@@ -378,15 +541,23 @@ export default function AppointmentsPage() {
 
               <div className="space-y-3 text-xs">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Select Medical Specialist
+                  <label htmlFor="book-doctor" className="block font-bold text-slate-700 mb-1">
+                    Select Medical Specialist <span aria-hidden="true">*</span>
                   </label>
                   <select
+                    id="book-doctor"
                     value={selectedDoctorId}
-                    onChange={(e) => setSelectedDoctorId(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedDoctorId(e.target.value);
+                      setDoctorError(null);
+                      setSelectedSlot('');
+                    }}
+                    aria-required="true"
+                    aria-invalid={doctorError ? true : undefined}
+                    aria-describedby={doctorError ? 'book-doctor-error' : undefined}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   >
-                    <option value="">Choose Doctor (Or First Available Specialist)</option>
+                    <option value="">Choose a doctor to see real availability</option>
                     {doctorsList.map((doc) => (
                       <option key={doc.userId || doc.id} value={doc.userId || doc.id}>
                         Dr. {doc.firstName || ''} {doc.lastName || ''} (
@@ -395,6 +566,15 @@ export default function AppointmentsPage() {
                       </option>
                     ))}
                   </select>
+                  {doctorError && (
+                    <p
+                      id="book-doctor-error"
+                      role="alert"
+                      className="mt-1 font-semibold text-red-600"
+                    >
+                      {doctorError}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -410,23 +590,96 @@ export default function AppointmentsPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    Preferred Date & Time
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="book-date" className="block font-bold text-slate-700">
+                      Day
+                    </label>
+                    {dateParam && slotDate === dateParam && (
+                      <span className="text-[10px] font-bold text-[#1877F2] bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                        Autofilled from calendar
+                      </span>
+                    )}
+                  </div>
                   <input
-                    type="datetime-local"
+                    id="book-date"
+                    type="date"
                     required
-                    value={apptDateTime}
-                    onChange={(e) => setApptDateTime(e.target.value)}
+                    value={slotDate}
+                    min={new Date().toISOString().slice(0, 10)}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setSlotDate(e.target.value);
+                        setSelectedSlot('');
+                      }
+                    }}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   />
+                </div>
+
+                <div>
+                  <span id="book-slots-label" className="block font-bold text-slate-700 mb-1">
+                    Available Time Slots <span aria-hidden="true">*</span>
+                  </span>
+                  {!selectedDoctorId ? (
+                    <p className="p-3 rounded-xl bg-slate-50 border border-slate-200 font-semibold text-slate-500">
+                      Choose a doctor first — real open slots appear here.
+                    </p>
+                  ) : slotsLoading ? (
+                    <p role="status" className="p-3 font-semibold text-slate-500">
+                      Checking this doctor’s availability…
+                    </p>
+                  ) : slotsError ? (
+                    <p
+                      role="alert"
+                      className="p-3 rounded-xl bg-red-50 border border-red-200 font-semibold text-red-600"
+                    >
+                      {slotsError}
+                    </p>
+                  ) : slots.length === 0 ? (
+                    <p
+                      role="status"
+                      className="p-3 rounded-xl bg-amber-50 border border-amber-200 font-semibold text-amber-700"
+                    >
+                      No open slots on this day. Try another date.
+                    </p>
+                  ) : (
+                    <div
+                      role="radiogroup"
+                      aria-labelledby="book-slots-label"
+                      className="grid grid-cols-3 gap-2 max-h-44 overflow-y-auto"
+                    >
+                      {slots.map((slot) => {
+                        const label = new Date(slot).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        });
+                        const active = selectedSlot === slot;
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => setSelectedSlot(slot)}
+                            className={`px-2 py-2.5 rounded-xl font-bold border transition-all ${
+                              active
+                                ? 'bg-[#1877F2] text-white border-[#1877F2] shadow-md'
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-[#1877F2]'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={booking}
-                className="w-full py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
+                disabled={booking || !selectedDoctorId || !selectedSlot}
+                className="w-full py-3 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
               >
                 {booking ? 'Booking...' : 'Confirm Appointment Booking'}
               </button>
@@ -435,5 +688,19 @@ export default function AppointmentsPage() {
         )}
       </div>
     </SidebarLayout>
+  );
+}
+
+export default function AppointmentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400 font-bold">
+          Loading Appointments...
+        </div>
+      }
+    >
+      <AppointmentsContent />
+    </Suspense>
   );
 }

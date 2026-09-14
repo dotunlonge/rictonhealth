@@ -1,14 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useNotificationsState, useAppStore } from '@/store/useAppStore';
 import { api } from '@/lib/api-client';
-import { Bell, Check, CheckCheck, Trash2, Calendar, Pill, ShieldAlert, CreditCard, Filter } from 'lucide-react';
+import {
+  Bell,
+  Check,
+  CheckCheck,
+  Trash2,
+  Calendar,
+  Pill,
+  ShieldAlert,
+  CreditCard,
+  Filter,
+  ArrowRight,
+} from 'lucide-react';
 import { NotificationItem } from '@/store/useAppStore';
+import { NOTIFICATION_TARGETS, getNotificationTarget } from '@/lib/notification-targets';
 
 export default function NotificationsPage() {
-  const { notifications: storeNotifications, fetchNotifications, markNotificationRead } = useNotificationsState();
+  const router = useRouter();
+  const {
+    notifications: storeNotifications,
+    fetchNotifications,
+    markNotificationRead,
+  } = useNotificationsState();
   const [filterType, setFilterType] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +37,9 @@ export default function NotificationsPage() {
       await fetchNotifications();
       if (!cancelled) setLoading(false);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [fetchNotifications]);
 
   const handleMarkAllRead = async () => {
@@ -58,12 +78,21 @@ export default function NotificationsPage() {
     (n) => filterType === 'ALL' || n.type === filterType
   );
 
+  const openTarget = (notif: NotificationItem) => {
+    const target = getNotificationTarget(notif.type);
+    if (target && (NOTIFICATION_TARGETS as readonly string[]).includes(target)) {
+      if (!notif.isRead) handleMarkSingleRead(notif.id);
+      router.push(target);
+    }
+  };
+
   const getIcon = (type: string) => {
     const t = type?.toUpperCase() || '';
     if (t.includes('APPOINTMENT')) return <Calendar className="w-5 h-5 text-[#1877F2]" />;
     if (t.includes('PRESCRIPTION')) return <Pill className="w-5 h-5 text-emerald-600" />;
     if (t.includes('SECURITY')) return <ShieldAlert className="w-5 h-5 text-amber-600" />;
-    if (t.includes('BILLING') || t.includes('PAYMENT') || t.includes('WALLET')) return <CreditCard className="w-5 h-5 text-purple-600" />;
+    if (t.includes('BILLING') || t.includes('PAYMENT') || t.includes('WALLET'))
+      return <CreditCard className="w-5 h-5 text-purple-600" />;
     return <Bell className="w-5 h-5 text-[#1877F2]" />;
   };
 
@@ -76,7 +105,8 @@ export default function NotificationsPage() {
               <Bell className="w-6 h-6 text-[#1877F2]" /> Notifications & Activity Center
             </h1>
             <p className="text-xs font-semibold text-slate-500 mt-1">
-              Real-time clinical alerts, appointment reminders, prescription updates, and billing receipts
+              Real-time clinical alerts, appointment reminders, prescription updates, and billing
+              receipts
             </p>
           </div>
 
@@ -117,65 +147,91 @@ export default function NotificationsPage() {
 
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
           {loading ? (
-            <div className="p-12 text-center text-xs font-bold text-slate-400">Loading notification stream...</div>
+            <div className="p-12 text-center text-xs font-bold text-slate-400">
+              Loading notification stream...
+            </div>
           ) : filteredNotifications.length === 0 ? (
-            <div className="p-12 text-center text-xs font-bold text-slate-400">No notifications in this category.</div>
+            <div className="p-12 text-center text-xs font-bold text-slate-400">
+              No notifications in this category.
+            </div>
           ) : (
             <div className="space-y-3">
-              {filteredNotifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className={`p-5 rounded-2xl border transition-all flex items-start justify-between gap-4 ${
-                    notif.isRead
-                      ? 'bg-slate-50/50 border-slate-100 opacity-85'
-                      : 'bg-blue-50/40 border-blue-200 shadow-xs'
-                  }`}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-white rounded-2xl shadow-xs border border-slate-100 shrink-0">
-                      {getIcon(notif.type)}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-extrabold text-slate-900">{notif.title}</h3>
-                        {!notif.isRead && (
-                          <span className="w-2 h-2 rounded-full bg-[#1877F2] animate-pulse" />
-                        )}
-                      </div>
-                      <p className="text-xs font-medium text-slate-600 mt-1 leading-relaxed">{notif.body}</p>
-                      <span className="text-[10px] font-semibold text-slate-400 mt-2 block">
-                        {new Date(notif.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    {!notif.isRead && (
-                      <button
-                        type="button"
-                        onClick={() => handleMarkSingleRead(notif.id)}
-                        title="Mark as read"
-                        className="p-2 rounded-full hover:bg-slate-200/60 text-slate-500 transition-colors"
-                      >
-                        <Check className="w-4 h-4 text-[#1877F2]" />
-                      </button>
-                    )}
+              {filteredNotifications.map((notif) => {
+                const target = getNotificationTarget(notif.type);
+                return (
+                  <div
+                    key={notif.id}
+                    className={`p-5 rounded-2xl border transition-all flex items-start justify-between gap-4 ${
+                      notif.isRead
+                        ? 'bg-slate-50/50 border-slate-100 opacity-85'
+                        : 'bg-blue-50/40 border-blue-200 shadow-xs'
+                    }`}
+                  >
                     <button
                       type="button"
-                      onClick={() => handleDelete(notif.id)}
-                      title="Dismiss"
-                      className="p-2 rounded-full hover:bg-rose-100/60 text-slate-400 hover:text-rose-600 transition-colors"
+                      onClick={() => target && openTarget(notif)}
+                      disabled={!target}
+                      aria-label={target ? `Open ${notif.title}` : undefined}
+                      className={`flex items-start gap-4 text-left min-w-0 flex-1 ${
+                        target ? 'cursor-pointer rounded-xl' : 'cursor-default'
+                      }`}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <div className="p-3 bg-white rounded-2xl shadow-xs border border-slate-100 shrink-0">
+                        {getIcon(notif.type)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-extrabold text-slate-900">{notif.title}</h3>
+                          {!notif.isRead && (
+                            <span className="w-2 h-2 rounded-full bg-[#1877F2] animate-pulse" />
+                          )}
+                        </div>
+                        <p className="text-xs font-medium text-slate-600 mt-1 leading-relaxed">
+                          {notif.body}
+                        </p>
+                        <span className="text-xs font-semibold text-slate-400 mt-2 flex items-center gap-2">
+                          <span>
+                            {new Date(notif.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                          {target && (
+                            <span className="inline-flex items-center gap-1 text-[#1877F2]">
+                              View <ArrowRight className="w-3 h-3" />
+                            </span>
+                          )}
+                        </span>
+                      </div>
                     </button>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!notif.isRead && (
+                        <button
+                          type="button"
+                          onClick={() => handleMarkSingleRead(notif.id)}
+                          title="Mark as read"
+                          aria-label={`Mark as read: ${notif.title}`}
+                          className="p-2 rounded-full hover:bg-slate-200/60 text-slate-500 transition-colors"
+                        >
+                          <Check className="w-4 h-4 text-[#1877F2]" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(notif.id)}
+                        title="Dismiss"
+                        aria-label={`Dismiss notification: ${notif.title}`}
+                        className="p-2 rounded-full hover:bg-rose-100/60 text-slate-400 hover:text-rose-600 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

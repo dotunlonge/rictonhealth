@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
@@ -13,20 +13,35 @@ import {
 import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
+import {
+  AppleIcon,
+  AuthCard,
+  AuthDivider,
+  AuthError,
+  AuthField,
+  AuthFooter,
+  AuthHeading,
+  AuthPrimaryButton,
+  SocialButton,
+} from '@/components/auth/auth-ui';
 
 export default function LogInPage() {
   const router = useRouter();
   const { setUser } = useAppStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Google popup flow gets its own busy flag: sharing the form-wide flag
+  // locked the entire page when the popup closed without a credential, and
+  // showed "Signing in with Google…" during plain password submits.
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const formBusy = isLoading || oauthBusy;
   const [errorMsg, setErrorMsg] = useState('');
   const [requires2FA, setRequires2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
   const [oauthProvider, setOauthProvider] = useState<'GOOGLE' | 'APPLE' | null>(null);
   const [oauthToken, setOauthToken] = useState('');
-  const appleSignInEnabled = Boolean(process.env.NEXT_PUBLIC_APPLE_CLIENT_ID);
+  const user = useAppStore((state) => state.user);
 
   const canContinue = requires2FA
     ? totpCode.length === 6
@@ -34,17 +49,65 @@ export default function LogInPage() {
 
   const redirectAfterAuth = (u: any) => {
     if (u?.role === 'SUPER_ADMIN') {
-      router.push('/admin');
+      router.replace('/admin');
     } else if (u?.role === 'HOSPITAL_ADMIN') {
-      router.push('/onboarding/hospital');
+      router.replace('/onboarding/hospital');
     } else if (u?.role === 'CONSULTANT') {
-      router.push('/onboarding/doctor');
+      router.replace('/onboarding/doctor');
     } else if (u?.role === 'PHARMACIST') {
-      router.push('/onboarding/pharmacy');
+      router.replace('/onboarding/pharmacy');
     } else {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   };
+
+  // Already signed in (restored session, or middleware-hinted cookie)? Skip
+  // the form immediately and land on the correct dashboard for the role.
+  useEffect(() => {
+    const currentUser = useAppStore.getState().user;
+    if (currentUser) {
+      redirectAfterAuth(currentUser);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const ok = await useAppStore.getState().restoreSession();
+      if (cancelled || !ok) return;
+      redirectAfterAuth(useAppStore.getState().user);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (user) {
+    return (
+      <main className="bg-slate-50 min-h-screen w-full flex items-center justify-center p-4 font-sans text-slate-900">
+        <div className="bg-white p-8 sm:p-12 rounded-[32px] shadow-sm border border-slate-100 text-center max-w-md w-full space-y-4">
+          <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+            <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Already Signed In
+          </h2>
+          <p className="text-sm font-medium text-slate-500">
+            Redirecting to your healthcare dashboard…
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   const executeLoginWithCode = async (codeStr: string) => {
     if (codeStr.length !== 6 || isLoading) return;
@@ -81,7 +144,7 @@ export default function LogInPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canContinue || isLoading) return;
+    if (!canContinue || formBusy) return;
 
     if (requires2FA) {
       await executeLoginWithCode(totpCode);
@@ -122,11 +185,11 @@ export default function LogInPage() {
   };
 
   const handleGoogleCredential = async (credential: string) => {
-    setIsLoading(true);
+    setOauthBusy(true);
     setErrorMsg('');
     try {
       const res = await loginWithGoogleToken(credential);
-      setIsLoading(false);
+      setOauthBusy(false);
 
       if (res.data?.requires2FA) {
         if (res.data.email) setEmail(res.data.email);
@@ -164,7 +227,7 @@ export default function LogInPage() {
         setErrorMsg(res.error?.message || 'Google Sign-In failed.');
       }
     } catch (err: unknown) {
-      setIsLoading(false);
+      setOauthBusy(false);
       const message = err instanceof Error ? err.message : String(err);
       setErrorMsg(message || 'Google Sign-In failed.');
     }
@@ -222,75 +285,44 @@ export default function LogInPage() {
     <main className="bg-slate-50 min-h-screen w-full relative overflow-x-hidden font-sans antialiased text-slate-900 pb-16">
       <Navbar />
 
-      {/* Login Card Section */}
-      <section
-        className="max-w-[925px] mx-auto mt-8 sm:mt-12 bg-white rounded-[40px] md:rounded-[50px] shadow-[0px_4px_30px_rgba(0,0,0,0.08)] border border-slate-100 p-8 sm:p-14 space-y-8"
-        aria-labelledby="login-heading"
-      >
-        <h1 id="login-heading" className="text-2xl font-bold text-slate-900 tracking-tight">
-          Your details
-        </h1>
+      <div className="px-4 sm:px-6 mt-8 sm:mt-12">
+        <AuthCard labelledBy="login-heading">
+          <AuthHeading id="login-heading" title="Your details" />
 
-        {errorMsg && (
-          <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-2xl text-sm font-medium">
-            {errorMsg}
-          </div>
-        )}
+          {errorMsg && <AuthError message={errorMsg} />}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-5">
-            {/* Email Field */}
-            <div>
-              <label className="sr-only">Email address or phone</label>
-              <input
-                className="w-full h-16 px-6 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                type="text"
-                placeholder="Email address or phone"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <AuthField
+              id="login-email"
+              label="Email address or phone"
+              value={email}
+              onChange={setEmail}
+              required
+              autoComplete="username"
+              inputMode="email"
+            />
+            <AuthField
+              id="login-password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              required={!requires2FA}
+              autoComplete="current-password"
+              secure
+            />
 
-            {/* Password Field */}
-            <div className="relative">
-              <label className="sr-only">Password</label>
-              <input
-                className="w-full h-16 px-6 pr-14 rounded-2xl border border-slate-300 focus:border-[#1c7bcf] focus:ring-2 focus:ring-[#1c7bcf]/20 text-slate-900 placeholder:text-slate-400 text-base outline-none transition-all"
-                type={isPasswordVisible ? 'text' : 'password'}
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required={!requires2FA}
-              />
-              <button
-                className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
-                type="button"
-                onClick={() => setIsPasswordVisible(!isPasswordVisible)}
-                aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d={
-                      isPasswordVisible
-                        ? 'M13.875 18.825A10.05 10.05 0 0112 19c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24'
-                        : 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'
-                    }
-                  />
-                </svg>
-              </button>
-            </div>
-            {/* 2FA Challenge Field */}
             {requires2FA && (
-              <div className="p-6 bg-blue-50/70 border border-blue-200 rounded-3xl space-y-3 animate-in fade-in zoom-in-95">
-                <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider text-center">
+              <div className="space-y-3 rounded-[20px] border border-blue-200 bg-blue-50/70 p-6">
+                <label
+                  htmlFor="login-totp"
+                  className="block text-center text-xs font-bold tracking-wider text-slate-800 uppercase"
+                >
                   2FA Authentication Code
                 </label>
                 <input
+                  id="login-totp"
                   type="text"
+                  inputMode="numeric"
                   maxLength={6}
                   autoFocus
                   placeholder="123456"
@@ -302,79 +334,54 @@ export default function LogInPage() {
                       executeLoginWithCode(val);
                     }
                   }}
-                  className="w-full text-center tracking-widest font-mono text-xl font-extrabold h-14 px-4 bg-white border border-blue-300 rounded-2xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1c7bcf]"
+                  className="h-14 w-full rounded-2xl border border-blue-300 bg-white px-4 text-center font-mono text-xl font-extrabold tracking-widest text-slate-900 focus:ring-2 focus:ring-[#1c7bcf] focus:outline-none"
                 />
-                <p className="text-[11px] text-slate-500 font-semibold text-center">
+                <p className="text-center text-xs font-semibold text-slate-500">
                   Open Google Authenticator or Authy to view your 6-digit code.
                 </p>
               </div>
             )}
-          </div>
 
-          <div className="flex justify-end">
-            <Link
-              href="/forgot-password"
-              className="text-sm font-semibold text-[#1c7bcf] hover:underline"
-            >
-              Forgot password?
-            </Link>
-          </div>
+            <div className="flex items-center justify-end gap-4">
+              <Link
+                href="/forgot-password"
+                className="text-[15px] font-semibold text-[#2f6fd6] hover:underline"
+              >
+                Forgot password?
+              </Link>
+            </div>
 
-          {/* Submit Button */}
-          <button
-            className={`w-full h-16 rounded-2xl font-extrabold text-lg text-white transition-all shadow-md ${
-              canContinue && !isLoading
-                ? 'bg-[#1c7bcf] hover:bg-[#1565ad] active:scale-[0.99]'
-                : 'bg-[#1c7bcf]/50 cursor-not-allowed'
-            }`}
-            type="submit"
-            disabled={!canContinue || isLoading}
-          >
-            {isLoading ? 'Verifying 2FA...' : requires2FA ? 'Verify 2FA & Log In' : 'Log In'}
-          </button>
-        </form>
+            <AuthPrimaryButton disabled={!canContinue || formBusy}>
+              {oauthBusy
+                ? 'Waiting for Google…'
+                : isLoading
+                  ? 'Verifying 2FA...'
+                  : requires2FA
+                    ? 'Verify 2FA & Log In'
+                    : 'Log In'}
+            </AuthPrimaryButton>
+          </form>
 
-        {/* Divider
-        <div className="text-center pt-2">
-          <p className="text-slate-400 text-base font-medium">Or Login With</p>
-        </div> */}
+          <AuthDivider label="Or Login With" />
 
-        {/* Social Buttons */}
-        <div className={`grid grid-cols-1 gap-4 ${appleSignInEnabled ? 'sm:grid-cols-2' : ''}`}>
-          <GoogleSignInButton
-            onCredential={handleGoogleCredential}
-            onError={setErrorMsg}
-            busy={isLoading}
-            text="signin_with"
-          />
-          {appleSignInEnabled && (
-            <button
-              className="flex h-14 w-full items-center justify-center gap-3 rounded-lg border border-slate-400 bg-white text-base font-semibold text-slate-900 shadow-sm transition-all hover:border-slate-600 hover:bg-slate-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
+          <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-2">
+            <GoogleSignInButton
+              onCredential={handleGoogleCredential}
+              onError={setErrorMsg}
+              busy={oauthBusy}
+              text="signin_with"
+            />
+            <SocialButton
+              label="Sign in with Apple"
+              icon={<AppleIcon />}
               onClick={handleAppleAuth}
-              disabled={isLoading}
-            >
-              <svg className="w-5 h-5 text-slate-900 fill-current" viewBox="0 0 24 24">
-                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.85c.66-.8 1.11-1.92.99-3.04-.96.04-2.13.64-2.82 1.44-.61.71-1.14 1.86-.99 2.96 1.07.08 2.16-.55 2.82-1.36z" />
-              </svg>
-              Sign in with Apple
-            </button>
-          )}
-        </div>
+              disabled={formBusy}
+            />
+          </div>
 
-        {/* Footer Link */}
-        <div className="text-center pt-4">
-          <p className="text-slate-500 text-base">
-            Don't Have An Account?{' '}
-            <Link
-              className="font-bold text-[#1c7bcf] hover:underline focus:outline-none ml-1"
-              href="/register"
-            >
-              Register Now
-            </Link>
-          </p>
-        </div>
-      </section>
+          <AuthFooter text="Don't Have An Account?" linkLabel="Register Now" href="/register" />
+        </AuthCard>
+      </div>
     </main>
   );
 }

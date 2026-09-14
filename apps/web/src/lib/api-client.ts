@@ -105,6 +105,14 @@ function setPresenceCookies(role: string | null) {
   }
 }
 
+export function hasSessionHints(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .some((part) => part === 'ricton_session=1');
+}
+
 class ApiClient {
   public setToken(token: string | null, refreshToken?: string | null, role?: string | null) {
     accessToken = token;

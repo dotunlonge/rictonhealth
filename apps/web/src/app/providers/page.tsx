@@ -6,22 +6,32 @@ import { api } from '@/lib/api-client';
 import { Stethoscope, Star, Clock, CheckCircle2, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { mapProviderSummary, type ProviderSummary } from '@/lib/api-contract-mappers';
+import { useCurrentUser } from '@/store/useAppStore';
 
 export default function ProvidersPage() {
   const router = useRouter();
+  const user = useCurrentUser();
+  // Provider onboarding is a staff action — patients must never see an
+  // "Add / Register Doctor" CTA (it previously routed them into the doctor
+  // onboarding flow).
+  const canRegisterDoctors = user?.role === 'SUPER_ADMIN' || user?.role === 'HOSPITAL_ADMIN';
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('All');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadProviders() {
       setLoading(true);
+      setLoadError(null);
       const res = await api.get('/users/providers');
-      const rawList = res.success
-        ? Array.isArray(res.data)
-          ? res.data
-          : res.data?.providers || []
-        : [];
+      if (!res.success) {
+        setProviders([]);
+        setLoadError(res.error?.message || 'The medical specialist directory could not be loaded.');
+        setLoading(false);
+        return;
+      }
+      const rawList = Array.isArray(res.data) ? res.data : res.data?.providers || [];
 
       setProviders(rawList.map(mapProviderSummary));
       setLoading(false);
@@ -30,7 +40,9 @@ export default function ProvidersPage() {
   }, []);
 
   const filteredProviders = providers.filter(
-    (p) => selectedSpecialty === 'All' || p.specialty.toLowerCase().includes(selectedSpecialty.toLowerCase())
+    (p) =>
+      selectedSpecialty === 'All' ||
+      p.specialty.toLowerCase().includes(selectedSpecialty.toLowerCase())
   );
 
   return (
@@ -43,7 +55,8 @@ export default function ProvidersPage() {
               <Stethoscope className="w-6 h-6 text-[#1877F2]" /> Find Doctors & Medical Specialists
             </h1>
             <p className="text-xs font-semibold text-slate-500 mt-1">
-              Book online consultations, view shift availability, and review verified healthcare providers
+              Book online consultations, view shift availability, and review verified healthcare
+              providers
             </p>
           </div>
 
@@ -64,12 +77,14 @@ export default function ProvidersPage() {
               </select>
             </div>
 
-            <button
-              onClick={() => router.push('/onboarding/doctor')}
-              className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5 shrink-0"
-            >
-              + Add / Register Doctor
-            </button>
+            {canRegisterDoctors && (
+              <button
+                onClick={() => router.push('/onboarding/doctor')}
+                className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all flex items-center gap-1.5 shrink-0"
+              >
+                + Add / Register Doctor
+              </button>
+            )}
           </div>
         </div>
 
@@ -78,10 +93,24 @@ export default function ProvidersPage() {
           <div className="p-12 text-center text-xs font-bold text-slate-400 bg-white rounded-3xl border border-slate-200/80">
             Loading verified medical specialists directory...
           </div>
+        ) : loadError ? (
+          <div className="p-12 text-center space-y-3 bg-white rounded-3xl border border-rose-200/80">
+            <Stethoscope className="w-10 h-10 text-rose-300 mx-auto" />
+            <p className="text-xs font-bold text-rose-700">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="text-xs text-[#1877F2] font-bold hover:underline"
+            >
+              Try again
+            </button>
+          </div>
         ) : filteredProviders.length === 0 ? (
           <div className="p-12 text-center space-y-3 bg-white rounded-3xl border border-slate-200/80">
             <Stethoscope className="w-10 h-10 text-slate-300 mx-auto" />
-            <p className="text-xs font-bold text-slate-600">No medical specialists currently registered under this specialty</p>
+            <p className="text-xs font-bold text-slate-600">
+              No medical specialists currently registered under this specialty
+            </p>
             <button
               type="button"
               onClick={() => setSelectedSpecialty('All')}
@@ -101,7 +130,11 @@ export default function ProvidersPage() {
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl bg-blue-50 text-[#1877F2] border border-blue-100 flex items-center justify-center font-bold overflow-hidden shrink-0">
                       {doc.avatarUrl ? (
-                        <img src={doc.avatarUrl} alt={doc.name} className="w-full h-full object-cover" />
+                        <img
+                          src={doc.avatarUrl}
+                          alt={doc.name}
+                          className="w-full h-full object-cover"
+                        />
                       ) : (
                         <User className="w-7 h-7" />
                       )}
@@ -110,13 +143,17 @@ export default function ProvidersPage() {
                     <div>
                       <h2 className="font-extrabold text-slate-900 text-sm">{doc.name}</h2>
                       <p className="text-xs font-bold text-[#1877F2]">{doc.specialty}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">{doc.yearsExperience} Years Clinical Experience</p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        {doc.yearsExperience} Years Clinical Experience
+                      </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/80 text-amber-600">
                     <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                    <span className="text-xs font-black text-slate-900">{doc.rating.toFixed(1)}</span>
+                    <span className="text-xs font-black text-slate-900">
+                      {doc.rating.toFixed(1)}
+                    </span>
                   </div>
                 </div>
 

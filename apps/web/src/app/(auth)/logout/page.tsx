@@ -18,7 +18,7 @@ export default function LogoutPage() {
       await logout();
       if (!cancelled) {
         setStatus('You have been securely logged out.');
-        setTimeout(() => router.push('/login'), 2000);
+        setTimeout(() => router.replace('/login'), 600);
       }
     }
 

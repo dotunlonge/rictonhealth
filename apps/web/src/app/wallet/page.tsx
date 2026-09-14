@@ -17,8 +17,11 @@ interface Transaction {
 }
 
 export default function WalletPage() {
-  const { user, walletBalance, fetchWallet } = useAppStore();
-  const balance = walletBalance || 0;
+  const { user, walletBalance, walletStatus, walletError, fetchWallet } = useAppStore();
+  // walletStatus distinguishes "genuinely ₦0" (success) from "unknown" (error):
+  // an unavailable balance must never render as a valid-looking ₦0.
+  const balanceKnown = walletStatus !== 'error';
+  const balance = balanceKnown ? walletBalance : null;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -132,7 +135,13 @@ export default function WalletPage() {
             </span>
             <div className="flex items-baseline gap-1">
               <span className="text-sm font-bold text-blue-300">₦</span>
-              <span className="text-4xl font-black">{balance.toLocaleString()}</span>
+              {balanceKnown && balance !== null ? (
+                <span className="text-4xl font-black">{balance.toLocaleString()}</span>
+              ) : (
+                <span role="alert" className="text-sm font-bold text-amber-300">
+                  Unavailable — {walletError || 'could not load balance'}
+                </span>
+              )}
             </div>
             <div className="pt-2 flex items-center gap-2 text-xs font-semibold text-emerald-400">
               <ArrowUpRight className="w-4 h-4" /> Live Account Active

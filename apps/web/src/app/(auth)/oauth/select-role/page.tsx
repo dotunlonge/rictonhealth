@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import {
@@ -14,6 +14,7 @@ import { useAppStore } from '@/store/useAppStore';
 
 function SelectRoleContent() {
   const router = useRouter();
+  const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
   const pending = getPendingOAuthRoleSelection();
   const email = pending?.email || '';
@@ -23,6 +24,29 @@ function SelectRoleContent() {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (user?.role) {
+      router.replace('/dashboard');
+    }
+  }, [user, router]);
+
+  if (user?.role) {
+    return (
+      <main className="bg-slate-50 min-h-screen w-full flex items-center justify-center p-4 font-sans text-slate-900">
+        <div className="bg-white p-8 sm:p-12 rounded-[32px] shadow-sm border border-slate-100 text-center max-w-md w-full space-y-4">
+          <div className="w-14 h-14 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+            <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">Already Signed In</h2>
+          <p className="text-sm font-medium text-slate-500">Redirecting to your healthcare dashboard…</p>
+        </div>
+      </main>
+    );
+  }
 
   const handleCompleteSignUp = async () => {
     if (!pending?.token) {

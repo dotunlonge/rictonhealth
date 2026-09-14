@@ -1,17 +1,43 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { useAppStore } from '@/store/useAppStore';
 
 function VerifyOtpContent() {
   const router = useRouter();
+  const user = useAppStore((state) => state.user);
+  const setUser = useAppStore((state) => state.setUser);
   const searchParams = useSearchParams();
   const email = searchParams.get('email') || '';
   const [code, setCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    if (user?.role) {
+      router.replace('/dashboard');
+    }
+  }, [user, router]);
+
+  if (user?.role) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center max-w-md w-full space-y-4">
+          <div className="w-12 h-12 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center mx-auto">
+            <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Already Signed In</h2>
+          <p className="text-sm text-slate-500">Redirecting to your dashboard…</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,19 +60,22 @@ function VerifyOtpContent() {
       if (res.data?.token) {
         api.setToken(res.data.token, res.data.refreshToken ?? null, res.data?.user?.role ?? null);
       }
+      if (res.data?.user) {
+        setUser(res.data.user as any);
+      }
       const role = res.data?.user.role;
       setSuccessMsg('Account verified successfully! Redirecting to setup...');
       setTimeout(() => {
         if (role === 'HOSPITAL_ADMIN') {
-          router.push('/onboarding/hospital');
+          router.replace('/onboarding/hospital');
         } else if (role === 'CONSULTANT') {
-          router.push('/onboarding/doctor');
+          router.replace('/onboarding/doctor');
         } else if (role === 'PHARMACIST') {
-          router.push('/onboarding/pharmacy');
+          router.replace('/onboarding/pharmacy');
         } else {
-          router.push('/dashboard');
+          router.replace('/dashboard');
         }
-      }, 1500);
+      }, 1000);
     } else {
       setErrorMsg(res.error?.message || 'Invalid verification code. Please try again.');
     }

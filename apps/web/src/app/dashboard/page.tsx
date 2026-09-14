@@ -32,7 +32,7 @@ import {
   Heart,
 } from 'lucide-react';
 import { api } from '@/lib/api-client';
-import { useWalletState } from '@/store/useAppStore';
+import { useWalletState, useCurrentUser, useAppStore } from '@/store/useAppStore';
 
 const calendarDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -93,16 +93,23 @@ function computeProfileCompletion(user: any): {
   steps: { label: string; done: boolean }[];
 } {
   const profile = user?.providerProfile || user?.patientProfile || {};
-  const hasUser = !!(user?.id || user?.email || profile?.id || user);
+  const hasUser = !!(user?.id || profile?.id);
+  const hasAvatar = !!(user?.avatarUrl || profile?.avatarUrl);
+  const hasPersonal = !!(
+    (profile?.firstName && profile?.lastName) ||
+    user?.firstName ||
+    user?.hospital?.name
+  );
+  const isVerified = !!(user?.isVerified || profile?.isVerified || user?.status === 'ACTIVE');
 
   const steps = [
     { label: 'Setup account', done: hasUser },
     {
       label: 'Upload profile photo',
-      done: hasUser && !!(user?.avatarUrl || profile?.avatarUrl || user?.email),
+      done: hasAvatar,
     },
-    { label: 'Personal information', done: hasUser },
-    { label: 'Verification & credentials', done: hasUser },
+    { label: 'Personal information', done: hasPersonal },
+    { label: 'Verification & credentials', done: isVerified },
   ];
   const doneCount = steps.filter((s) => s.done).length;
   return { percentage: Math.round((doneCount / steps.length) * 100), steps };
@@ -204,11 +211,20 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Dynamic Real API Data State
-  const [userProfile, setUserProfile] = useState<any>(null);
+  const currentUser = useCurrentUser();
+  const [userProfile, setUserProfile] = useState<any>(
+    () => currentUser || useAppStore.getState().user
+  );
   const [providerStats, setProviderStats] = useState<any>(null);
   const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([]);
-  const { walletBalance: storeWallet, rewardsPoints: storeRewards } = useWalletState();
+  const {
+    walletBalance: storeWallet,
+    rewardsPoints: storeRewards,
+    walletStatus: storeWalletStatus,
+  } = useWalletState();
   const [walletBalance, setWalletBalance] = useState<number>(storeWallet || 0);
+  // Unknown balances must never render as a valid-looking ₦0.
+  const [walletKnown, setWalletKnown] = useState(storeWalletStatus !== 'error');
   const [rewardsBalance, setRewardsBalance] = useState<number>(storeRewards || 0);
   const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
   const [weeklyTransactions, setWeeklyTransactions] = useState<number>(0);
@@ -255,7 +271,10 @@ export default function DashboardPage() {
         if (walletRes.success && walletRes.data) {
           if (walletRes.data.balance !== undefined) {
             setWalletBalance(Number(walletRes.data.balance));
+            setWalletKnown(true);
           }
+        } else {
+          setWalletKnown(false);
         }
 
         // 4. Wallet Transactions & Weekly Expenses
@@ -282,8 +301,15 @@ export default function DashboardPage() {
 
         // 6. Appointments API fallback check
         const apptRes = await api.get('/appointments');
-        if (apptRes.success && Array.isArray(apptRes.data) && apptRes.data.length > 0) {
-          setUpcomingAppointments(apptRes.data);
+        if (apptRes.success) {
+          const list = Array.isArray(apptRes.data)
+            ? apptRes.data
+            : Array.isArray(apptRes.data?.appointments)
+              ? apptRes.data.appointments
+              : [];
+          if (list.length > 0) {
+            setUpcomingAppointments(list);
+          }
         }
       } catch (err) {
         console.error('Failed to fetch dynamic dashboard data:', err);
@@ -424,7 +450,7 @@ export default function DashboardPage() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => router.push('/appointments')}
+                    onClick={() => router.push('/appointments?book=true')}
                     className="px-5 py-2 bg-[#1877F2] text-white text-xs font-bold rounded-full shadow-xs hover:bg-[#1565C0] transition-all"
                   >
                     Book Consultation
@@ -493,7 +519,7 @@ export default function DashboardPage() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => router.push('/appointments')}
+                      onClick={() => router.push('/appointments?book=true')}
                       className="text-xs text-[#1877F2] font-bold hover:underline"
                     >
                       + Book New Appointment
@@ -555,7 +581,13 @@ export default function DashboardPage() {
                     Total Wallet Balance
                   </p>
                   <p className="text-2xl font-extrabold text-[#1877F2]">
-                    ₦{walletBalance.toLocaleString()}
+                    {walletKnown ? (
+                      <>₦{walletBalance.toLocaleString()}</>
+                    ) : (
+                      <span role="alert" className="text-sm font-bold text-amber-600">
+                        Balance unavailable
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -638,10 +670,19 @@ export default function DashboardPage() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => router.push('/appointments')}
+                  onClick={() => {
+                    // Deep-link into the Schedule Consultation modal with the
+                    // calendar's selected day preselected (see appointments
+                    // page `date` param handling).
+                    const grid = getCalendarGrid(monthOffset);
+                    const day = String(selectedDate).padStart(2, '0');
+                    const month = String(grid.month + 1).padStart(2, '0');
+                    const year = String(grid.year).padStart(4, '0');
+                    router.push(`/appointments?date=${year}-${month}-${day}&book=true`);
+                  }}
                   className="text-[#1877F2] font-bold hover:underline"
                 >
-                  + Book Session
+                  Book Consultation
                 </button>
               </div>
             </section>
@@ -685,54 +726,58 @@ export default function DashboardPage() {
               </h2>
 
               {userProfile?.role === 'PATIENT' ? (
+                // No vitals backend exists yet: never render fabricated
+                // readings. A textbook-perfect 72bpm/120-80/99% for every
+                // patient is a clinical trust risk — show an honest empty
+                // state until a real vitals source ships.
                 <div className="space-y-3 text-xs">
-                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="font-bold text-slate-600">Heart Rate</span>
-                    <span className="font-extrabold text-[#1877F2]">72 bpm (Normal)</span>
+                  <div
+                    role="status"
+                    className="p-5 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2"
+                  >
+                    <Activity className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="font-bold text-slate-600">No vitals on file yet</p>
+                    <p className="font-medium text-slate-500 leading-relaxed">
+                      Heart rate, blood pressure, and oxygen readings will appear here after your
+                      first connected visit or device sync.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/appointments?book=true')}
+                      className="text-xs text-[#1877F2] font-bold hover:underline"
+                    >
+                      Book a consultation to get started
+                    </button>
                   </div>
-                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="font-bold text-slate-600">Blood Pressure</span>
-                    <span className="font-extrabold text-emerald-600">120/80 mmHg</span>
-                  </div>
-                  <div className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border border-slate-100">
-                    <span className="font-bold text-slate-600">Oxygen Saturation</span>
-                    <span className="font-extrabold text-cyan-600">99% SpO2</span>
+                </div>
+              ) : ratingScore > 0 ? (
+                // Only the aggregate rating comes from the backend
+                // (providerProfile.rating). Per-category bars were hardcoded
+                // fabrications — render the real number only.
+                <div className="flex items-center justify-center gap-4 p-2">
+                  <div className="flex flex-col items-center justify-center p-5 bg-amber-50 rounded-xl border border-amber-200">
+                    <div className="flex items-center gap-1.5 text-amber-600">
+                      <Star className="w-5 h-5 fill-amber-500 text-amber-500" />
+                      <span className="text-2xl font-black text-slate-900">
+                        {ratingScore.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">/ 5</span>
+                    </div>
+                    <span className="text-xs font-bold text-slate-500 uppercase mt-1">
+                      Patient Rating
+                    </span>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-2 flex-1">
-                    {[
-                      { label: 'Communication', pct: 98 },
-                      { label: 'Efficiency', pct: 92 },
-                      { label: 'Punctuality', pct: 95 },
-                    ].map((item) => (
-                      <div key={item.label} className="space-y-1">
-                        <div className="flex justify-between text-[11px] font-semibold text-slate-600">
-                          <span>{item.label}</span>
-                          <span>{item.pct}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-emerald-500 rounded-full"
-                            style={{ width: `${item.pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-col items-center justify-center p-3.5 bg-amber-50 rounded-xl border border-amber-200 shrink-0">
-                    <div className="flex items-center gap-1 text-amber-600">
-                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                      <span className="text-xl font-black text-slate-900">
-                        {ratingScore.toFixed(1)}
-                      </span>
-                    </div>
-                    <span className="text-[9px] font-bold text-slate-500 uppercase mt-1">
-                      Verified Rating
-                    </span>
-                  </div>
+                <div
+                  role="status"
+                  className="p-5 rounded-xl bg-slate-50 border border-slate-200 text-center space-y-2"
+                >
+                  <Star className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="text-xs font-bold text-slate-600">No patient reviews yet</p>
+                  <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                    Your verified rating appears here once patients review completed consultations.
+                  </p>
                 </div>
               )}
             </section>
