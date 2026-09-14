@@ -152,6 +152,8 @@ The earlier enterprise-readiness tracker above is preserved as historical work-i
 | 7 e2e runner                   | `apps/mobile/e2e/README.md` + `e2e`/`e2e:all` scripts + `scripts/seed-mobile-e2e.sh` stub  | 🟡 Runner documented; Maestro binary + seeded gateway + devices pending      |
 | 2 auth (10 E2E)                | Maestro auth matrix                                                                        | ⚪ Pending                                                                   |
 
+- [x] LIVE iPhone run (2026-09-12, this Mac): Postgres 18 + Redis 8 local (no Docker daemon); schema pushed; base + E2E seeds live-verified (e2e users, 3 rx states, products, 15000 NGN wallet); 14/16 backend services healthy (notification down: BullMQ maxRetriesPerRequest startup crash); dev-gateway shim on :8000 (Kong needs Docker) with live PATIENT login proven; web Next.js live on :3000; iPhone 17 simulator booted; RictonHealth dev build compiled + installed + launched; sign-in screen verified by screenshot. Device-caught bug fixed: `Google.useAuthRequest` threw unconfigured (hook now isolated in gated component) + full Metro cache clear. Deferred: native LiveKit (upstream `WebRTC/WebRTC.h` vs `LiveKitWebRTC` module mismatch — video packages removed from this build; lobby degrades truthfully), Maestro (no JDK, slow net), tap automation, authenticated device flows.
+
 ## Go-live tracker (goal: production release — TDD, updated every slice)
 
 Method per slice: RED test → GREEN implementation → verify (typecheck + suites) → tick below.
@@ -170,12 +172,13 @@ backend SLOs/alerting live, privacy disclosures + pentest + store assets done, �
 
 - [x] B1 Booking UI (GREEN 2026-09-05): `app/(app)/booking/index.tsx` (search + provider list, empty/error/retry) + `app/(app)/booking/[providerId].tsx` (live slots, reason, idempotent confirm, SLOT_TAKEN recovery, confirmation notice) + Home "Find a doctor" entry (`patient.home.findDoctor`). New `__tests__/booking-ui.test.tsx` 3/3 GREEN (mocked service/router); full mobile suite 57/57 GREEN across 12 suites; mobile workspace `tsc` clean. Infra fixed en route: `test-renderer` dep, lucide ESM stub in `jest.setup`, RNTL v14 async render/press, relative router hrefs (stale expo typed routes), CI already on workspace typecheck. Remaining: wallet/external-checkout + cancel/reschedule UI, device runs.
 - [x] B2 Telemedicine lobby + LiveKit Cloud wired (2026-09-05): project `ricton-e3eu83cz.livekit.cloud` live (rtc/validate 401-as-expected, root OK); key pair verified minting valid room JWTs via `livekit-server-sdk` (same path as controller); values in gitignored root `.env` only — API secret deliberately NOT added to mobile/web (client bundles are public; both apps receive `serverUrl` from `POST /telemedicine/rooms/:id/token` at runtime); `deploy-aws-ecr.yml` maps `LIVEKIT_URL/API_KEY/API_SECRET` from GitHub secrets (human must create them). UI: `VideoClient` + permissions + lobby/join/leave/summary GREEN (mobile 63/63). Remaining: remote `VideoView` on device; per-env LiveKit keys.: DECIDED LiveKit for mobile (backend mints LiveKit tokens via `livekit-server-sdk`, web connects via `livekit-client`; Twilio sunset, `twilio-video` web dep flagged dead). Added `livekit-client` + `@livekit/react-native` + `expo-camera`; `VideoClient` adapter (connect/publish/disconnect, `parseCredentials` never invents identity) + `useCallPermissions` (expo-camera hooks) + `app/(app)/telemedicine/[roomId].tsx` (window gating, permission request/blocked messaging, join/leave/summary) + `expo-camera` plugin permission strings in `app.json`. New `video-client` (3) + `telemedicine-ui` (3) tests GREEN; full mobile suite 63/63; workspace `tsc` clean. Remaining: remote `VideoView` rendering + reconnect UX polish on device; production LiveKit env (URL/keys) per environment.
-- [ ] B3 Pharmacy catalog/cart/checkout/tracking. Status: 🔴 Service only.
-- [ ] B4 Wallet top-up/verification/virtual-account UI. Status: 🔴 Service only.
-- [ ] B5 Subscription plans/subscribe + rewards list/redeem UI. Status: 🔴 Service only.
-- [ ] B6 Inbox/thread/compose + notifications list/preferences UI. Status: 🔴 Service only.
-- [ ] B7 Account: profile edit, avatar, medical history, addresses, password, 2FA UI (current screen is read-only + sign out). Status: 🔴 Partial.
-- [ ] B8 OTP verification/resend screen + social-callback handling. Status: 🔴 Service only.
+- [x] B3 Pharmacy UI (GREEN 2026-09-05): catalog (search/list/empty, cart + orders links), product detail (stock-capped stepper, rx notice, add), cart (single-pharmacy `cart-store` + `useCart`, server-total disclaimer), checkout (PICKUP/DELIVERY, address required for delivery, rx attach, idempotent place, placed notice), orders list + tracking (stage timeline, cancel when PLACED, terminal notice), rx→checkout handoff link on signed prescriptions. Aligned service to authoritative backend shape (`deliveryType`/`deliveryAddress` string/`totalAmount`/`PLACED`, `listOrders`/`cancelOrder` added). New `pharmacy-ui` 6/6 GREEN; service 6/6; full mobile suite 70/70 across 15 suites; workspace `tsc` clean. Infra fixed en route: nested React 19.2.3 copy deleted (root override 19.2.4 now single; exact-pinned `react-test-renderer@19.2.3`), `IS_REACT_ACT_ENVIRONMENT`, awaited RNTL events, relative router hrefs. Remaining: wallet/external-checkout UI polish on device.
+- [x] B4 Wallet UI (GREEN 2026-09-05): overview (server balance, virtual account display/create, transaction history/empty) + top-up (100 NGN min validation matching backend, Paystack `authorizationUrl` via external browser — never card fields, verify-return with SUCCESS/pending states) + Home wallet metric deep-links to wallet. Corrected service to authoritative shape (`authorizationUrl`, async min-guard). New `wallet-ui` 5/5 GREEN; full mobile suite 76/76 across 17 suites; workspace `tsc` clean. Remaining: abandoned-return timeout copy polish on device.
+- [x] B5 Premium + rewards UI (GREEN 2026-09-05): plans with server entitlement (FREE default respected, premium state), idempotent subscribe → Paystack browser → entitlement refresh, cancel with refresh; rewards balance/tier + catalog + idempotent redeem with conflict notice (fixed missing key: service requires it). Entry via Account "Premium and rewards". New `premium-ui` 4/4 GREEN; full mobile suite 80/80 across 18 suites; workspace `tsc` clean. Remaining: renewal-date copy + failed-payment recovery on device.
+- [x] B6 Messages + notifications UI (GREEN 2026-09-05): inbox (unread dots, empty), thread (history, idempotent send, failure + retry preserving draft, mark-read on open), notifications (list, mark-all-read, push toggle persisted via `PUT /preferences`). Extended `NotificationService` with `preferences()` + `markAllRead()` (backend-verified routes). Entry via Account hub. New `messages-ui` 5/5 GREEN; full mobile suite 85/85 across 19 suites; workspace `tsc` clean. Remaining: file attachments, push deep-link handling on device.
+- [x] B7 Account screens (GREEN 2026-09-05): profile edit (validated), medical history (conditions list), addresses (list/add/delete), password change (match + min-8), 2FA setup/verify/enable-state — all wired to verified backend routes (`PUT /me`, `/me/medical-history`, `/addresses*`, `/password/change`, `/2fa/*`); extended `AccountService` (+2FA paths pinned in `api-contract`). Avatar upload deferred (needs S3 + image picker pass on device). Entry links from Account hub. New `account-ui` 6/6 GREEN.
+- [x] B8 Auth completion (GREEN 2026-09-05): `verify.tsx` OTP screen (6-digit validation, verify, resend with confirmation); `signInWithProvider` (GOOGLE/APPLE ID tokens, `role:'PATIENT'`, TOTP passthrough, PATIENT guard) + session wiring + unit tests; sign-in screen Google (gated on `EXPO_PUBLIC_GOOGLE_CLIENT_ID`) + Apple (iOS availability gate) buttons via `expo-auth-session`/`expo-apple-authentication` (deps added). New `otp-ui` 3/3 + provider service tests 2/2 GREEN. Remaining: Google/Apple native client IDs per environment + device OAuth runs.
+- [x] B7 addendum — avatar upload (GREEN 2026-09-05): `app/(app)/account/avatar.tsx` (permission gate, JPEG/PNG/WebP guard, presigned PUT → profile save, done/blocked states) + `requestAvatarUpload` service + profile photo link. New `avatar-ui` 2/2 GREEN. Full mobile suite 98/98 across 22 suites; workspace `tsc` clean; prettier clean.
 
 ### C. Release gates (needs devices/backends/humans)
 
@@ -458,4 +461,147 @@ run via `scripts/test-e2e.sh` once the test database is up.
 
 ---
 
-_Last Updated: 2026-09-05 — Go-live: A1/A2/A4/A5 backend GREEN, B1 booking + B2 LiveKit lobby GREEN (mobile 63/63), contracts 145/145, tsc clean. Next: B3–B8 UI, C gates._
+_Last Updated: 2026-09-05 — Go-live: backend A1/A2/A4/A5 GREEN; mobile B1–B8 + avatar UI GREEN (98/98, 22 suites); contracts 145/145 + divergence pinned; tsc clean. Remaining: device E2E runs, env creation (LiveKit/GitHub/OAuth), hardening with hardware, §10 sign-offs._
+
+### Social sign-in wiring (2026-09-05 live session)
+
+- Backend accepts multiple audiences now: Google `GOOGLE_CLIENT_ID` + optional `GOOGLE_IOS_CLIENT_ID`
+  (ID-token + access-token paths); Apple `APPLE_CLIENT_ID` (Service ID) + optional `APPLE_IOS_BUNDLE_ID`.
+- Mobile Google button renders only when `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` is set (native flow
+  requires the iOS client ID; the web client ID alone throws on iOS — verified on-device).
+- Apple button already gated on iOS availability; `com.apple.developer.applesignin` entitlement present.
+- Human steps remaining:
+  1. Google Cloud Console → Credentials → Create OAuth client ID → iOS → bundle `com.ricton.health`.
+     Copy the client ID + reversed client ID (`com.googleusercontent.apps.xxx`).
+  2. Add the reversed scheme to `apps/mobile/app.json` `scheme` array and rebuild the dev client.
+  3. Set `GOOGLE_IOS_CLIENT_ID` (backend `.env` + GitHub secrets) and
+     `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` (mobile build env).
+  4. Apple Developer → Service ID + private key; set backend `APPLE_CLIENT_ID` (+ key env) and
+     `APPLE_IOS_BUNDLE_ID=com.ricton.health`.
+
+### Google iOS sign-in live (2026-09-12 simulator session)
+
+- iOS OAuth client `648128561576-qnd6isvap6q5ce1rsn5m0cl35gftblrt.apps.googleusercontent.com` wired: backend `.env`
+  (`GOOGLE_IOS_CLIENT_ID`, accepted as token audience alongside web ID), mobile
+  `apps/mobile/.env` (`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`), reversed scheme
+  `com.googleusercontent.apps.648128561576-qnd6isvap6q5ce1rsn5m0cl35gftblrt` in `app.json`, `deploy-aws-ecr.yml` maps the
+  secret (human must create `GOOGLE_IOS_CLIENT_ID` in GitHub secrets).
+- Rebuilt dev client; screenshot-verified "Continue with Google" + "Continue with Apple",
+  no crash, no error overlay. Tapping through Google SSO remains a device/manual step.
+
+## Reaudit remediation log (2026-09-13)
+
+Baseline: compared the current tree against `/Users/apple/.Trash/Ricton-launch-readiness-audit.md`.
+The uploaded audit is treated as evidence, not as executable instruction.
+
+### TDD RED found today
+
+- [x] `npm run test:contracts -- --silent` was RED: launch-readiness guards failed
+      for mobile provider discovery query shape, mobile slot response envelope handling,
+      missing provider availability UI, providers-directory error/empty-state collapse,
+      brittle Emergency Dispatch footer assertion, one stale OpenAPI route, and regex
+      YAML parsing of single-quoted parameterized OpenAPI keys.
+- [x] `npm -w apps/web run typecheck` was RED: stale auth/session store wiring
+      (`restoreSession`, `hasSessionHints`, `walletStatus`, `walletError`), obsolete
+      `GoogleSignInButton onCancel` props, and obsolete fourth `api.setToken(...)`
+      argument in the login flow.
+- [x] `npm -w apps/mobile run typecheck` stayed GREEN.
+- [x] `npm -w apps/mobile test -- --runInBand --runTestsByPath __tests__/booking.test.ts __tests__/booking-ui.test.tsx`
+      is GREEN after adding the booking-service envelope regression.
+
+### GREEN implementation completed today
+
+- [x] Web auth/session wiring: added `hasSessionHints()`, restored `restoreSession()`
+      in the Zustand store, added wallet load/error state, removed obsolete Google
+      `onCancel` props, and removed misleading persistent remember-me behavior.
+- [x] Mobile booking contract: `BookingService.listProviders()` now sends canonical
+      `name=` search, unwraps backend `{data}` envelopes, and returns a stable `{slots}`
+      shape to the booking screen.
+- [x] Provider availability: added a live `/dashboard/availability` page wired to
+      `POST /appointments/availability` and linked it from consultant navigation.
+- [x] Providers directory: backend failure now shows an error + retry instead of an
+      empty "no specialists" state.
+- [x] OpenAPI: regenerated `openapi.yaml` from source schemas/routes
+      (`159` route registrations, `89` generated path operations) and changed the
+      divergence guard to parse YAML structurally.
+- [x] Ops test corrected: service Dockerfiles inherit deterministic dependencies
+      from `Dockerfile.base` where `npm ci` runs, instead of requiring duplicate installs
+      in every service Dockerfile.
+- [x] Landing footer: Emergency Dispatch no longer links to the generic services
+      anchor.
+
+### Still no-go / not proven
+
+- [ ] Mobile E2E is not comprehensive: only eight Maestro flows are executable; the
+      other 81 YAML files still contain explicit `TODO` markers and are not release
+      evidence.
+- [ ] Real two-party LiveKit media with provider credentials is still not proven in
+      this pass; existing browser test is fail-closed/honesty coverage unless the live
+      provider path is enabled.
+- [ ] Scale to millions is not proven by current tests: needs production-like load
+      testing across auth, booking, payments, wallet, pharmacy, notifications, messaging,
+      and video; autoscaling/DB/Redis/provider rate limits must be measured, not asserted.
+- [ ] Third-party flows still need real sandbox evidence: Google/Apple OAuth account
+      selection, Paystack redirect/webhook reconciliation, SendGrid/Twilio delivery, and
+      LiveKit webhook/status handling.
+- [ ] Operational launch gates remain open: managed infrastructure apply, secret
+      rotation drill, PITR restore drill, observability/SLO alerting, chaos tests,
+      accessibility device passes, privacy review, and external security testing.
+
+## Launch-readiness audit reconciliation (2026-09-14, TDD back-to-front)
+
+Source audit: `Ricton-launch-readiness-audit.md` (reviewed 2026-09-13 against
+`ricton-main.zip`). Re-validated each P0/P1 against this checkout — the zip is
+stale: all four P0s and the P1 code fixes already land in this tree. Proof is
+executable, not claimed: `tests/launch-readiness.test.ts` 63/63 GREEN,
+`npm run test:contracts` 11 suites GREEN, root+web+mobile typecheck GREEN,
+mobile 99/99 GREEN. No stubs/mocks/placeholders in shipped `src` (only input
+`placeholder=` attributes and `N/A` fallbacks); backend delivery is real
+SendGrid/Twilio REST with fail-closed prod retry and non-prod skip.
+
+- [x] P0 image-build: `deploy-aws-ecr.yml` build step passes
+      `NEXT_PUBLIC_GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_ID` (+ Apple IDs); `aws-ecr-push.sh`
+      fails fast without them and forwards build-args; mobile typecheck runs via
+      `npm -w apps/mobile run typecheck` (TS6). Locked by P0 image-build guards.
+- [x] P0 delivery workers: single owner — `worker` carries SendGrid/Twilio +
+      `FRONTEND_URL`+Paystack; `notification-service` sets `START_WORKERS='false'` and
+      carries no delivery creds; `processors.ts` throws/retry in prod, skips in
+      non-prod. Locked by P0 delivery guards.
+- [x] P0 slots: canonical dual route (`GET /slots` query-shape for mobile +
+      `GET /slots/:providerId` path-shape for web), `GetAvailabilityQuerySchema`
+      keeps `providerId` optional, controller merges params+query and resolves
+      profileId→userId, web uses path+`?date=`, mobile uses query shape.
+- [x] P0 providers: backend accepts `name`+`search`, mobile sends `name`,
+      `normalizeProvider` uses `userId||id` for booking and keeps `profileId`.
+- [x] P1 PENDING gate: `requireActiveStatus` rejects non-ACTIVE; booking POST is
+      `requireRole('PATIENT')+requireActiveStatus`; verify/OAuth promote to ACTIVE.
+- [x] P1 dashboards: `GET /dashboard/patient` (PATIENT) exists; web maps
+      `data.appointments` envelope; completion uses `hasAvatar`, no email-as-photo.
+- [x] P1 availability: registration auto-provisions weekly availability
+      (`createMany`) + `/dashboard/availability` calls `POST /appointments/availability`.
+- [x] P1 renewals: `/subscription/success` verifies `/payments/verify` then
+      `/subscriptions/my`; renewal callback derives from `FRONTEND_URL`; both worker
+      and subscription-service receive it.
+- [x] P1 video/mobile scope: mobile joins backend after RTC connect, renders
+      call UI (mic/camera/participants), appointment cards link to video room,
+      booking success says pending/requested (never "confirmed").
+- [x] P2 quality: providers page separates error/empty with retry; mobile home
+      uses `allSettled` so wallet outage never hides appointments; landing stats are
+      goals with disclaimer; Emergency Dispatch links to a specific anchor.
+- [x] P0 real-env provisions (new today, RED→GREEN): `.env.example` now documents
+      every `docker-compose.prod.yml` variable (FRONTEND*URL, INTERNAL*_,
+      AWS\__, SENTRY_DSN, TELEMEDICINE_CALLBACK_URL, PAYSTACK_PREFERRED_BANK,
+      APPLE_CLIENT_ID, REDIS_PASSWORD, IMAGE_TAG…) with placeholders + where to get
+      the real value; new `P0 real-env provisions` guard fails if any key is missing
+      and forbids real `sk_live`/SendGrid secrets in the example file.
+- [x] Back-to-front MVP path to paying customers: discover→slots→book(PENDING→
+      CONFIRMED)→pay(Paystack hosted+webhook)→video(LiveKit token+join)→pharmacy
+      checkout→wallet→subscription verify — all wired to real providers; sandbox
+      runs remain the human step (paste keys into `.env.production`/GitHub secrets,
+      run staging deploy job, exercise register→verify→book→pay→join on web+device).
+
+Still human-gated (needs real creds/devices, no code change): LiveKit two-party
+media, Paystack/SendGrid/Twilio sandbox delivery proofs, OAuth tap-throughs,
+Maestro device runs, perf/soak at 3× peak, PITR/rotation/chaos drills, pen-test,
+store assets. `progress.md` is this file (`Progress.md` canonical on this
+case-insensitive FS).
