@@ -52,14 +52,18 @@ export function assertAppointmentJoinWindow(appointment: {
   const opensAt = scheduledAt - earlyMinutes * 60_000;
   const closesAt = scheduledAt + (appointment.durationMinutes + lateMinutes) * 60_000;
   const now = Date.now();
-  if (process.env.NODE_ENV === 'production') {
-    if (now < opensAt || now > closesAt) {
+  // Enforce everywhere except local development: tests must prove the gate,
+  // and staging (NODE_ENV=production) must behave like prod. Only an explicit
+  // development env (or unset, i.e. a bare local run) gets the warn-only bypass.
+  const bypassWindow = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+  if (now < opensAt || now > closesAt) {
+    if (bypassWindow) {
+      console.warn(
+        `[telemedicine] Non-production bypass of join window: scheduledAt=${appointment.scheduledAt.toISOString()}, now=${new Date(now).toISOString()}`
+      );
+    } else {
       throw new ForbiddenError('This video session is outside its appointment join window');
     }
-  } else if (now < opensAt || now > closesAt) {
-    console.warn(
-      `[telemedicine] Non-production bypass of join window: scheduledAt=${appointment.scheduledAt.toISOString()}, now=${new Date(now).toISOString()}`
-    );
   }
 }
 

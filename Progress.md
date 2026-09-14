@@ -623,3 +623,17 @@ case-insensitive FS).
 - Prod compose `config` parses OK; remaining empty/missing local values
   (`IMAGE_TAG`, `APPLE_CLIENT_ID`, `TELEMEDICINE_CALLBACK_URL`, AWS keys) are
   supplied by GitHub secrets at deploy time, not from the local file.
+
+### Slice audit — wallet/payment/rewards/pharmacy/video/booking (2026-09-14, real Postgres)
+
+- Ran the six DB-backed suites on an isolated Postgres 16 + Redis (alt ports,
+  dev stack untouched): **9/9 suites, 59/59 tests GREEN**, root typecheck clean.
+- Found + fixed a real clinical-safety bug: `assertAppointmentJoinWindow` only
+  threw in `NODE_ENV=production` and warn-bypassed everywhere else, so the
+  join-window unit tests failed under the `NODE_ENV=test` e2e runner and staging
+  any non-prod env would admit out-of-window joins silently. Enforcement now
+  applies in every env except explicit local development (unset/`development`).
+  The DB suite (9/9, incl. legit in-window joins) stays green.
+- Earlier `test 6 ad-hoc 404` in the same run was a stale-DB artifact of the
+  first alt-DB provisioning, not code: the file passes 9/9 alone and in-slice
+  on a properly migrated DB (verified twice).
