@@ -100,6 +100,34 @@ describe('Docker builds: deterministic installs', () => {
     expect(baseIdx).toBeGreaterThanOrEqual(0);
     expect(loopIdx).toBeGreaterThan(baseIdx);
   });
+
+  it('no service nests a typescript outside its declared range (invalid .bin/tsc)', () => {
+    // Regression: services/docs/node_modules/typescript was 6.0.3 while docs
+    // declares ^5.4.5, so `npm run build -w @ricton/docs-service` compiled
+    // with the wrong major locally and in Docker. Only apps/mobile may nest TS 6.
+    const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8')) as {
+      packages: Record<string, { version: string }>;
+    };
+    const semverMajor = (v: string) => v.split('.')[0];
+    const bad: string[] = [];
+    for (const [key, entry] of Object.entries(lock.packages || {})) {
+      const m = key.match(/^(services\/[^/]+)\/node_modules\/typescript$/);
+      if (!m) continue;
+      const declared = JSON.parse(
+        fs.readFileSync(path.join(root, m[1], 'package.json'), 'utf8')
+      ) as {
+        devDependencies?: Record<string, string>;
+        dependencies?: Record<string, string>;
+      };
+      const range = declared.devDependencies?.typescript || declared.dependencies?.typescript || '';
+      if (range && semverMajor(entry.version) !== semverMajor(range.replace(/^[\^~>=<\s]+/, ''))) {
+        bad.push(`${key}@${entry.version} (declares ${range})`);
+      }
+    }
+    expect(`mismatched nested typescript: ${bad.join(', ')}`).toBe(
+      'mismatched nested typescript: '
+    );
+  });
 });
 
 describe('Dev-stack ports: overridable host bindings', () => {
