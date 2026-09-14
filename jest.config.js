@@ -19,7 +19,6 @@ module.exports = {
     '^@ricton/db$': '<rootDir>/packages/db/src',
     '^@ricton/shared$': '<rootDir>/packages/shared/src',
     '^@ricton/shared/jobs$': '<rootDir>/packages/shared/src/jobs',
-    '^@ricton/service-client$': '<rootDir>/packages/service-client/src',
   },
   testTimeout: 30000,
 };

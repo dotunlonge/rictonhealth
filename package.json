@@ -51,6 +51,7 @@
     "@types/jest": "^29.5.12",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.19.43",
+    "@types/opossum": "^8.1.9",
     "@typescript-eslint/eslint-plugin": "^7.8.0",
     "@typescript-eslint/parser": "^7.8.0",
     "autocannon": "^8.0.0",
@@ -66,12 +67,12 @@
     "openapi-typescript-codegen": "^0.29.0",
     "pkg": "^5.8.1",
     "prettier": "^3.2.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "swagger-jsdoc": "^6.2.8",
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.5",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "typescript": "^5.4.5"
   },
   "dependencies": {
     "@types/uuid": "^10.0.0",

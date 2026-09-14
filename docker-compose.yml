@@ -1,5 +1,7 @@
 # NOTE: in-network dependencies (postgres/redis hostnames) are hardcoded so an
 # ambient .env can never poison containers with localhost/RDS URLs again.
+# Dev-only defaults below (dev-secret*, ricton-secure-*) are for LOCAL dev only.
+# Production uses docker-compose.prod.yml which fail-closes with ${VAR:?}.
 # Override a single service for debugging with e.g.:
 #   docker compose run -e DATABASE_URL=... <service> <cmd>
 services:

@@ -34,7 +34,8 @@ jobs:
         run: npx tsc --noEmit -p apps/web/tsconfig.json
 
       - name: Typecheck Mobile
-        run: npx tsc --noEmit -p apps/mobile/tsconfig.json
+        # Must run via the workspace script: mobile pins TypeScript 6 and root tsc cannot parse its tsconfig.
+        run: npm -w apps/mobile run typecheck
 
       - name: Run Contract Tests (no Docker)
         run: npm run test:contracts
@@ -86,6 +87,10 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-2' }}
           IMAGE_TAG: ${{ github.sha }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          NEXT_PUBLIC_APPLE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_APPLE_CLIENT_ID || secrets.APPLE_CLIENT_ID }}
+          APPLE_CLIENT_ID: ${{ secrets.APPLE_CLIENT_ID }}
         run: |
           chmod +x scripts/aws-ecr-push.sh
           ./scripts/aws-ecr-push.sh
@@ -119,6 +124,7 @@ jobs:
           PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY }}
           NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY: ${{ secrets.PAYSTACK_PUBLIC_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_IOS_CLIENT_ID: ${{ secrets.GOOGLE_IOS_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           APPLE_CLIENT_ID: ${{ secrets.APPLE_CLIENT_ID }}
@@ -158,6 +164,7 @@ jobs:
           PAYSTACK_PUBLIC_KEY="${PAYSTACK_PUBLIC_KEY}"
           NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY="${NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY}"
           GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}"
+          GOOGLE_IOS_CLIENT_ID="${GOOGLE_IOS_CLIENT_ID}"
           GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}"
           NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID}"
           APPLE_CLIENT_ID="${APPLE_CLIENT_ID}"

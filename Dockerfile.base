@@ -7,12 +7,11 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig*.json ./
 
-COPY packages/db ./packages/db
-COPY packages/shared ./packages/shared
-COPY packages/auth-middleware ./packages/auth-middleware
+COPY packages/ ./packages/
+COPY services/ ./services/
 
-# Install only db, shared, and auth-middleware workspace deps for Prisma generation and build.
-RUN npm ci --workspaces --include-workspace-root --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+# Install ALL workspace deps once — avoids 17 parallel npm ci network hammers.
+RUN npm ci --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
 # Generate Prisma client with linux-musl-openssl-3.0.x target (Alpine 3.20+ uses OpenSSL 3.x).
 RUN npm run generate --workspace=@ricton/db

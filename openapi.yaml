@@ -914,7 +914,6 @@ components:
           type: string
           pattern: ^\d{4}-\d{2}-\d{2}$
       required:
-        - providerId
         - date
     SetAvailabilityInput:
       type: object
@@ -2938,6 +2937,8 @@ components:
           type: string
         name:
           type: string
+        search:
+          type: string
         limit:
           type: string
         offset:
@@ -3024,6 +3025,37 @@ components:
                 - pendingAppointments
                 - completedAppointments
                 - totalEarnings
+            upcomingAppointments:
+              type: array
+              items:
+                nullable: true
+          required:
+            - stats
+            - upcomingAppointments
+      required:
+        - success
+        - data
+    PatientDashboardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            stats:
+              type: object
+              properties:
+                totalAppointments:
+                  type: number
+                pendingAppointments:
+                  type: number
+                completedAppointments:
+                  type: number
+              required:
+                - totalAppointments
+                - pendingAppointments
+                - completedAppointments
             upcomingAppointments:
               type: array
               items:
@@ -4767,6 +4799,22 @@ paths:
           description: Unauthorized
         '403':
           description: Forbidden
+  /api/users/dashboard/patient:
+    get:
+      summary: Get dashboard analytics and schedule for Patient portal
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Patient dashboard analytics and schedule queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientDashboardResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
   /api/wallets/me:
     get:
       summary: Get current wallet
@@ -5098,6 +5146,23 @@ paths:
       summary: Retrieve admin analytics [admin]
       tags:
         - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  /api/appointments/slots:
+    get:
+      summary: Retrieve appointments slots [appointment]
+      tags:
+        - appointment
       security:
         - bearerAuth: []
       responses:

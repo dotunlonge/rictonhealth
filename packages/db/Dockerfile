@@ -7,9 +7,9 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig*.json ./
 
-COPY packages/ ./packages/
+COPY packages/db ./packages/db
 
-RUN npm ci
+RUN npm ci --workspace=@ricton/db --include-workspace-root
 
 RUN npm run generate --workspace=@ricton/db
 

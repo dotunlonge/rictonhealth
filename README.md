@@ -119,6 +119,7 @@ Errors follow this shape:
 | `analytics-service`    | 3006 | Platform metrics, trends, provider performance                  |
 | `admin-service`        | 3010 | User management, audit logs, hospital config                    |
 | `docs-service`         | 3003 | Swagger UI, OpenAPI spec serving                                |
+| `smartguard-service`   | 3017 | SecOps lens over audit logs (SUPER_ADMIN-only alerts/threats)   |
 
 ### Shared Packages
 
@@ -148,10 +149,13 @@ All traffic flows through **Kong** at `http://localhost:8000`. Kong routes by pa
 /api/messages/*    -> messaging-service:3012
 /api/notifications/* -> notification-service:3016
 /api/admin/*       -> admin-service:3010
+/api/smartguard/*  -> smartguard-service:3017
 /docs              -> docs-service:3003
 ```
 
-> **Note**: All 15 microservices are now registered in Kong and routable through the gateway at `http://localhost:8000`.
+> **Note**: All 17 microservices are registered in Kong and routable through the gateway at `http://localhost:8000`.
+> Edge JWT verification runs on `user-service` only by design; all other
+> services enforce `requireAuth` in-app (defense-in-depth, see Security).
 
 ### Design System
 
