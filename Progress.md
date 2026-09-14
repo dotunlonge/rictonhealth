@@ -589,8 +589,8 @@ SendGrid/Twilio REST with fail-closed prod retry and non-prod skip.
       uses `allSettled` so wallet outage never hides appointments; landing stats are
       goals with disclaimer; Emergency Dispatch links to a specific anchor.
 - [x] P0 real-env provisions (new today, RED→GREEN): `.env.example` now documents
-      every `docker-compose.prod.yml` variable (FRONTEND*URL, INTERNAL*_,
-      AWS\__, SENTRY_DSN, TELEMEDICINE_CALLBACK_URL, PAYSTACK_PREFERRED_BANK,
+      every `docker-compose.prod.yml` variable (FRONTEND*URL, INTERNAL*\_,
+      AWS\_\_, SENTRY_DSN, TELEMEDICINE_CALLBACK_URL, PAYSTACK_PREFERRED_BANK,
       APPLE_CLIENT_ID, REDIS_PASSWORD, IMAGE_TAG…) with placeholders + where to get
       the real value; new `P0 real-env provisions` guard fails if any key is missing
       and forbids real `sk_live`/SendGrid secrets in the example file.
@@ -605,3 +605,21 @@ media, Paystack/SendGrid/Twilio sandbox delivery proofs, OAuth tap-throughs,
 Maestro device runs, perf/soak at 3× peak, PITR/rotation/chaos drills, pen-test,
 store assets. `progress.md` is this file (`Progress.md` canonical on this
 case-insensitive FS).
+
+### Real Docker proof (2026-09-14, local daemon Server 28.3.3)
+
+- Local `docker build -f apps/web/Dockerfile` FAILED for real at `next build`
+  type-check: `e2e/role-dashboards.spec.ts` imports `UserRole`/`UserStatus` from
+  `@ricton/db`, but the standalone web image never ran `prisma generate`
+  (service images inherit it via `Dockerfile.base`). Static `tsc -p apps/web`
+  stayed green locally because the generated client exists in dev node_modules.
+- TDD: added `web Dockerfile generates the Prisma client before next build`
+  guard (RED), then added `apk add openssl` + `npm run generate
+--workspace=@ricton/db` to `apps/web/Dockerfile` (GREEN).
+- Rebuilt locally: `ricton-web:local-proof` (350MB) `EXIT=0` — compile +
+  type-check + collect + export all pass. Launch guards now 64/64 GREEN.
+- Local branch is 6 commits ahead of `origin/main`; pushing triggers ECR
+  build-and-push (AWS secrets confirmed present) + staging deploy.
+- Prod compose `config` parses OK; remaining empty/missing local values
+  (`IMAGE_TAG`, `APPLE_CLIENT_ID`, `TELEMEDICINE_CALLBACK_URL`, AWS keys) are
+  supplied by GitHub secrets at deploy time, not from the local file.

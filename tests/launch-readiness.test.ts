@@ -23,6 +23,13 @@ describe('P0 image build pipeline', () => {
     // legacy buggy command must not remain
     expect(wf).not.toMatch(/npx tsc -p apps\/mobile\/tsconfig\.json/);
   });
+  it('web Dockerfile generates the Prisma client before next build', () => {
+    const dockerfile = read('apps/web/Dockerfile');
+    const genIdx = dockerfile.search(/prisma generate|generate --workspace=@ricton\/db/);
+    const buildIdx = dockerfile.search(/npm --workspace=web run build/);
+    expect(genIdx).toBeGreaterThanOrEqual(0);
+    expect(buildIdx).toBeGreaterThan(genIdx);
+  });
 });
 
 // P0: single delivery worker owns credentials

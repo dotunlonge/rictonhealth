@@ -1,5 +1,7 @@
 FROM node:22-alpine AS builder
 
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 COPY package*.json ./
@@ -8,6 +10,10 @@ COPY packages/ ./packages/
 COPY apps/web/ ./apps/web/
 
 RUN npm ci
+
+# Prisma client is not in the registry tarball: generate it before type-checking.
+# (Service images inherit this via Dockerfile.base; the standalone web image needs it too.)
+RUN npm run generate --workspace=@ricton/db
 
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
