@@ -1,22 +1,121 @@
-import { useState } from 'react';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { Link } from 'expo-router';
+import * as Google from 'expo-auth-session/providers/google';
 import { Eye, EyeOff, ShieldCheck } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BrandMark, PrimaryButton, Screen, TextField } from '@/components/ui';
 import { useSession } from '@/features/auth/session-provider';
 import { ApiClientError } from '@/lib/api/client';
 import { colors, minimumTouchTarget, radii, spacing, typography } from '@/theme/tokens';
 
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim();
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID?.trim();
+
+/**
+ * Google button lives in its own component so `useAuthRequest` (which throws
+ * without platform client IDs) only ever runs when a client ID is configured.
+ */
+function GoogleSignInButton({
+  busy,
+  onError,
+  onStart,
+  onTwoFactor,
+  signInWithProvider,
+}: {
+  busy: boolean;
+  onError: (message: string) => void;
+  onStart: () => void;
+  onTwoFactor: () => void;
+  signInWithProvider: (provider: 'GOOGLE', idToken: string) => Promise<{ kind: string }>;
+}) {
+  const [request, response, prompt] = Google.useAuthRequest({
+    ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {}),
+    ...(GOOGLE_WEB_CLIENT_ID ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const idToken = response.authentication?.idToken;
+      if (!idToken) {
+        onError('Google did not return an identity token.');
+        return;
+      }
+      onStart();
+      void signInWithProvider('GOOGLE', idToken)
+        .then((result) => {
+          if (result.kind === 'two-factor-required') onTwoFactor();
+        })
+        .catch((caught: unknown) =>
+          onError(caught instanceof Error ? caught.message : 'Google sign-in failed.')
+        );
+    } else if (response?.type === 'error') {
+      onError('Google sign-in was cancelled or failed.');
+    }
+  }, [response, signInWithProvider, onError, onStart, onTwoFactor]);
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Continue with Google"
+      disabled={!request || busy}
+      onPress={() => prompt()}
+      style={styles.socialButton}
+      testID="auth.signIn.google"
+    >
+      <Text style={styles.socialText}>{busy ? 'Connecting…' : 'Continue with Google'}</Text>
+    </Pressable>
+  );
+}
+
 export default function SignInScreen() {
-  const { signIn } = useSession();
+  const { signIn, signInWithProvider } = useSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<'GOOGLE' | 'APPLE' | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      void AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    }
+  }, []);
+
+  const handleGoogleError = useCallback((message: string) => {
+    setError(message);
+    setSocialBusy(null);
+  }, []);
+
+  const signInWithApple = async () => {
+    setSocialBusy('APPLE');
+    setError(null);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) {
+        setError('Apple did not return an identity token.');
+        return;
+      }
+      const result = await signInWithProvider('APPLE', credential.identityToken);
+      if (result.kind === 'two-factor-required') setNeedsTwoFactor(true);
+    } catch (caught) {
+      if (caught instanceof Error && 'code' in caught && caught.code === 'ERR_REQUEST_CANCELED')
+        return;
+      setError(caught instanceof Error ? caught.message : 'Apple sign-in failed.');
+    } finally {
+      setSocialBusy(null);
+    }
+  };
 
   const submit = async () => {
     const normalizedEmail = email.trim();
@@ -149,6 +248,35 @@ export default function SignInScreen() {
         </Link>
       </View>
 
+      <View style={styles.socialRow}>
+        {GOOGLE_IOS_CLIENT_ID ? (
+          <GoogleSignInButton
+            busy={socialBusy !== null}
+            onError={handleGoogleError}
+            onStart={() => setSocialBusy('GOOGLE')}
+            onTwoFactor={() => {
+              setSocialBusy(null);
+              setNeedsTwoFactor(true);
+            }}
+            signInWithProvider={signInWithProvider}
+          />
+        ) : null}
+        {appleAvailable ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Apple"
+            disabled={socialBusy !== null}
+            onPress={() => void signInWithApple()}
+            style={styles.socialButton}
+            testID="auth.signIn.apple"
+          >
+            <Text style={styles.socialText}>
+              {socialBusy === 'APPLE' ? 'Connecting…' : 'Continue with Apple'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
       <View style={styles.securityNote}>
         <ShieldCheck color={colors.emerald700} size={20} />
         <Text style={styles.securityText}>
@@ -170,6 +298,17 @@ const styles = StyleSheet.create({
   subtitle: { ...typography.body, color: colors.slate600, maxWidth: 460 },
   form: { gap: spacing[5] },
   authLinks: { flexDirection: 'row', justifyContent: 'space-between' },
+  socialRow: { gap: spacing[3] },
+  socialButton: {
+    minHeight: 52,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.slate300,
+    backgroundColor: colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  socialText: { ...typography.bodyStrong, color: colors.navy900 },
   iconButton: {
     minWidth: minimumTouchTarget,
     minHeight: minimumTouchTarget,

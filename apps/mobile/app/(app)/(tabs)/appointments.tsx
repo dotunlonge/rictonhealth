@@ -1,6 +1,7 @@
-import { CalendarDays, Clock3, Stethoscope } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { CalendarDays, Clock3, Stethoscope, Video } from 'lucide-react-native';
 import { useCallback } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PatientHeader } from '@/components/PatientHeader';
 import { Screen, StateNotice } from '@/components/ui';
@@ -16,6 +17,7 @@ function providerName(appointment: Appointment): string {
 }
 
 export default function AppointmentsScreen() {
+  const router = useRouter();
   const load = useCallback(() => apiClient.get<AppointmentListResponse>('/appointments?limit=50&offset=0'), []);
   const resource = useRemoteResource(load);
 
@@ -46,6 +48,27 @@ export default function AppointmentsScreen() {
                 <Text style={styles.detailText}>{new Intl.DateTimeFormat('en-NG', { timeStyle: 'short' }).format(new Date(appointment.scheduledAt))}</Text>
               </View>
               {appointment.reason ? <Text style={styles.reason} numberOfLines={2}>{appointment.reason}</Text> : null}
+              {appointment.type === 'VIDEO' && appointment.status !== 'CANCELLED' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Join video consultation"
+                  onPress={() => {
+                    const roomId = appointment.telemedicineRoom?.id || appointment.id;
+                    router.push({
+                      pathname: '/telemedicine/[roomId]' as any,
+                      params: {
+                        roomId,
+                        scheduledAt: appointment.scheduledAt,
+                        durationMinutes: String(appointment.durationMinutes || 30),
+                      },
+                    });
+                  }}
+                  style={styles.joinButton}
+                >
+                  <Video color={colors.white} size={16} />
+                  <Text style={styles.joinButtonText}>Join Video Visit</Text>
+                </Pressable>
+              ) : null}
             </View>
           ))}
         </View>
@@ -73,4 +96,20 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: spacing[2], flexWrap: 'wrap' },
   detailText: { ...typography.caption, color: colors.slate700, marginRight: spacing[2] },
   reason: { ...typography.caption, color: colors.slate600 },
+  joinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing[2],
+    backgroundColor: colors.blue600,
+    borderRadius: radii.md,
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[4],
+    marginTop: spacing[2],
+  },
+  joinButtonText: {
+    ...typography.bodyStrong,
+    color: colors.white,
+    fontSize: 13,
+  },
 });

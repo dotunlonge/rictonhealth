@@ -13,6 +13,11 @@ export interface Appointment {
       specialty?: string | null;
     } | null;
   } | null;
+  telemedicineRoom?: {
+    id: string;
+    status: string;
+    externalRoomId?: string | null;
+  } | null;
 }
 
 export interface AppointmentListResponse {

@@ -69,15 +69,23 @@ describe('pharmacy checkout', () => {
 });
 
 describe('wallet top-up', () => {
+  it('rejects amounts below the 100 NGN minimum', async () => {
+    const a = api();
+    const s = new WalletService(a);
+    await expect(s.launchTopUp({ amount: 50 })).rejects.toThrow(/at least 100/);
+    expect(a.post).not.toHaveBeenCalled();
+  });
+
   it('launches provider-hosted checkout without local credit', async () => {
     const a = api();
     (a.post as jest.Mock).mockResolvedValue({
-      checkoutUrl: 'https://paystack/checkout',
+      authorizationUrl: 'https://paystack/checkout',
       reference: 'ref-1',
+      amount: 5000,
     });
     const s = new WalletService(a);
     const res = await s.launchTopUp({ amount: 5000 });
-    expect(res).toMatchObject({ checkoutUrl: expect.stringContaining('http') });
+    expect(res).toMatchObject({ authorizationUrl: expect.stringContaining('http') });
     expect(a.post).toHaveBeenCalledWith(
       expect.stringContaining('/topup'),
       expect.objectContaining({ amount: 5000 })

@@ -16,6 +16,40 @@ function deps() {
   };
 }
 
+describe('AuthService provider sign-in (B8)', () => {
+  it('exchanges a Google ID token for a patient session', async () => {
+    const d = deps();
+    (d.api.post as jest.Mock).mockResolvedValue({
+      token: 'a',
+      refreshToken: 'r',
+      user: { id: 'p1', email: 'n@example.com', role: 'PATIENT', status: 'ACTIVE' },
+    });
+    const s = new AuthService(d.api, d.storage);
+    await expect(s.signInWithProvider('GOOGLE', 'google-id-token')).resolves.toMatchObject({
+      kind: 'authenticated',
+    });
+    expect(d.api.post).toHaveBeenCalledWith(
+      expect.stringContaining('/oauth/google'),
+      expect.objectContaining({ token: 'google-id-token', role: 'PATIENT' }),
+      expect.anything()
+    );
+    expect(d.storage.setTokens).toHaveBeenCalledWith({ accessToken: 'a', refreshToken: 'r' });
+  });
+
+  it('rejects professional accounts from Apple sign-in', async () => {
+    const d = deps();
+    (d.api.post as jest.Mock).mockResolvedValue({
+      token: 'a',
+      refreshToken: 'r',
+      user: { id: 'd1', email: 'd@example.com', role: 'CONSULTANT', status: 'ACTIVE' },
+    });
+    const s = new AuthService(d.api, d.storage);
+    await expect(s.signInWithProvider('APPLE', 'apple-token')).rejects.toMatchObject({
+      name: 'UnsupportedMobileRoleError',
+    });
+  });
+});
+
 describe('AuthService extended (Phase 2)', () => {
   it('registers a patient without persisting until verified', async () => {
     const d = deps();

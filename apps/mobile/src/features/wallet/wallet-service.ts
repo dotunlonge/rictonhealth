@@ -6,9 +6,12 @@ function rel(canonical: string): string {
   return canonical.replace(/^\/api/, '');
 }
 
+export const MIN_TOPUP_NGN = 100;
+
 export interface TopUpLaunch {
-  checkoutUrl: string;
+  authorizationUrl: string;
   reference: string;
+  amount: number;
 }
 
 export interface TopUpVerification {
@@ -31,9 +34,12 @@ export class WalletService {
     return this.api.get(`${rel(GATEWAY_PATHS.walletTransactions)}?${params.toString()}`);
   }
 
-  /** Provider-hosted checkout: returns URL + reference; never credits locally.
+  /** Provider-hosted checkout: returns authorization URL + reference; never credits locally.
    * Idempotency is enforced via the provider reference on verify/webhook (duplicate-callback safe). */
-  launchTopUp(input: { amount: number }): Promise<TopUpLaunch> {
+  async launchTopUp(input: { amount: number }): Promise<TopUpLaunch> {
+    if (!Number.isFinite(input.amount) || input.amount < MIN_TOPUP_NGN) {
+      throw new Error(`Amount must be at least ${MIN_TOPUP_NGN} NGN.`);
+    }
     return this.api.post<TopUpLaunch>(rel(GATEWAY_PATHS.walletTopup), { amount: input.amount });
   }
 

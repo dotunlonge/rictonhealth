@@ -15,7 +15,16 @@ describe('BookingService (Phase 3)', () => {
     const s = new BookingService(d.api);
     await s.listProviders({ search: 'derma', specialty: 'DERMATOLOGY', limit: 20, offset: 0 });
     expect(d.api.get).toHaveBeenCalledWith(expect.stringContaining('/providers'));
-    expect(d.api.get).toHaveBeenCalledWith(expect.stringContaining('search=derma'));
+    expect(d.api.get).toHaveBeenCalledWith(expect.stringContaining('name=derma'));
+  });
+
+  it('unwraps API envelopes for slots into a stable screen shape', async () => {
+    const d = deps();
+    (d.api.get as jest.Mock).mockResolvedValue({ data: ['2026-09-10T09:00:00Z'] });
+    const s = new BookingService(d.api);
+    await expect(s.getSlots('prov-1', '2026-09-10')).resolves.toEqual({
+      slots: ['2026-09-10T09:00:00Z'],
+    });
   });
 
   it('sends idempotency key when creating an appointment', async () => {

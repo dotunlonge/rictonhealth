@@ -8,9 +8,13 @@ import { Screen, StateNotice, TextField } from '@/components/ui';
 import { bookingService } from '@/features/booking/booking-service';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
-interface Provider {
+interface RawProvider {
   id: string;
+  userId?: string | null;
   email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  specialty?: string | null;
   providerProfile?: {
     firstName?: string | null;
     lastName?: string | null;
@@ -18,11 +22,29 @@ interface Provider {
   } | null;
 }
 
-function providerName(p: Provider): string {
-  const full = [p.providerProfile?.firstName, p.providerProfile?.lastName]
-    .filter(Boolean)
-    .join(' ');
-  return full || p.email || 'Ricton clinician';
+interface Provider {
+  id: string; // resolved clinician userId for scheduling
+  profileId?: string;
+  email?: string | null;
+  name: string;
+  specialty: string;
+}
+
+function normalizeProvider(raw: RawProvider): Provider {
+  const clinicianUserId = raw.userId || raw.id;
+  const firstName = raw.firstName || raw.providerProfile?.firstName || '';
+  const lastName = raw.lastName || raw.providerProfile?.lastName || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ');
+  const displayName = fullName || raw.email || 'Ricton clinician';
+  const specialty = raw.specialty || raw.providerProfile?.specialty || 'General care';
+
+  return {
+    id: clinicianUserId,
+    profileId: raw.id,
+    email: raw.email,
+    name: displayName,
+    specialty,
+  };
 }
 
 export default function DiscoverScreen() {
@@ -40,8 +62,9 @@ export default function DiscoverScreen() {
         search: query.trim() || undefined,
         limit: 20,
         offset: 0,
-      })) as { providers: Provider[] };
-      setProviders(result.providers);
+      })) as { providers: RawProvider[] };
+      const rawList = Array.isArray(result?.providers) ? result.providers : [];
+      setProviders(rawList.map(normalizeProvider));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Providers could not be loaded.');
     } finally {
@@ -91,7 +114,7 @@ export default function DiscoverScreen() {
             <Pressable
               key={provider.id}
               accessibilityRole="button"
-              accessibilityLabel={`Book with ${providerName(provider)}`}
+              accessibilityLabel={`Book with ${provider.name}`}
               onPress={() => router.push(`./${provider.id}` as const)}
               style={styles.card}
               testID={`booking.provider-${provider.id}`}
@@ -100,10 +123,8 @@ export default function DiscoverScreen() {
                 <Stethoscope color={colors.blue700} size={22} />
               </View>
               <View style={styles.cardCopy}>
-                <Text style={styles.provider}>{providerName(provider)}</Text>
-                <Text style={styles.specialty}>
-                  {provider.providerProfile?.specialty || 'General care'}
-                </Text>
+                <Text style={styles.provider}>{provider.name}</Text>
+                <Text style={styles.specialty}>{provider.specialty}</Text>
               </View>
             </Pressable>
           ))}

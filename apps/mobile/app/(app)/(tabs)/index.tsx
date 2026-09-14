@@ -18,8 +18,8 @@ import { useRemoteResource } from '@/lib/use-remote-resource';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
 interface HomeData {
-  appointments: AppointmentListResponse;
-  wallet: { balance: number; currency: string };
+  appointments?: AppointmentListResponse;
+  wallet?: { balance: number; currency: string };
 }
 
 function money(amount: number, currency: string): string {
@@ -37,16 +37,33 @@ function money(amount: number, currency: string): string {
 export default function PatientHomeScreen() {
   const { user } = useSession();
   const load = useCallback(
-    () =>
-      Promise.all([
+    async () => {
+      const [apptRes, walletRes] = await Promise.allSettled([
         apiClient.get<AppointmentListResponse>('/appointments?limit=3&offset=0'),
-        apiClient.get<HomeData['wallet']>('/wallets/me'),
-      ]).then(([appointments, wallet]) => ({ appointments, wallet })),
+        apiClient.get<{ balance: number; currency: string }>('/wallets/me'),
+      ]);
+
+      const appointments =
+        apptRes.status === 'fulfilled'
+          ? apptRes.value
+          : { appointments: [], meta: { total: 0, limit: 3, offset: 0, hasMore: false } };
+      const wallet =
+        walletRes.status === 'fulfilled'
+          ? walletRes.value
+          : { balance: 0, currency: 'NGN' };
+
+      // If both fail, throw so the user gets an explicit retry notice
+      if (apptRes.status === 'rejected' && walletRes.status === 'rejected') {
+        throw new Error('Care summary could not be loaded. Please try again.');
+      }
+
+      return { appointments, wallet };
+    },
     []
   );
   const resource = useRemoteResource(load);
   const firstName = user?.firstName || user?.email?.split('@')[0] || 'there';
-  const nextAppointment = resource.data?.appointments.appointments.find(
+  const nextAppointment = resource.data?.appointments?.appointments?.find(
     (appointment) => new Date(appointment.scheduledAt).getTime() >= Date.now()
   );
 
@@ -111,15 +128,24 @@ export default function PatientHomeScreen() {
               <Text style={styles.metricLabel}>Appointments</Text>
               <Text style={styles.metricValue}>{resource.data?.appointments.meta.total ?? 0}</Text>
             </View>
-            <View style={styles.metricCard}>
-              <View style={styles.metricIcon}>
-                <WalletCards color={colors.blue700} size={21} />
-              </View>
-              <Text style={styles.metricLabel}>Wallet balance</Text>
-              <Text style={styles.metricMoney}>
-                {money(resource.data?.wallet.balance ?? 0, resource.data?.wallet.currency ?? 'NGN')}
-              </Text>
-            </View>
+            <Link href="../wallet" asChild>
+              <Pressable
+                accessibilityRole="button"
+                style={styles.metricCard}
+                testID="patient.home.wallet"
+              >
+                <View style={styles.metricIcon}>
+                  <WalletCards color={colors.blue700} size={21} />
+                </View>
+                <Text style={styles.metricLabel}>Wallet balance</Text>
+                <Text style={styles.metricMoney}>
+                  {money(
+                    resource.data?.wallet.balance ?? 0,
+                    resource.data?.wallet.currency ?? 'NGN'
+                  )}
+                </Text>
+              </Pressable>
+            </Link>
           </View>
 
           <Text style={styles.sectionTitle}>Next appointment</Text>

@@ -78,6 +78,39 @@ export class AuthService {
     return { kind: 'authenticated', user: response.user };
   }
 
+  async signInWithProvider(
+    provider: 'GOOGLE' | 'APPLE',
+    idToken: string,
+    totpCode?: string
+  ): Promise<SignInResult> {
+    const path = provider === 'GOOGLE' ? GATEWAY_PATHS.authGoogle : GATEWAY_PATHS.authApple;
+    const response = await this.api.post<LoginResponse>(
+      rel(path),
+      { token: idToken, role: 'PATIENT', ...(totpCode ? { totpCode } : {}) },
+      { authenticated: false }
+    );
+
+    if (response.requires2FA) {
+      return { kind: 'two-factor-required', email: response.email ?? '' };
+    }
+    if (!response.token || !response.refreshToken || !response.user) {
+      throw new ApiClientError(
+        'The sign-in response was incomplete.',
+        'INVALID_SESSION_RESPONSE',
+        502
+      );
+    }
+    if (response.user.role !== 'PATIENT') {
+      await this.storage.clearTokens();
+      throw new UnsupportedMobileRoleError();
+    }
+    await this.storage.setTokens({
+      accessToken: response.token,
+      refreshToken: response.refreshToken,
+    });
+    return { kind: 'authenticated', user: response.user };
+  }
+
   async restoreSession(): Promise<MobileUser | null> {
     const tokens = await this.storage.getTokens();
     if (!tokens) return null;

@@ -17,7 +17,7 @@ jest.mock('@/features/pharmacy/pharmacy-service', () => ({
     listOrders: jest.fn(),
     cancelOrder: jest.fn(),
   },
-  isTerminalOrder: jest.requireActual('@/features/pharmacy/pharmacy-service').isTerminalOrder,
+  isTerminalOrder: (status: string) => status === 'DELIVERED' || status === 'CANCELLED',
 }));
 
 import { pharmacyService } from '@/features/pharmacy/pharmacy-service';
@@ -49,8 +49,10 @@ describe('pharmacy catalog', () => {
   it('searches and lists products', async () => {
     svc.browseProducts.mockResolvedValue({ products: [PROD], total: 1, limit: 20, offset: 0 });
     await render(<CatalogScreen />);
-    fireEvent.changeText(screen.getByTestId('pharmacy.search'), 'para');
-    await waitFor(() => expect(svc.browseProducts).toHaveBeenCalledWith(expect.objectContaining({ search: 'para' })));
+    await fireEvent.changeText(screen.getByTestId('pharmacy.search'), 'para');
+    await waitFor(() =>
+      expect(svc.browseProducts).toHaveBeenCalledWith(expect.objectContaining({ search: 'para' }))
+    );
     expect(await screen.findByText(/Paracetamol/)).toBeTruthy();
   });
 
@@ -68,7 +70,7 @@ describe('pharmacy cart', () => {
     expect(await screen.findByTestId('pharmacy.detail')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('pharmacy.qty-plus'));
     await fireEvent.press(screen.getByTestId('pharmacy.qty-plus'));
-    expect(screen.getByTestId('pharmacy.qty-value').props.children).toEqual([1]);
+    expect(screen.getByTestId('pharmacy.qty-value').props.children).toBe(1);
     await fireEvent.press(screen.getByTestId('pharmacy.add'));
     await render(<CartScreen />);
     expect(await screen.findByText(/Paracetamol/)).toBeTruthy();
@@ -88,7 +90,7 @@ describe('pharmacy cart', () => {
     cartStore.add({ ...PROD, stock: 5 }, 1);
     svc.checkout.mockResolvedValue({ id: 'ord-1', totalAmount: '1500.00', status: 'PLACED' });
     await render(<CheckoutScreen />);
-    fireEvent.changeText(screen.getByTestId('pharmacy.address'), '1 Marina Road, Lagos');
+    await fireEvent.changeText(screen.getByTestId('pharmacy.address'), '1 Marina Road, Lagos');
     await fireEvent.press(screen.getByTestId('pharmacy.place-order'));
     await waitFor(() =>
       expect(svc.checkout).toHaveBeenCalledWith(
@@ -103,15 +105,27 @@ describe('pharmacy cart', () => {
 
 describe('order tracking', () => {
   it('cancels placed orders and hides cancel for delivered ones', async () => {
-    svc.trackOrder.mockResolvedValue({ id: 'ord-1', status: 'PLACED', totalAmount: '1500.00', items: [] });
+    svc.trackOrder.mockResolvedValue({
+      id: 'ord-1',
+      status: 'PLACED',
+      totalAmount: '1500.00',
+      items: [],
+    });
     svc.cancelOrder.mockResolvedValue({ id: 'ord-1', status: 'CANCELLED' });
-    await render(<OrderTrackingScreen />);
+    const first = await render(<OrderTrackingScreen />);
     expect(await screen.findByTestId('pharmacy.tracking')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('pharmacy.cancel'));
     await waitFor(() => expect(svc.cancelOrder).toHaveBeenCalledWith('ord-1'));
+    first.unmount();
 
-    svc.trackOrder.mockResolvedValue({ id: 'ord-2', status: 'DELIVERED', totalAmount: '1500.00', items: [] });
+    svc.trackOrder.mockResolvedValue({
+      id: 'ord-2',
+      status: 'DELIVERED',
+      totalAmount: '1500.00',
+      items: [],
+    });
     await render(<OrderTrackingScreen />);
+    await screen.findByTestId('pharmacy.tracking');
     await waitFor(() => expect(screen.queryByTestId('pharmacy.cancel')).toBeNull());
   });
 });

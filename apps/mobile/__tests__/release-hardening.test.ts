@@ -39,7 +39,10 @@ describe('release hardening', () => {
     const tokens = fs.readFileSync(path.join(root, 'src/theme/tokens.ts'), 'utf8');
     expect(tokens).toMatch(/minimumTouchTarget/);
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'));
-    expect(manifest.expo.scheme).toBe('ricton');
+    const schemes = Array.isArray(manifest.expo.scheme)
+      ? manifest.expo.scheme
+      : [manifest.expo.scheme];
+    expect(schemes).toContain('ricton');
   });
 
   it('runs only executable Maestro flows and never counts TODO shells as E2E coverage', () => {

@@ -1,3 +1,5 @@
+(global as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+
 jest.mock('expo-secure-store', () => ({
   AFTER_FIRST_UNLOCK: 1,
   getItemAsync: jest.fn(),

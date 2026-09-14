@@ -26,8 +26,13 @@ interface SessionContextValue {
   user: MobileUser | null;
   recoveryMessage: string | null;
   signIn(input: SignInInput): Promise<SignInResult>;
-  register(input: RegisterInput): Promise<RegisterResult>;
+  signInWithProvider(
+    provider: 'GOOGLE' | 'APPLE',
+    idToken: string,
+    totpCode?: string
+  ): Promise<SignInResult>;
   verifyOtp(input: OtpVerifyInput): Promise<SignInResult>;
+  register(input: RegisterInput): Promise<RegisterResult>;
   signOut(): Promise<void>;
   logoutAll(): Promise<void>;
   retryRestore(): Promise<void>;
@@ -81,6 +86,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
     return result;
   }, []);
 
+  const signInWithProvider = useCallback(
+    async (provider: 'GOOGLE' | 'APPLE', idToken: string, totpCode?: string) => {
+      const result = await authService.signInWithProvider(provider, idToken, totpCode);
+      if (result.kind === 'authenticated') {
+        setUser(result.user);
+        setStatus('authenticated');
+      }
+      return result;
+    },
+    []
+  );
+
   const signOut = useCallback(async () => {
     try {
       await authService.signOut();
@@ -123,13 +140,25 @@ export function SessionProvider({ children }: PropsWithChildren) {
       user,
       recoveryMessage,
       signIn,
+      signInWithProvider,
       register,
       verifyOtp,
       signOut,
       logoutAll,
       retryRestore: restore,
     }),
-    [recoveryMessage, restore, signIn, register, verifyOtp, signOut, logoutAll, status, user]
+    [
+      recoveryMessage,
+      restore,
+      signIn,
+      signInWithProvider,
+      register,
+      verifyOtp,
+      signOut,
+      logoutAll,
+      status,
+      user,
+    ]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

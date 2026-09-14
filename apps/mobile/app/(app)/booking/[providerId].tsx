@@ -28,8 +28,15 @@ export default function ProviderDetailScreen() {
       const result = (await bookingService.getSlots(
         String(providerId),
         new Date().toISOString().slice(0, 10)
-      )) as { slots: string[] } | string[];
-      setSlots(Array.isArray(result) ? result : result.slots);
+      )) as { data?: string[] | { slots?: string[] }; slots?: string[] } | string[];
+      const slotData = Array.isArray(result)
+        ? result
+        : Array.isArray(result.data)
+          ? result.data
+          : result.data && 'slots' in result.data
+            ? result.data.slots
+            : result.slots;
+      setSlots(slotData ?? []);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Available times could not be loaded.');
     } finally {
@@ -136,8 +143,8 @@ export default function ProviderDetailScreen() {
       {confirmed ? (
         <View testID="booking.confirmed">
           <StateNotice
-            title="Booking confirmed"
-            message="Your appointment is booked. Reminders will arrive before your visit."
+            title="Booking requested"
+            message="Your appointment request has been received and is awaiting provider confirmation. Reminders will arrive before your visit."
           />
         </View>
       ) : null}

@@ -53,6 +53,11 @@ export default function TelemedicineLobbyScreen() {
         return;
       }
       await videoClient.connect(credentials);
+      try {
+        await telemedicineService.join(String(roomId));
+      } catch {
+        // Non-blocking for client RTC session: server participant status sync
+      }
       setPhase('active');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not join the visit.');

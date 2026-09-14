@@ -20,6 +20,18 @@ export interface CreateAppointmentInput {
   reason?: string;
 }
 
+function unwrapData<T>(value: unknown): T {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'data' in value &&
+    (value as { data?: unknown }).data !== undefined
+  ) {
+    return (value as { data: T }).data;
+  }
+  return value as T;
+}
+
 export class SlotTakenError extends ApiClientError {
   constructor(message = 'That slot was just taken. Choose another time.') {
     super(message, 'SLOT_TAKEN', 409);
@@ -30,18 +42,21 @@ export class SlotTakenError extends ApiClientError {
 export class BookingService {
   constructor(private readonly api: ApiClient = apiClient) {}
 
-  listProviders(query: ProviderQuery = {}): Promise<unknown> {
+  async listProviders(query: ProviderQuery = {}): Promise<unknown> {
     const params = new URLSearchParams();
-    if (query.search) params.set('search', query.search);
+    if (query.search) params.set('name', query.search);
     if (query.specialty) params.set('specialty', query.specialty);
     params.set('limit', String(query.limit ?? 20));
     params.set('offset', String(query.offset ?? 0));
-    return this.api.get(`${rel(GATEWAY_PATHS.providers)}?${params.toString()}`);
+    return unwrapData(await this.api.get(`${rel(GATEWAY_PATHS.providers)}?${params.toString()}`));
   }
 
-  getSlots(providerId: string, date: string): Promise<unknown> {
+  async getSlots(providerId: string, date: string): Promise<unknown> {
     const params = new URLSearchParams({ providerId, date });
-    return this.api.get(`${rel(GATEWAY_PATHS.providerSlots)}?${params.toString()}`);
+    const data = unwrapData<string[] | { slots?: string[] }>(
+      await this.api.get(`${rel(GATEWAY_PATHS.providerSlots)}?${params.toString()}`)
+    );
+    return Array.isArray(data) ? { slots: data } : data;
   }
 
   async createAppointment(

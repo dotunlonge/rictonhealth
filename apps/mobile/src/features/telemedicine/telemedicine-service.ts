@@ -37,6 +37,10 @@ export class TelemedicineService {
     return this.api.post(`${rel(GATEWAY_PATHS.teleRooms)}/${roomId}/token`, {});
   }
 
+  join(roomId: string): Promise<unknown> {
+    return this.api.post(`${rel(GATEWAY_PATHS.teleRooms)}/${roomId}/join`, {});
+  }
+
   leave(roomId: string): Promise<unknown> {
     return this.api.post(`${rel(GATEWAY_PATHS.teleRooms)}/${roomId}/leave`, {});
   }

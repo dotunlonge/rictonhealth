@@ -41,7 +41,7 @@ describe('booking discover', () => {
       meta: { total: 1 },
     });
     await render(<DiscoverScreen />);
-    fireEvent.changeText(screen.getByTestId('booking.search'), 'cardio');
+    await fireEvent.changeText(screen.getByTestId('booking.search'), 'cardio');
     await waitFor(() =>
       expect(mockedList).toHaveBeenCalledWith(expect.objectContaining({ search: 'cardio' }))
     );

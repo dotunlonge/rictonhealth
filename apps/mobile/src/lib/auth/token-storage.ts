@@ -21,7 +21,9 @@ export interface TokenStorageContract {
 }
 
 const STORE_OPTIONS: SecureStore.SecureStoreOptions = {
-  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+  // Strictest usable on both platforms: keys unavailable while device is
+  // locked (AFTER_FIRST_UNLOCK would keep tokens readable after first unlock).
+  keychainAccessible: SecureStore.WHEN_UNLOCKED,
 };
 
 export class TokenStorage implements TokenStorageContract {
