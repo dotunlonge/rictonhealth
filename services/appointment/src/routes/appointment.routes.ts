@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { requireAuth, requireRole, requireActiveStatus } from '@ricton/auth-middleware';
 import * as appointmentController from '../controllers/appointment.controller';
 import {
   validateRequest,
@@ -28,7 +28,14 @@ router.post(
   appointmentController.setAvailability
 );
 
-// Get available slots
+// Get available slots (mobile shape: providerId in query)
+router.get(
+  '/slots',
+  validateQuery(GetAvailabilityQuerySchema),
+  appointmentController.getAvailability
+);
+
+// Get available slots (web shape: providerId in path)
 router.get(
   '/slots/:providerId',
   validateQuery(GetAvailabilityQuerySchema),
@@ -36,9 +43,11 @@ router.get(
 );
 
 // Book appointment (idempotent: mobile retries with the same Idempotency-Key)
+// Restricted to verified ACTIVE patients
 router.post(
   '/',
   requireRole('PATIENT'),
+  requireActiveStatus,
   appointmentRateLimit,
   validateRequest(CreateAppointmentSchema),
   idempotency(prisma),

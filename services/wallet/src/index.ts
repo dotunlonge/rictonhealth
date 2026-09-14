@@ -34,6 +34,8 @@ const PORT = process.env.PORT_WALLET || 3008;
 app.set('trust proxy', true);
 app.use(helmet());
 app.use(createCors());
+// Paystack signs raw bytes — parse webhook as Buffer BEFORE express.json().
+app.use('/api/wallets/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(httpLogger);
 

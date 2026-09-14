@@ -8,12 +8,13 @@ import {
   UnauthorizedError,
   ForbiddenError,
   AppError,
-  timingSafeEqual,
   paystackBreaker,
   getInternalApiSecret,
+  getRawBodyString,
+  parseWebhookBody,
+  verifyPaystackSignature,
 } from '@ricton/shared';
 import { webhookQueue } from '@ricton/shared/jobs';
-import crypto from 'crypto';
 import { assertPaystackPaymentMatches } from '../payment-reconciliation';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -285,7 +286,49 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       },
     });
 
-    res.status(200).json(successResponse(updatedPayment));
+    let currentBalance: number | undefined;
+    if (paymentStatus === PaymentStatus.SUCCESS && payment.type === PaymentType.WALLET_TOPUP) {
+      let wallet = await prisma.wallet.findUnique({ where: { userId: payment.userId } });
+      if (!wallet) {
+        wallet = await prisma.wallet.create({
+          data: { userId: payment.userId, balance: 0, currency: 'NGN' },
+        });
+      }
+      const existingTx = await prisma.walletTransaction.findFirst({
+        where: { walletId: wallet.id, referenceId: reference },
+      });
+      if (!existingTx) {
+        await prisma.$transaction(async (tx) => {
+          await tx.wallet.update({
+            where: { id: wallet.id },
+            data: { balance: { increment: payment.amount } },
+          });
+          const fresh = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
+          await tx.walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              type: 'CREDIT',
+              amount: payment.amount,
+              balanceAfter: fresh.balance,
+              referenceType: 'TOPUP',
+              referenceId: reference,
+              description: 'Wallet top-up via Paystack verification',
+            },
+          });
+          currentBalance = Number(fresh.balance);
+        });
+      } else {
+        const fresh = await prisma.wallet.findUnique({ where: { id: wallet.id } });
+        currentBalance = fresh ? Number(fresh.balance) : undefined;
+      }
+    }
+
+    res.status(200).json(
+      successResponse({
+        ...updatedPayment,
+        balance: currentBalance,
+      })
+    );
   } catch (error: unknown) {
     next(error);
   }
@@ -297,15 +340,14 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
-    const hash = crypto
-      .createHmac('sha512', PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-    if (!timingSafeEqual(hash, req.headers['x-paystack-signature'] as string)) {
+    const rawBody = getRawBodyString(req.body);
+    if (
+      !verifyPaystackSignature(rawBody, req.headers['x-paystack-signature'], PAYSTACK_SECRET_KEY)
+    ) {
       throw new UnauthorizedError('Invalid signature');
     }
 
-    const event = req.body;
+    const event = parseWebhookBody<{ event: string; data: any }>(req.body);
 
     if (event.event === 'charge.success') {
       const reference = event.data.reference;
@@ -332,6 +374,38 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           metadata: event.data as Prisma.InputJsonValue,
         },
       });
+
+      if (payment.type === PaymentType.WALLET_TOPUP) {
+        let wallet = await prisma.wallet.findUnique({ where: { userId: payment.userId } });
+        if (!wallet) {
+          wallet = await prisma.wallet.create({
+            data: { userId: payment.userId, balance: 0, currency: 'NGN' },
+          });
+        }
+        const existingTx = await prisma.walletTransaction.findFirst({
+          where: { walletId: wallet.id, referenceId: reference },
+        });
+        if (!existingTx) {
+          await prisma.$transaction(async (tx) => {
+            await tx.wallet.update({
+              where: { id: wallet.id },
+              data: { balance: { increment: payment.amount } },
+            });
+            const fresh = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
+            await tx.walletTransaction.create({
+              data: {
+                walletId: wallet.id,
+                type: 'CREDIT',
+                amount: payment.amount,
+                balanceAfter: fresh.balance,
+                referenceType: 'TOPUP',
+                referenceId: reference,
+                description: 'Wallet top-up via Paystack webhook',
+              },
+            });
+          });
+        }
+      }
 
       await webhookQueue.add('deliver', {
         url: `${process.env.INTERNAL_NOTIFICATION_URL || 'http://notification-service:3016'}/api/internal/payment/success`,

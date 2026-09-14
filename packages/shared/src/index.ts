@@ -33,5 +33,6 @@ export * from './pagination';
 export * from './circuit-breaker';
 export * from './cache';
 export * from './timing-safe-equal';
+export * from './webhooks';
 export * from './internal-auth';
 export * from './totp';

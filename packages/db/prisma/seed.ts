@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { seedDoctors } from '../src/seed-doctors-helper';
 
 const prisma = new PrismaClient();
 
@@ -73,6 +74,36 @@ async function main() {
     },
   });
   console.log(`Created Consultant: ${consultant.email}`);
+
+  // Seed default weekly availability for Jane Smith
+  for (let day = 0; day < 7; day++) {
+    await prisma.providerAvailability.upsert({
+      where: {
+        providerId_dayOfWeek: {
+          providerId: consultant.id,
+          dayOfWeek: day,
+        },
+      },
+      update: {
+        startTime: '09:00:00',
+        endTime: '17:00:00',
+        slotDurationMinutes: 30,
+        isActive: true,
+      },
+      create: {
+        providerId: consultant.id,
+        dayOfWeek: day,
+        startTime: '09:00:00',
+        endTime: '17:00:00',
+        slotDurationMinutes: 30,
+        isActive: true,
+      },
+    });
+  }
+
+  // Seed rich specialist doctors and their availability
+  const seededCount = await seedDoctors(prisma);
+  console.log(`Seeded ${seededCount} specialist doctors with weekly schedules.`);
 
   // Create Pharmacist
   const pharmacist = await prisma.user.create({

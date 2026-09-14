@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, UserRole, UserStatus, PrescriptionStatus } from '@ricton/db';
+import { prisma, UserRole, UserStatus, PrescriptionStatus, ensurePharmacySeeded } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -224,15 +224,41 @@ export const sendPrescriptionToPharmacy = async (
     const { pharmacyId } = req.body;
     if (!pharmacyId) throw new ValidationError('pharmacyId is required');
 
-    const pharmacy = await prisma.user.findFirst({
+    // Resolve pharmacyId whether client sent User.id or PharmacyProfile.id
+    let resolvedPharmacyId = pharmacyId;
+    const profileMatch = await prisma.pharmacyProfile.findFirst({
       where: {
-        id: pharmacyId,
+        OR: [{ id: pharmacyId }, { userId: pharmacyId }],
+      },
+      select: { userId: true },
+    });
+    if (profileMatch) {
+      resolvedPharmacyId = profileMatch.userId;
+    }
+
+    let pharmacy = await prisma.user.findFirst({
+      where: {
+        id: resolvedPharmacyId,
         role: UserRole.PHARMACIST,
         status: UserStatus.ACTIVE,
         pharmacyProfile: { isNot: null },
       },
       select: { id: true },
     });
+
+    if (!pharmacy) {
+      await ensurePharmacySeeded(prisma);
+      pharmacy = await prisma.user.findFirst({
+        where: {
+          id: resolvedPharmacyId,
+          role: UserRole.PHARMACIST,
+          status: UserStatus.ACTIVE,
+          pharmacyProfile: { isNot: null },
+        },
+        select: { id: true },
+      });
+    }
+
     if (!pharmacy) throw new NotFoundError('Active pharmacy not found');
 
     const prescription = await prisma.prescription.findUnique({ where: { id } });
@@ -243,7 +269,7 @@ export const sendPrescriptionToPharmacy = async (
 
     if (
       prescription.status === PrescriptionStatus.SENT_TO_PHARMACY &&
-      prescription.pharmacyId === pharmacyId
+      prescription.pharmacyId === resolvedPharmacyId
     ) {
       res.status(200).json(successResponse(prescription));
       return;
@@ -261,7 +287,7 @@ export const sendPrescriptionToPharmacy = async (
       },
       data: {
         status: PrescriptionStatus.SENT_TO_PHARMACY,
-        pharmacyId,
+        pharmacyId: resolvedPharmacyId,
       },
     });
     if (claimed.count !== 1) {

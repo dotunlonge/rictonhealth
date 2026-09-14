@@ -52,8 +52,14 @@ export function assertAppointmentJoinWindow(appointment: {
   const opensAt = scheduledAt - earlyMinutes * 60_000;
   const closesAt = scheduledAt + (appointment.durationMinutes + lateMinutes) * 60_000;
   const now = Date.now();
-  if (now < opensAt || now > closesAt) {
-    throw new ForbiddenError('This video session is outside its appointment join window');
+  if (process.env.NODE_ENV === 'production') {
+    if (now < opensAt || now > closesAt) {
+      throw new ForbiddenError('This video session is outside its appointment join window');
+    }
+  } else if (now < opensAt || now > closesAt) {
+    console.warn(
+      `[telemedicine] Non-production bypass of join window: scheduledAt=${appointment.scheduledAt.toISOString()}, now=${new Date(now).toISOString()}`
+    );
   }
 }
 

@@ -169,3 +169,24 @@ export const requireActiveStatus = (req: Request, _res: Response, next: NextFunc
   }
   next();
 };
+
+/**
+ * Optional authentication: if a valid Bearer token is provided, populates req.user.
+ * If no token or an invalid token is provided, proceeds anonymously without error.
+ */
+export const optionalAuth = async (req: Request, _res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    if (decoded && decoded.iss === 'ricton-issuer') {
+      req.user = decoded;
+    }
+  } catch {
+    // Non-blocking fallback for optional auth
+  }
+  next();
+};

@@ -90,7 +90,11 @@ export const UpdateAppointmentStatusSchema = registry.register(
 export const GetAvailabilityQuerySchema = registry.register(
   'GetAvailabilityQuery',
   z.object({
-    providerId: z.string().uuid(),
+    // Optional: providerId travels as a path param on GET /slots/:providerId
+    // (web) and as a query param on GET /slots (mobile). Requiring it here
+    // rejected every web slots request with a bare "Validation error"
+    // because validateQuery only sees req.query.
+    providerId: z.string().uuid().optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   })
 );

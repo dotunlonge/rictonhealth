@@ -8,6 +8,7 @@ import {
   PrescriptionStatus,
   Prisma,
   TransactionClient,
+  ensurePharmacySeeded,
 } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
@@ -23,6 +24,7 @@ import {
  */
 export const getProducts = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await ensurePharmacySeeded(prisma);
     const { category, search, pharmacyId, limit = 20, offset = 0 } = req.query;
 
     const where: Prisma.ProductWhereInput = {
@@ -206,6 +208,7 @@ export const getCategories = async (_req: Request, res: Response, next: NextFunc
 /** Minimal active-pharmacy directory used when a patient assigns a prescription. */
 export const getPharmacies = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    await ensurePharmacySeeded(prisma);
     const requestedLimit = Number(req.query.limit) || 100;
     const take = Math.min(Math.max(requestedLimit, 1), 200);
     const pharmacies = await prisma.user.findMany({

@@ -82,8 +82,11 @@ const server = app.listen(PORT, () => {
 });
 
 // Delivery workers (email/SMS/notification/webhook, subscription renewals,
-// OTP outbox relay). Without these, queued work would never be delivered.
-const jobProcessors = startJobProcessors();
+// OTP outbox relay). In production Compose, the dedicated `worker` process
+// owns these jobs; set START_WORKERS=false on notification-service to prevent
+// duplicate worker polling, or leave unset in dev where notification-service runs them.
+const shouldStartWorkers = process.env.START_WORKERS !== 'false';
+const jobProcessors = shouldStartWorkers ? startJobProcessors() : {};
 
 server.timeout = 30000;
 
@@ -92,7 +95,13 @@ setupGracefulShutdown({
   server,
   serviceName: 'notification-service',
   onShutdown: async () => {
-    await Promise.all(Object.values(jobProcessors).map((worker) => worker.close()));
+    if (shouldStartWorkers) {
+      await Promise.all(
+        Object.values(jobProcessors).map((worker) =>
+          (worker as { close: () => Promise<unknown> }).close()
+        )
+      );
+    }
     await prisma.$disconnect();
     await redis.quit();
   },

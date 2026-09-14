@@ -7,6 +7,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import yaml from 'yaml';
 
 const root = (...p: string[]) => path.join(__dirname, '..', ...p);
 const read = (p: string) => fs.readFileSync(root(p), 'utf8');
@@ -70,12 +71,8 @@ function expressPaths(): string[] {
 }
 
 function openapiPaths(): Set<string> {
-  const spec = read('openapi.yaml');
-  const paths = new Set<string>();
-  for (const m of spec.matchAll(/^ {2}"?(\/api\/[^"\s:]+)"?:/gm)) {
-    paths.add(m[1]);
-  }
-  return paths;
+  const spec = yaml.parse(read('openapi.yaml')) as { paths?: Record<string, unknown> };
+  return new Set(Object.keys(spec.paths ?? {}));
 }
 
 function kongPrefixes(): string[] {

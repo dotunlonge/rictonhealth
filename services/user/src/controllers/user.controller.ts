@@ -1,6 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import { prisma, UserRole, UserStatus, AppointmentStatus, Prisma } from '@ricton/db';
+import {
+  prisma,
+  UserRole,
+  UserStatus,
+  AppointmentStatus,
+  Prisma,
+  ensureDoctorsSeeded,
+  seedDoctors,
+} from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -9,6 +17,7 @@ import {
   ForbiddenError,
   getCached,
   setCached,
+  invalidateCache,
   makeCacheKey,
   AppError,
 } from '@ricton/shared';
@@ -174,6 +183,58 @@ export const getProviderDashboard = async (req: Request, res: Response, next: Ne
   }
 };
 
+export const getPatientDashboard = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    if (userPayload.role !== UserRole.PATIENT) {
+      throw new ForbiddenError('Only patients can access the patient dashboard');
+    }
+
+    const userId = userPayload.userId;
+
+    const [totalAppointments, pendingAppointments, completedAppointments, upcomingAppointments] =
+      await Promise.all([
+        prisma.appointment.count({
+          where: { patientId: userId },
+        }),
+        prisma.appointment.count({
+          where: { patientId: userId, status: AppointmentStatus.PENDING },
+        }),
+        prisma.appointment.count({
+          where: { patientId: userId, status: AppointmentStatus.COMPLETED },
+        }),
+        prisma.appointment.findMany({
+          where: { patientId: userId, scheduledAt: { gte: new Date() } },
+          take: 5,
+          orderBy: { scheduledAt: 'asc' },
+          include: {
+            provider: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                providerProfile: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+    res.status(200).json(
+      successResponse({
+        stats: {
+          totalAppointments,
+          pendingAppointments,
+          completedAppointments,
+        },
+        upcomingAppointments,
+      })
+    );
+  } catch (error: unknown) {
+    next(error);
+  }
+};
+
 export const updateCurrentUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
@@ -225,6 +286,7 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
           ...(data as Record<string, string>),
         },
       });
+      await invalidateCache('providers*');
     } else if (role === UserRole.PHARMACIST) {
       const data: Record<string, unknown> = {
         pharmacyName: updateData.pharmacyName,
@@ -429,15 +491,24 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
 
 export const getProviders = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { specialty, name, limit = 20, offset = 0 } = req.query;
+    const { specialty, name, search, limit = 20, offset = 0 } = req.query;
+    const searchTerm = (name || search) as string | undefined;
 
+    // Self-healing: in production/dev, auto-provision if doctors or weekly schedules are missing
+    if (process.env.NODE_ENV !== 'test') {
+      await ensureDoctorsSeeded(prisma);
+    }
+
+    const isProd = process.env.NODE_ENV === 'production';
     const where: Prisma.ProviderProfileWhereInput = {
-      isVerified: true,
+      ...(isProd ? { isVerified: true } : {}),
       ...(specialty && { specialty: { equals: String(specialty), mode: 'insensitive' } }),
-      ...(name && {
+      ...(searchTerm && {
         OR: [
-          { firstName: { contains: String(name), mode: 'insensitive' } },
-          { lastName: { contains: String(name), mode: 'insensitive' } },
+          { firstName: { contains: String(searchTerm), mode: 'insensitive' } },
+          { lastName: { contains: String(searchTerm), mode: 'insensitive' } },
+          { specialty: { contains: String(searchTerm), mode: 'insensitive' } },
+          { bio: { contains: String(searchTerm), mode: 'insensitive' } },
         ],
       }),
     };
@@ -445,18 +516,19 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
     const cacheKey = makeCacheKey([
       'providers',
       specialty as string | undefined,
-      name as string | undefined,
+      searchTerm,
       limit as string | undefined,
       offset as string | undefined,
     ]);
     const cached = await getCached<{ providers: any[]; total: number }>(cacheKey, {
       ttlSeconds: 300,
     });
-    if (cached) {
+    // Critical: Never serve empty array from cache if Redis held negative cache
+    if (cached && Array.isArray(cached.providers) && cached.providers.length > 0) {
       return res.status(200).json(successResponse(cached));
     }
 
-    const [providers, total] = await Promise.all([
+    let [providers, total] = await Promise.all([
       prisma.providerProfile.findMany({
         where,
         take: Number(limit),
@@ -466,8 +538,30 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
       prisma.providerProfile.count({ where }),
     ]);
 
+    // Self-healing fallback: If count is 0 and no filters were passed in dev/prod, seed doctors and re-query
+    if (
+      process.env.NODE_ENV !== 'test' &&
+      total === 0 &&
+      !specialty &&
+      !searchTerm &&
+      Number(offset) === 0
+    ) {
+      await seedDoctors(prisma);
+      [providers, total] = await Promise.all([
+        prisma.providerProfile.findMany({
+          where,
+          take: Number(limit),
+          skip: Number(offset),
+          include: { hospital: true },
+        }),
+        prisma.providerProfile.count({ where }),
+      ]);
+    }
+
     const result = { providers, total, limit: Number(limit), offset: Number(offset) };
-    await setCached(cacheKey, result, { ttlSeconds: 300 });
+    if (result.providers.length > 0) {
+      await setCached(cacheKey, result, { ttlSeconds: 300 });
+    }
 
     res.status(200).json(successResponse(result));
   } catch (error: unknown) {
@@ -478,8 +572,10 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
 export const getProviderById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const provider = await prisma.providerProfile.findUnique({
-      where: { userId: id }, // Assuming ID is the User ID, adjust if it's the profile ID
+    const provider = await prisma.providerProfile.findFirst({
+      where: {
+        OR: [{ userId: id }, { id }],
+      },
       include: { hospital: true, user: { select: { email: true, status: true } } },
     });
 

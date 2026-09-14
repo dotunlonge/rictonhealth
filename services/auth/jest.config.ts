@@ -14,6 +14,7 @@ export default {
     },
   },
   moduleNameMapper: {
+    '^@ricton/shared/jobs$': '<rootDir>/../../packages/shared/src/jobs',
     '^@ricton/(.*)$': '<rootDir>/../../packages/$1/src',
   },
 };

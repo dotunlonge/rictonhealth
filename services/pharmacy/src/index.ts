@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { prisma } from '@ricton/db';
+import { prisma, ensurePharmacySeeded } from '@ricton/db';
 import { redis } from '@ricton/shared';
 import {
   errorResponse,
@@ -67,6 +67,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`Pharmacy service listening on port ${PORT}`);
+  ensurePharmacySeeded(prisma).catch((err) => {
+    logger.warn({ err }, 'Background pharmacy auto-bootstrap warning');
+  });
 });
 
 server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;

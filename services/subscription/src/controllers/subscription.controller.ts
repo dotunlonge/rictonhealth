@@ -7,8 +7,15 @@ import {
   PaymentProvider,
 } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
-import { successResponse, NotFoundError, ValidationError, AppError } from '@ricton/shared';
-import crypto from 'crypto';
+import {
+  successResponse,
+  NotFoundError,
+  ValidationError,
+  AppError,
+  getRawBodyString,
+  parseWebhookBody,
+  verifyPaystackSignature,
+} from '@ricton/shared';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
@@ -358,22 +365,18 @@ export const getSubscriptionHistory = async (req: Request, res: Response, next: 
  */
 export const handleWebhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const crypto = await import('crypto');
-
     if (!PAYSTACK_SECRET_KEY) {
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
-    const hash = crypto.default
-      .createHmac('sha512', PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-
-    if (hash !== req.headers['x-paystack-signature']) {
+    const rawBody = getRawBodyString(req.body);
+    if (
+      !verifyPaystackSignature(rawBody, req.headers['x-paystack-signature'], PAYSTACK_SECRET_KEY)
+    ) {
       throw new AppError('Invalid signature', 401, 'UNAUTHORIZED');
     }
 
-    const event = req.body;
+    const event = parseWebhookBody<any>(req.body);
 
     if (event.event === 'charge.success') {
       const metadata = event.data.metadata || {};

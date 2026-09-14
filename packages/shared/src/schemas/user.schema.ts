@@ -144,6 +144,7 @@ export const GetProvidersQuerySchema = registry.register(
   z.object({
     specialty: z.string().optional(),
     name: z.string().optional(),
+    search: z.string().optional(),
     limit: z.string().optional(),
     offset: z.string().optional(),
   })
@@ -240,6 +241,21 @@ export const ProviderDashboardResponseSchema = registry.register(
   })
 );
 
+export const PatientDashboardResponseSchema = registry.register(
+  'PatientDashboardResponse',
+  z.object({
+    success: z.boolean(),
+    data: z.object({
+      stats: z.object({
+        totalAppointments: z.number(),
+        pendingAppointments: z.number(),
+        completedAppointments: z.number(),
+      }),
+      upcomingAppointments: z.array(z.any()),
+    }),
+  })
+);
+
 // Type exports
 export type UserProfileSchema = z.infer<typeof UserProfileSchema>;
 export type GetUserResponseSchema = z.infer<typeof GetUserResponseSchema>;
@@ -249,6 +265,7 @@ export type MedicalHistoryInputSchema = z.infer<typeof MedicalHistoryInputSchema
 export type GetProvidersQuerySchema = z.infer<typeof GetProvidersQuerySchema>;
 export type HospitalDashboardResponseSchema = z.infer<typeof HospitalDashboardResponseSchema>;
 export type ProviderDashboardResponseSchema = z.infer<typeof ProviderDashboardResponseSchema>;
+export type PatientDashboardResponseSchema = z.infer<typeof PatientDashboardResponseSchema>;
 
 registry.registerPath({
   method: 'get',
@@ -312,6 +329,29 @@ registry.registerPath({
       content: {
         'application/json': {
           schema: ProviderDashboardResponseSchema,
+        },
+      },
+    },
+    401: {
+      description: 'Unauthorized',
+    },
+    403: {
+      description: 'Forbidden',
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
+  path: '/api/users/dashboard/patient',
+  summary: 'Get dashboard analytics and schedule for Patient portal',
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      description: 'Patient dashboard analytics and schedule queue',
+      content: {
+        'application/json': {
+          schema: PatientDashboardResponseSchema,
         },
       },
     },

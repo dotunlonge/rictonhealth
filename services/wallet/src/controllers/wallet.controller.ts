@@ -7,8 +7,10 @@ import {
   UnauthorizedError,
   NotFoundError,
   ValidationError,
+  getRawBodyString,
+  parseWebhookBody,
+  verifyPaystackSignature,
 } from '@ricton/shared';
-import crypto from 'crypto';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
@@ -360,6 +362,18 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
       );
     }
 
+    await prisma.payment.create({
+      data: {
+        userId,
+        amount,
+        currency: 'NGN',
+        type: 'WALLET_TOPUP',
+        provider: 'PAYSTACK',
+        providerReference: initializeData.data.reference,
+        status: 'PENDING',
+      },
+    });
+
     res.status(200).json(
       successResponse({
         authorizationUrl: initializeData.data.authorization_url,
@@ -472,15 +486,14 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
     if (!PAYSTACK_SECRET_KEY)
       throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
 
-    const hash = crypto
-      .createHmac('sha512', PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-    if (hash !== req.headers['x-paystack-signature']) {
+    const rawBody = getRawBodyString(req.body);
+    if (
+      !verifyPaystackSignature(rawBody, req.headers['x-paystack-signature'], PAYSTACK_SECRET_KEY)
+    ) {
       throw new UnauthorizedError('Invalid signature');
     }
 
-    const event = req.body;
+    const event = parseWebhookBody<any>(req.body);
 
     if (event.event === 'charge.success') {
       // Reconcile provider payload before crediting: reject non-NGN, missing

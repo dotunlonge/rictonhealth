@@ -1,4 +1,7 @@
+(process.env as Record<string, string>).NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-jwt-secret';
+process.env.DATABASE_URL =
+  process.env.DATABASE_URL || 'postgresql://apple@127.0.0.1:5432/ricton_dev?schema=public';
 import request from 'supertest';
 import express from 'express';
 import userRoutes from '../src/routes/user.routes';
@@ -244,6 +247,10 @@ describe('User Controller Integration', () => {
 
   describe('GET /api/users/providers', () => {
     beforeAll(async () => {
+      // Clean any other provider profiles created by prior runs so test stays deterministic
+      await prisma.providerProfile.deleteMany({
+        where: { userId: { not: consultantId } },
+      });
       // Mark the existing consultant as verified for search
       await prisma.providerProfile.update({
         where: { userId: consultantId },
@@ -376,6 +383,30 @@ describe('User Controller Integration', () => {
         .set('Authorization', `Bearer ${patientToken}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+    });
+  });
+
+  describe('GET /api/users/dashboard/patient', () => {
+    it('should return patient dashboard stats and upcoming appointments', async () => {
+      const res = await request(app)
+        .get('/api/users/dashboard/patient')
+        .set('Authorization', `Bearer ${patientToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.stats).toBeDefined();
+      expect(typeof res.body.data.stats.totalAppointments).toBe('number');
+      expect(typeof res.body.data.stats.pendingAppointments).toBe('number');
+      expect(typeof res.body.data.stats.completedAppointments).toBe('number');
+      expect(Array.isArray(res.body.data.upcomingAppointments)).toBe(true);
+    });
+
+    it('should forbid non-PATIENT roles from accessing patient dashboard', async () => {
+      const res = await request(app)
+        .get('/api/users/dashboard/patient')
+        .set('Authorization', `Bearer ${consultantToken}`);
+
+      expect(res.status).toBe(403);
     });
   });
 });

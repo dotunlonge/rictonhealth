@@ -18,6 +18,7 @@ import {
   getTotpAuthUrl,
   encryptTotpSecret,
   decryptTotpSecret,
+  invalidateCache,
 } from '@ricton/shared';
 import { isEmailConfigured, isSmsConfigured } from '@ricton/shared/jobs';
 import { OAuth2Client } from 'google-auth-library';
@@ -71,7 +72,7 @@ async function verifyGoogleCredential(
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: process.env.GOOGLE_CLIENT_ID || undefined,
     });
     const payload = ticket.getPayload();
     if (payload?.email && payload.sub && payload.email_verified === true) {
@@ -90,7 +91,9 @@ async function verifyGoogleCredential(
 
   try {
     const appId = process.env.GOOGLE_CLIENT_ID;
-    if (!appId) return null;
+    const iosAppId = process.env.GOOGLE_IOS_CLIENT_ID;
+    if (!appId && !iosAppId) return null;
+
     const infoRes = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`,
       { signal: AbortSignal.timeout(10000) }
@@ -100,7 +103,14 @@ async function verifyGoogleCredential(
       aud?: string;
       azp?: string;
     };
-    if (info.aud !== appId && info.azp !== appId) return null;
+    if (
+      info.aud !== appId &&
+      info.azp !== appId &&
+      info.aud !== iosAppId &&
+      info.azp !== iosAppId
+    ) {
+      return null;
+    }
 
     const meRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
       headers: { Authorization: `Bearer ${token}` },
@@ -305,12 +315,38 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
         });
       } else if (role === UserRole.CONSULTANT) {
         await tx.providerProfile.create({
-          data: { userId: newUser.id, firstName, lastName },
+          data: {
+            userId: newUser.id,
+            firstName,
+            lastName,
+            specialty: 'General Practice',
+            isVerified: process.env.NODE_ENV !== 'production',
+          },
+        });
+
+        // Provision default weekly availability slots (Mon-Sun 09:00 - 17:00, 30m slots)
+        const weeklyAvailabilities = [];
+        for (let day = 0; day < 7; day++) {
+          weeklyAvailabilities.push({
+            providerId: newUser.id,
+            dayOfWeek: day,
+            startTime: '09:00:00',
+            endTime: '17:00:00',
+            slotDurationMinutes: 30,
+            isActive: true,
+          });
+        }
+        await tx.providerAvailability.createMany({
+          data: weeklyAvailabilities,
         });
       }
 
       return newUser;
     });
+
+    if (role === UserRole.CONSULTANT) {
+      await invalidateCache('providers*');
+    }
 
     auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone }).catch((err) =>
       console.warn('Failed to record audit log', err)
@@ -700,10 +736,16 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
       throw new AppError('Apple OAuth is not configured.', 500, 'SERVICE_NOT_CONFIGURED');
     }
 
+    // Native iOS tokens carry the bundle ID as audience; web flows carry the
+    // Service ID. Accept every configured audience.
+    const appleAudiences = [process.env.APPLE_CLIENT_ID, process.env.APPLE_IOS_BUNDLE_ID].filter(
+      (id): id is string => Boolean(id)
+    );
     let payload;
     try {
       payload = await appleSigninAuth.verifyIdToken(token, {
-        audience: process.env.APPLE_CLIENT_ID,
+        audience:
+          process.env.APPLE_CLIENT_ID || (appleAudiences.length > 0 ? appleAudiences : undefined),
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

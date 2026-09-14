@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '@ricton/auth-middleware';
+import { requireAuth, requireRole, optionalAuth } from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
 import * as userController from '../controllers/user.controller';
 import {
@@ -15,7 +15,16 @@ const router = Router();
 
 const userRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'user' });
 
-// All user routes require authentication
+// Provider search is public (with optional authentication)
+router.get(
+  '/providers',
+  optionalAuth,
+  validateQuery(GetProvidersQuerySchema),
+  userController.getProviders
+);
+router.get('/providers/:id', optionalAuth, userController.getProviderById);
+
+// All user routes below require authentication
 router.use(requireAuth);
 router.use(userRateLimit);
 
@@ -33,10 +42,6 @@ router.put(
   userController.updateMedicalHistory
 );
 
-// Provider search is public
-router.get('/providers', validateQuery(GetProvidersQuerySchema), userController.getProviders);
-router.get('/providers/:id', userController.getProviderById);
-
 // PHI routes require clinical roles. PATIENT self-access is enforced inside the controller.
 router.get(
   '/patients',
@@ -51,5 +56,6 @@ router.get(
   userController.getHospitalDashboard
 );
 router.get('/dashboard/provider', requireRole('CONSULTANT'), userController.getProviderDashboard);
+router.get('/dashboard/patient', requireRole('PATIENT'), userController.getPatientDashboard);
 
 export default router;

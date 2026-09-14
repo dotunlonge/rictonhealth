@@ -288,4 +288,40 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
       where: { providerId: provider.id, patientId: patientA.id },
     });
   });
+
+  it('7. should reject booking requests from unverified PENDING patient accounts', async () => {
+    const pendingPatient = await createUser({
+      role: UserRole.PATIENT,
+      status: UserStatus.PENDING,
+      password: 'Password123!',
+      firstName: 'Pending',
+      lastName: 'User',
+    });
+    const pendingToken = jwt.sign(
+      {
+        userId: pendingPatient.id,
+        role: UserRole.PATIENT,
+        status: UserStatus.PENDING,
+        iss: 'ricton-issuer',
+      },
+      'test-jwt-secret'
+    );
+
+    const slot1200 = new Date(scheduledAtIso);
+    slot1200.setUTCHours(12, 0, 0, 0);
+
+    const res = await request(app)
+      .post('/api/appointments')
+      .set('Authorization', `Bearer ${pendingToken}`)
+      .send({
+        providerId: provider.id,
+        scheduledAt: slot1200.toISOString(),
+        durationMinutes: 30,
+        type: AppointmentType.VIDEO,
+        reason: 'Pending check',
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toMatch(/Account must be active/i);
+  });
 });

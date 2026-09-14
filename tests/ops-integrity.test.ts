@@ -29,7 +29,8 @@ describe('Smartguard: real audit-backed ops, correct routes', () => {
 });
 
 describe('Docker builds: deterministic installs', () => {
-  it('all service Dockerfiles use npm ci (never floating npm install)', () => {
+  it('all service Dockerfiles inherit the npm-ci-built base image', () => {
+    expect(read('Dockerfile.base')).toMatch(/RUN npm ci\b/);
     const servicesDir = path.join(root, 'services');
     const files = fs
       .readdirSync(servicesDir)
@@ -39,7 +40,12 @@ describe('Docker builds: deterministic installs', () => {
     expect(files.length).toBeGreaterThan(10);
     for (const f of files) {
       const src = read(f);
-      expect(`${f} ${src.match(/RUN npm (ci|install)/)?.[0] || 'none'}`).toMatch(/npm ci/);
+      if (f === 'packages/db/Dockerfile') {
+        expect(`${f} ${src.match(/RUN npm (ci|install)/)?.[0] || 'none'}`).toMatch(/npm ci/);
+      } else {
+        expect(src).toMatch(/FROM ricton-base AS builder/);
+        expect(src).not.toMatch(/RUN npm install\b/);
+      }
     }
   });
 });

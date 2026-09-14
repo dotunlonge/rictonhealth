@@ -75,11 +75,23 @@ export const setAvailability = async (req: Request, res: Response, next: NextFun
 export const getAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Support both path params and query params for flexibility
-    const providerId = req.params.providerId || (req.query.providerId as string);
+    const rawProviderId = req.params.providerId || (req.query.providerId as string);
     const date = req.query.date as string;
 
-    if (!providerId || !date) {
+    if (!rawProviderId || !date) {
       throw new ValidationError('providerId and date are required');
+    }
+
+    // Resolve providerId whether caller sent User.id or ProviderProfile.id
+    let providerId = rawProviderId;
+    const profileMatch = await prisma.providerProfile.findFirst({
+      where: {
+        OR: [{ id: rawProviderId }, { userId: rawProviderId }],
+      },
+      select: { userId: true },
+    });
+    if (profileMatch) {
+      providerId = profileMatch.userId;
     }
 
     const targetDate = new Date(date as string);
@@ -87,13 +99,53 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     const dayOfWeek = (targetDate.getUTCDay() + 6) % 7; // UTC: availability windows are stored/evaluated in UTC
 
     // Get provider's availability for this day
-    const availability = await prisma.providerAvailability.findFirst({
+    let availability = await prisma.providerAvailability.findFirst({
       where: {
-        providerId: providerId as string,
+        providerId,
         dayOfWeek,
         isActive: true,
       },
     });
+
+    if (!availability) {
+      // Auto-provision standard weekly availability (09:00 - 17:00, 30m slots) for active consultants
+      const consultant = await prisma.user.findFirst({
+        where: { id: providerId, role: UserRole.CONSULTANT },
+      });
+      if (consultant) {
+        for (let day = 0; day < 7; day++) {
+          await prisma.providerAvailability.upsert({
+            where: {
+              providerId_dayOfWeek: {
+                providerId,
+                dayOfWeek: day,
+              },
+            },
+            update: {
+              startTime: '09:00:00',
+              endTime: '17:00:00',
+              slotDurationMinutes: 30,
+              isActive: true,
+            },
+            create: {
+              providerId,
+              dayOfWeek: day,
+              startTime: '09:00:00',
+              endTime: '17:00:00',
+              slotDurationMinutes: 30,
+              isActive: true,
+            },
+          });
+        }
+        availability = await prisma.providerAvailability.findFirst({
+          where: {
+            providerId,
+            dayOfWeek,
+            isActive: true,
+          },
+        });
+      }
+    }
 
     if (!availability) {
       return res.status(200).json(successResponse([]));
@@ -196,6 +248,18 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       );
     }
 
+    // Resolve providerId whether caller passed User.id or ProviderProfile.id
+    let resolvedProviderId = providerId;
+    const profileMatch = await prisma.providerProfile.findFirst({
+      where: {
+        OR: [{ id: providerId }, { userId: providerId }],
+      },
+      select: { userId: true },
+    });
+    if (profileMatch) {
+      resolvedProviderId = profileMatch.userId;
+    }
+
     const scheduledDate = new Date(scheduledAt);
 
     // Validate that scheduledAt is not in the past
@@ -215,13 +279,52 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     const dayOfWeek = (scheduledDate.getUTCDay() + 6) % 7; // UTC
 
     // Check provider availability
-    const availability = await prisma.providerAvailability.findFirst({
+    let availability = await prisma.providerAvailability.findFirst({
       where: {
-        providerId,
+        providerId: resolvedProviderId,
         dayOfWeek,
         isActive: true,
       },
     });
+
+    if (!availability) {
+      const consultant = await prisma.user.findFirst({
+        where: { id: resolvedProviderId, role: UserRole.CONSULTANT },
+      });
+      if (consultant) {
+        for (let day = 0; day < 7; day++) {
+          await prisma.providerAvailability.upsert({
+            where: {
+              providerId_dayOfWeek: {
+                providerId: resolvedProviderId,
+                dayOfWeek: day,
+              },
+            },
+            update: {
+              startTime: '09:00:00',
+              endTime: '17:00:00',
+              slotDurationMinutes: 30,
+              isActive: true,
+            },
+            create: {
+              providerId: resolvedProviderId,
+              dayOfWeek: day,
+              startTime: '09:00:00',
+              endTime: '17:00:00',
+              slotDurationMinutes: 30,
+              isActive: true,
+            },
+          });
+        }
+        availability = await prisma.providerAvailability.findFirst({
+          where: {
+            providerId: resolvedProviderId,
+            dayOfWeek,
+            isActive: true,
+          },
+        });
+      }
+    }
 
     if (!availability) {
       throw new ValidationError('Provider is not available on this day');
@@ -261,7 +364,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     let finalHospitalId = hospitalId;
     if (!finalHospitalId) {
       const provider = await prisma.user.findUnique({
-        where: { id: providerId },
+        where: { id: resolvedProviderId },
         include: { providerProfile: true },
       });
       if (provider?.providerProfile?.hospitalId) {
@@ -270,7 +373,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     } else {
       // Validate that the provider belongs to the specified hospital
       const provider = await prisma.user.findUnique({
-        where: { id: providerId },
+        where: { id: resolvedProviderId },
         include: { providerProfile: true },
       });
       if (provider?.providerProfile?.hospitalId !== finalHospitalId) {
@@ -278,7 +381,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       }
     }
 
-    const lockKey = `lock:appointment:${providerId}:${slotStart.getTime()}`;
+    const lockKey = `lock:appointment:${resolvedProviderId}:${slotStart.getTime()}`;
     let lockAcquired = false;
     try {
       const lockRes = await redis.set(lockKey, '1', 'EX', 10, 'NX');
@@ -313,7 +416,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 
             const conflictingAppointments = await tx.appointment.findMany({
               where: {
-                providerId,
+                providerId: resolvedProviderId,
                 scheduledAt: {
                   gte: dayStart,
                   lte: dayEnd,
@@ -341,7 +444,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
             const appt = await tx.appointment.create({
               data: {
                 patientId: userPayload.userId,
-                providerId,
+                providerId: resolvedProviderId,
                 hospitalId: finalHospitalId,
                 scheduledAt: slotStart,
                 durationMinutes: slotDuration,
@@ -374,7 +477,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
             if (type === AppointmentType.VIDEO) {
               await tx.telemedicineRoom.create({
                 data: {
-                  providerId,
+                  providerId: resolvedProviderId,
                   appointmentId: appt.id,
                   roomType: 'ONE_ON_ONE',
                   externalRoomId: `ricton-${appt.id}`,

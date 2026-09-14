@@ -13,4 +13,7 @@ export type TransactionClient = Omit<
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
 >;
 
+export * from './seed-doctors-helper';
+export * from './seed-pharmacy-helper';
+
 export default prisma;
