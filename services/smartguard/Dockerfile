@@ -4,7 +4,7 @@ RUN npm run build --workspace=@ricton/smartguard-service
 
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl openssl
 
 WORKDIR /app
 

@@ -89,6 +89,30 @@ describe('Docker builds: deterministic installs', () => {
     checkFile('.github/workflows/ci.yml', /--workspace=(@[a-z/@.-]+)/g);
   });
 
+  it('every runnable image ships OpenSSL so Prisma picks the musl-openssl-3 engine', () => {
+    // Regression: runner stages had curl but no openssl, so Prisma defaulted
+    // to the openssl-1.1.x engine (libssl.so.1.1 missing) and every query
+    // crashed — all /health checks 503d. Runners must install openssl.
+    const files = fs
+      .readdirSync(path.join(root, 'services'))
+      .map((svc) => path.join('services', svc, 'Dockerfile'))
+      .filter((f) => fs.existsSync(path.join(root, f)))
+      .concat(['packages/db/Dockerfile']);
+    expect(files.length).toBeGreaterThan(10);
+    for (const f of files) {
+      const stages = read(f)
+        .split(/^FROM /m)
+        .map((stage) => stage.trim())
+        .filter((stage) => stage.length > 0);
+      const runners = stages.filter((stage) => !/AS builder/i.test(stage.split('\n')[0]));
+      expect(runners.length).toBeGreaterThan(0);
+      for (const runner of runners) {
+        expect(runner).toMatch(/apk add/);
+        expect(runner).toMatch(/openssl/);
+      }
+    }
+  });
+
   it('the ECR push script builds the shared base image before any service', () => {
     // Regression: every service Dockerfile is FROM ricton-base, but nothing
     // built that image — the only local copy had no /app/services at all, so

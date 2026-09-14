@@ -15,7 +15,7 @@ RUN npm run generate --workspace=@ricton/db
 
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl openssl
 
 WORKDIR /app
 
