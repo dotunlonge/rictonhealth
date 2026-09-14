@@ -88,6 +88,18 @@ describe('Docker builds: deterministic installs', () => {
     checkFile('package.json', /--workspace=(@[a-z/@.-]+)/g);
     checkFile('.github/workflows/ci.yml', /--workspace=(@[a-z/@.-]+)/g);
   });
+
+  it('the ECR push script builds the shared base image before any service', () => {
+    // Regression: every service Dockerfile is FROM ricton-base, but nothing
+    // built that image — the only local copy had no /app/services at all, so
+    // all 17 image builds failed and CI could never publish. The base build
+    // must precede the per-service loop.
+    const script = read('scripts/aws-ecr-push.sh');
+    const baseIdx = script.search(/docker build[^\n]*Dockerfile\.base[^\n]*-t ricton-base/);
+    const loopIdx = script.search(/for SERVICE in/);
+    expect(baseIdx).toBeGreaterThanOrEqual(0);
+    expect(loopIdx).toBeGreaterThan(baseIdx);
+  });
 });
 
 describe('Dev-stack ports: overridable host bindings', () => {

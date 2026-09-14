@@ -89,6 +89,9 @@ echo "📦 Building and Pushing ${#SERVICES[@]} Microservice Docker Images..."
 
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_URL"
 
+echo "📦 Building shared base image (ricton-base) — every service Dockerfile builds FROM it..."
+docker build -f Dockerfile.base -t ricton-base .
+
 for SERVICE in "${SERVICES[@]}"; do
   push_image "ricton-${SERVICE}" "services/${SERVICE}/Dockerfile"
 done
