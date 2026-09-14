@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/messaging",
+  "name": "@ricton/messaging-service",
   "version": "1.0.0",
   "description": "Ricton Messaging Service - Real-time patient-provider communication",
   "main": "dist/index.js",

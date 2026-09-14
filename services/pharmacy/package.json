@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/pharmacy",
+  "name": "@ricton/pharmacy-service",
   "version": "1.0.0",
   "description": "Ricton Pharmacy Service",
   "main": "src/index.ts",

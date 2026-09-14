@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/rewards",
+  "name": "@ricton/rewards-service",
   "version": "1.0.0",
   "description": "Ricton Rewards & Loyalty Service",
   "main": "dist/index.js",

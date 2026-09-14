@@ -48,6 +48,46 @@ describe('Docker builds: deterministic installs', () => {
       }
     }
   });
+
+  it('every --workspace reference resolves to a real workspace package name', () => {
+    // Regression: 7 service Dockerfiles referenced @ricton/<svc>-service while
+    // the packages were named @ricton/<svc> ("No workspaces found"), breaking
+    // every image build locally and in CI. This guard pins Dockerfile args,
+    // root scripts, and CI workspace flags to package.json names.
+    const pkgNames = new Set<string>();
+    for (const dir of fs.readdirSync(path.join(root, 'services'))) {
+      const p = path.join(root, 'services', dir, 'package.json');
+      if (fs.existsSync(p)) pkgNames.add(JSON.parse(fs.readFileSync(p, 'utf8')).name);
+    }
+    for (const dir of fs.readdirSync(path.join(root, 'packages'))) {
+      const p = path.join(root, 'packages', dir, 'package.json');
+      if (fs.existsSync(p)) {
+        try {
+          pkgNames.add(JSON.parse(fs.readFileSync(p, 'utf8')).name);
+        } catch {
+          /* ignore non-package dirs */
+        }
+      }
+    }
+    const checkFile = (rel: string, pattern: RegExp) => {
+      const src = read(rel);
+      const missing = [...src.matchAll(pattern)]
+        .map((m) => m[1])
+        .filter((name) => !pkgNames.has(name));
+      expect(`${rel} references unknown workspaces: ${missing.join(', ')}`).toBe(
+        `${rel} references unknown workspaces: `
+      );
+    };
+    for (const dir of fs.readdirSync(path.join(root, 'services'))) {
+      const dockerfile = path.join('services', dir, 'Dockerfile');
+      if (fs.existsSync(path.join(root, dockerfile))) {
+        checkFile(dockerfile, /--workspace=(@[a-z/@.-]+)/g);
+      }
+    }
+    checkFile('package.json', /-w (@[a-z/@.-]+)/g);
+    checkFile('package.json', /--workspace=(@[a-z/@.-]+)/g);
+    checkFile('.github/workflows/ci.yml', /--workspace=(@[a-z/@.-]+)/g);
+  });
 });
 
 describe('Dev-stack ports: overridable host bindings', () => {

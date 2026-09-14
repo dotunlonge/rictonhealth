@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d --scale auth-service=0 --scale user-service=0 --scale payment-service=0 --scale wallet-service=0 --scale docs-service=0 && npm run docs:generate && npm run services:dev",
     "prod:up": "docker compose -f docker-compose.prod.yml --env-file .env.production up -d",
-    "services:dev": "REDIS_URL=${REDIS_URL:-redis://localhost:6379} REDIS_PASSWORD=${REDIS_PASSWORD:-ricton-secure-redis-2026} concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs\"",
+    "services:dev": "REDIS_URL=${REDIS_URL:-redis://localhost:6379} REDIS_PASSWORD=${REDIS_PASSWORD:-ricton-secure-redis-2026} concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs-service\"",
     "worker": "JWT_SECRET=worker-secret npx ts-node -O '{\"module\":\"commonjs\"}' -e \"import('./packages/shared/src/jobs/processors').then(m => m.startJobProcessors())\"",
     "build": "npm run build --workspaces --if-present",
     "build:smartguard": "bash scripts/build-smartguard.sh",

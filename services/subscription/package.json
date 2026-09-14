@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/subscription",
+  "name": "@ricton/subscription-service",
   "version": "1.0.0",
   "description": "Ricton Subscription Service - Premium plans and billing",
   "main": "dist/index.js",

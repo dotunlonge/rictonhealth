@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/admin",
+  "name": "@ricton/admin-service",
   "version": "1.0.0",
   "description": "Ricton Admin Portal Service - User management, verification, analytics",
   "main": "dist/index.js",

@@ -1,5 +1,5 @@
 {
-  "name": "@ricton/notification",
+  "name": "@ricton/notification-service",
   "version": "1.0.0",
   "description": "Ricton Notification Service",
   "main": "src/index.ts",
