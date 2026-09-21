@@ -85,7 +85,7 @@ test.describe('staging slice', () => {
     await page.goto('/login');
     await page.getByPlaceholder('Email address or phone').fill(patientEmail);
     await page.getByPlaceholder('Password').fill(password);
-    await page.getByRole('button', { name: /sign in|log in|continue/i }).click();
+    await page.getByRole('button', { name: 'Log In', exact: true }).click();
     await expect(page).not.toHaveURL(/login/, { timeout: 20000 });
 
     // UI: appointments page loads server data (no crash, no fabrication markers).

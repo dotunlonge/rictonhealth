@@ -41,7 +41,7 @@ async function uiLogin(page: any, email: string) {
   await page.goto(`${BASE}/login`);
   await page.getByPlaceholder('Email address or phone').fill(email);
   await page.getByPlaceholder('Password').fill(password);
-  await page.getByRole('button', { name: /sign in|log in|continue/i }).click();
+  await page.getByRole('button', { name: 'Log In', exact: true }).click();
 }
 
 test.describe('role dashboards', () => {
