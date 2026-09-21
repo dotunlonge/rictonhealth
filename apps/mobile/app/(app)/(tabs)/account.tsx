@@ -9,7 +9,7 @@ import { useSession } from '@/features/auth/session-provider';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
 export default function AccountScreen() {
-  const { user, signOut } = useSession();
+  const { user, signOut, logoutAll } = useSession();
   const [signingOut, setSigningOut] = useState(false);
   const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || 'Ricton patient';
 
@@ -17,6 +17,15 @@ export default function AccountScreen() {
     setSigningOut(true);
     try {
       await signOut();
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
+  const handleLogoutAll = async () => {
+    setSigningOut(true);
+    try {
+      await logoutAll();
     } finally {
       setSigningOut(false);
     }
@@ -167,6 +176,13 @@ export default function AccountScreen() {
         loading={signingOut}
         onPress={() => void handleSignOut()}
         testID="account.signOut"
+      />
+      <PrimaryButton
+        accessibilityLabel="Sign out of Ricton on all devices"
+        label="Sign out all devices"
+        loading={signingOut}
+        onPress={() => void handleLogoutAll()}
+        testID="account.signOutAll"
       />
     </Screen>
   );

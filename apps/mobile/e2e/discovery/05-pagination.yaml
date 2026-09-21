@@ -1,11 +1,25 @@
 appId: com.ricton.health
-name: Discovery - 05-pagination
+name: Discovery - nonsense query honestly empties the directory
 env:
   E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
   E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# A nonsense query honestly empties the directory; the seeded clinician is
+# back the moment the query is gone (server-filtered, unit-covered).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Unit/contract covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
+- tapOn:
+    id: booking.search
+- inputText: zzz-no-such-doctor
 - assertVisible:
-    id: patient.home.screen
+    id: booking.empty

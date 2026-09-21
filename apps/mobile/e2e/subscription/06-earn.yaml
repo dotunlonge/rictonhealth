@@ -1,6 +1,26 @@
 appId: com.ricton.health
-name: Subscription - 06-earn
+name: Subscription - seeded points balance renders
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Entitlement server-authoritative; see phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.premium
+- tapOn:
+    id: premium.go-rewards
+- assertVisible:
+    id: rewards.screen
+- assertVisible: pts
+- assertVisible: E2E Health Voucher

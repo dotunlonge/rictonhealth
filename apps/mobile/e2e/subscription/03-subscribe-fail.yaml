@@ -1,6 +1,39 @@
 appId: com.ricton.health
-name: Subscription - 03-subscribe-fail
+name: Subscription - unpaid plan stays FREE across relaunch
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Runs after journey 02 in suite order (cancelled, payment not completed):
+# the entitlement is honestly FREE even after a restart — activation only
+# ever comes from the webhook, never the tap. Run 02 first when standalone.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Entitlement server-authoritative; see phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.premium
+- stopApp
+- launchApp
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.premium
+- assertVisible:
+    id: premium.current-free

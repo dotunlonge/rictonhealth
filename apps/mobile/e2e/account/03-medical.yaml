@@ -1,6 +1,29 @@
 appId: com.ricton.health
-name: Account - 03-medical
+name: Account - medical history saves conditions
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.medical-history
+- assertVisible:
+    id: account.history.screen
+- tapOn:
+    id: account.conditions
+- inputText: Hypertension, Asthma
+- tapOn:
+    id: account.save-history
+- assertVisible:
+    id: account.history-saved

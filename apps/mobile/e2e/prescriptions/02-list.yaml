@@ -1,8 +1,20 @@
 appId: com.ricton.health
-name: Prescriptions - 02-list
+name: Prescriptions - seeded items listed with dosage
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 4). Orderability covered by clinical.test.ts.
-- assertVisible:
-    id: patient.prescriptions.screen
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.prescriptions
+- assertVisible: E2E Paracetamol 500mg
+- assertVisible: Twice daily

@@ -1,6 +1,23 @@
 appId: com.ricton.health
-name: Pharmacy - 02-search
+name: Pharmacy - search filters server-side
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- launchApp:
+    url: ricton://pharmacy
+- tapOn:
+    id: pharmacy.search
+- inputText: Vitamin
+- assertVisible: E2E Vitamin C 1000mg
+- assertNotVisible: E2E Amoxicillin 250mg

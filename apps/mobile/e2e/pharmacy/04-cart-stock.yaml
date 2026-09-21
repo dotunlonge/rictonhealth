@@ -1,6 +1,29 @@
 appId: com.ricton.health
-name: Pharmacy - 04-cart-stock
+name: Pharmacy - OTC line lands in the cart
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- launchApp:
+    url: ricton://pharmacy
+- tapOn: E2E Paracetamol 500mg
+- tapOn:
+    id: pharmacy.qty-plus
+- tapOn:
+    id: pharmacy.add
+- tapOn:
+    id: pharmacy.go-cart
+- assertVisible:
+    id: pharmacy.cart.screen
+- assertVisible:
+    id: pharmacy.go-checkout

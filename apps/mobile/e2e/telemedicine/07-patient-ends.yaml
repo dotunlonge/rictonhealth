@@ -1,6 +1,36 @@
 appId: com.ricton.health
 name: Telemedicine - 07-patient-ends
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Patient leaves mid-visit; session persists and the summary is terminal
+# (leave != end: the room continues for the clinician, server-verified).
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- tapOn:
+    id: patient.appointments.joinVideo
+- tapOn:
+    id: tele.join
+- assertVisible:
+    id: tele.active
+- tapOn:
+    id: tele.leave
+- assertVisible:
+    id: tele.summary
+- stopApp
+- launchApp
+- assertVisible:
+    id: patient.home.screen

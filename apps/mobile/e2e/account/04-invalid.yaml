@@ -1,6 +1,28 @@
 appId: com.ricton.health
-name: Account - 04-invalid
+name: Account - empty history never saves
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Saving with no conditions is refused locally with an inline error; the
+# saved flag must never appear (validation unit-covered in account-ui).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.medical-history
+- tapOn:
+    id: account.save-history
+- assertVisible:
+    id: account.history.screen
+- assertNotVisible:
+    id: account.history-saved

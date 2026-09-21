@@ -27,14 +27,18 @@ jest.mock('@/features/account/account-service', () => ({
   },
 }));
 
+const mockSessionSignOut = jest.fn();
+const mockSessionLogoutAll = jest.fn();
 jest.mock('@/features/auth/session-provider', () => ({
   useSession: () => ({
     user: { email: 'patient@example.com', firstName: 'Ada', status: 'ACTIVE' },
-    signOut: jest.fn(),
+    signOut: mockSessionSignOut,
+    logoutAll: mockSessionLogoutAll,
   }),
 }));
 
 import { accountService } from '@/features/account/account-service';
+import AccountHubScreen from '../app/(app)/(tabs)/account';
 import ProfileScreen from '../app/(app)/account/profile';
 import MedicalHistoryScreen from '../app/(app)/account/medical-history';
 import AddressesScreen from '../app/(app)/account/addresses';
@@ -134,5 +138,13 @@ describe('security', () => {
     await fireEvent.press(screen.getByTestId('account.2fa-verify'));
     await waitFor(() => expect(acct.twoFactorVerify).toHaveBeenCalledWith('123456'));
     expect(await screen.findByTestId('account.2fa-on')).toBeTruthy();
+  });
+});
+
+describe('account hub sessions', () => {
+  it('signs out of all devices via logoutAll', async () => {
+    await render(<AccountHubScreen />);
+    await fireEvent.press(screen.getByTestId('account.signOutAll'));
+    await waitFor(() => expect(mockSessionLogoutAll).toHaveBeenCalled());
   });
 });

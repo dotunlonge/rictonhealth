@@ -1,6 +1,33 @@
 appId: com.ricton.health
-name: Pharmacy - 10-tracking
+name: Pharmacy - live tracking with patient cancel
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Runs after journeys 06/07 in suite order so a PLACED order exists; the
+# patient can cancel while PLACED, and the timeline is server-driven.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- launchApp:
+    url: ricton://pharmacy
+- tapOn:
+    id: pharmacy.go-orders
+- assertVisible:
+    id: pharmacy.orders.screen
+- tapOn: PLACED
+- assertVisible:
+    id: pharmacy.tracking.screen
+- assertVisible:
+    id: pharmacy.tracking
+- tapOn:
+    id: pharmacy.cancel
+- assertVisible:
+    id: pharmacy.tracking.screen

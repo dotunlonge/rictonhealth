@@ -1,6 +1,11 @@
 appId: com.ricton.health
-name: Auth - Apple callback creates PATIENT session
+name: Auth - Apple button is wired (tap-through is sandbox)
 ---
+# The Apple button renders only on iOS with the Sign-in entitlement (this flow
+# is iOS-only); the OS sheet is manual (service unit-covered by provider tests).
 - clearState
 - launchApp
-# TODO: provider token -> POST /api/auth/oauth/apple (Phase 2 device run, sandbox)
+- assertVisible:
+    id: auth.signIn.screen
+- assertVisible:
+    id: auth.signIn.apple

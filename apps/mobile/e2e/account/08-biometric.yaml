@@ -1,6 +1,26 @@
 appId: com.ricton.health
-name: Account - 08-biometric
+name: Account - security hub reachable (biometric is device-gated)
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# OS biometric enrollment cannot be scripted; the password + 2FA controls on
+# this screen are the scripted surface (journeys 06/07).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.security
+- assertVisible:
+    id: account.security.screen
+- assertVisible:
+    id: account.change-password

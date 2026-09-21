@@ -14,6 +14,7 @@ import { Screen, StateNotice } from '@/components/ui';
 import type { AppointmentListResponse } from '@/features/appointments/types';
 import { useSession } from '@/features/auth/session-provider';
 import { apiClient } from '@/lib/api/client';
+import { GATEWAY_PATHS } from '@ricton/api-contract';
 import { useRemoteResource } from '@/lib/use-remote-resource';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
@@ -36,31 +37,30 @@ function money(amount: number, currency: string): string {
 
 export default function PatientHomeScreen() {
   const { user } = useSession();
-  const load = useCallback(
-    async () => {
-      const [apptRes, walletRes] = await Promise.allSettled([
-        apiClient.get<AppointmentListResponse>('/appointments?limit=3&offset=0'),
-        apiClient.get<{ balance: number; currency: string }>('/wallets/me'),
-      ]);
+  const load = useCallback(async () => {
+    const [apptRes, walletRes] = await Promise.allSettled([
+      apiClient.get<AppointmentListResponse>(
+        `${GATEWAY_PATHS.appointments.replace(/^\/api/, '')}?limit=3&offset=0`
+      ),
+      apiClient.get<{ balance: number; currency: string }>(
+        GATEWAY_PATHS.walletMe.replace(/^\/api/, '')
+      ),
+    ]);
 
-      const appointments =
-        apptRes.status === 'fulfilled'
-          ? apptRes.value
-          : { appointments: [], meta: { total: 0, limit: 3, offset: 0, hasMore: false } };
-      const wallet =
-        walletRes.status === 'fulfilled'
-          ? walletRes.value
-          : { balance: 0, currency: 'NGN' };
+    const appointments =
+      apptRes.status === 'fulfilled'
+        ? apptRes.value
+        : { appointments: [], meta: { total: 0, limit: 3, offset: 0, hasMore: false } };
+    const wallet =
+      walletRes.status === 'fulfilled' ? walletRes.value : { balance: 0, currency: 'NGN' };
 
-      // If both fail, throw so the user gets an explicit retry notice
-      if (apptRes.status === 'rejected' && walletRes.status === 'rejected') {
-        throw new Error('Care summary could not be loaded. Please try again.');
-      }
+    // If both fail, throw so the user gets an explicit retry notice
+    if (apptRes.status === 'rejected' && walletRes.status === 'rejected') {
+      throw new Error('Care summary could not be loaded. Please try again.');
+    }
 
-      return { appointments, wallet };
-    },
-    []
-  );
+    return { appointments, wallet };
+  }, []);
   const resource = useRemoteResource(load);
   const firstName = user?.firstName || user?.email?.split('@')[0] || 'there';
   const nextAppointment = resource.data?.appointments?.appointments?.find(

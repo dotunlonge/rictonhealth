@@ -1,6 +1,26 @@
 appId: com.ricton.health
-name: Account - 07-2fa
+name: Account - 2FA setup reveals a secret
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Reseed first (seed clears 2FA). Stops at the secret display: completing
+# verification would gate every later login behind TOTP (manual step).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.security
+- tapOn:
+    id: account.2fa-enable
+- assertVisible:
+    id: account.2fa-secret

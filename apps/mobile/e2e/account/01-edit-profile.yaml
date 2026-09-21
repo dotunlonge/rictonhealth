@@ -1,6 +1,29 @@
 appId: com.ricton.health
-name: Account - 01-edit-profile
+name: Account - profile edit saves to the server
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.edit-profile
+- assertVisible:
+    id: account.profile.screen
+- tapOn:
+    id: account.last-name
+- inputText: E2E
+- tapOn:
+    id: account.save
+- assertVisible:
+    id: account.saved

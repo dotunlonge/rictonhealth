@@ -1,6 +1,33 @@
 appId: com.ricton.health
-name: Booking - 06-insufficient-balance
+name: Booking - below-minimum top-up is rejected locally
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# The 100 NGN minimum matches the backend validator; 1 NGN never leaves the
+# device (server-side guard unit-covered by the wallet suite).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- assertVisible:
+    id: wallet.screen
+- tapOn:
+    id: wallet.go-topup
+- assertVisible:
+    id: wallet.topup.screen
+- tapOn:
+    id: wallet.amount
+- inputText: 1
+- tapOn:
+    id: wallet.launch
+- assertVisible:
+    id: wallet.amount-error

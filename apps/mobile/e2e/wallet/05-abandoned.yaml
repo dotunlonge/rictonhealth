@@ -1,6 +1,41 @@
 appId: com.ricton.health
-name: Wallet - 05-abandoned
+name: Wallet - abandoned top-up leaves no stray reference
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# The pending reference lives in memory only: after a restart the top-up
+# screen is fresh, so a half-open checkout can never be verified twice.
 - clearState
 - launchApp
-# TODO: seeded gateway + Paystack sandbox + device run (Phase 5/6). No local credit; verify via server.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- tapOn:
+    id: wallet.go-topup
+- tapOn:
+    id: wallet.amount
+- inputText: 5000
+- tapOn:
+    id: wallet.launch
+- assertVisible:
+    id: wallet.checkout-opened
+- stopApp
+- launchApp
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: patient.home.wallet
+- tapOn:
+    id: wallet.go-topup
+- assertVisible:
+    id: wallet.amount
+- assertNotVisible:
+    id: wallet.checkout-opened

@@ -1,6 +1,31 @@
 appId: com.ricton.health
-name: Auth - wrong/expired OTP + resend
+name: Auth - wrong OTP shows error instead of a session
 ---
+# Reseed first (seed deletes e2e.otp.b). 000000 is never a valid code, so the
+# error path is deterministic; resend rides the same OTP delivery as 01/03.
 - clearState
 - launchApp
-# TODO: wrong code shows error; resend via POST /api/auth/otp/send (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.createAccount
+- tapOn:
+    id: auth.register.firstName
+- inputText: E2E OTP
+- tapOn:
+    id: auth.register.email
+- inputText: e2e.otp.b@ricton.health
+- tapOn:
+    id: auth.register.password
+- inputText: E2ePass123!
+- tapOn:
+    id: auth.register.submit
+- assertVisible:
+    id: auth.register.otp
+- tapOn:
+    id: auth.register.otp
+- inputText: 000000
+- tapOn:
+    id: auth.register.submit
+- assertVisible:
+    id: auth.register.error
+- assertNotVisible:
+    id: patient.home.screen

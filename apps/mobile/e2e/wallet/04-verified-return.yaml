@@ -1,6 +1,35 @@
 appId: com.ricton.health
-name: Wallet - 04-verified-return
+name: Wallet - unpaid top-up never verifies
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Without completing browser payment, verify reports pending and the wallet
+# is untouched — reconciliation only ever credits on webhook truth.
 - clearState
 - launchApp
-# TODO: seeded gateway + Paystack sandbox + device run (Phase 5/6). No local credit; verify via server.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- tapOn:
+    id: wallet.go-topup
+- tapOn:
+    id: wallet.amount
+- inputText: 5000
+- tapOn:
+    id: wallet.launch
+- assertVisible:
+    id: wallet.checkout-opened
+- tapOn:
+    id: wallet.verify
+- assertVisible:
+    id: wallet.checkout-opened
+- assertNotVisible:
+    id: wallet.verified

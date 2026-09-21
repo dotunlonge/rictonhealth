@@ -1,6 +1,24 @@
 appId: com.ricton.health
-name: Subscription - 05-cancel
+name: Subscription - cancel is offered only to premium members
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Runs after journey 02 in suite order (FREE): with nothing to cancel, the
+# cancel control is honestly absent instead of erroring.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Entitlement server-authoritative; see phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.premium
+- assertNotVisible:
+    id: premium.cancel

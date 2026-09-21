@@ -1,6 +1,33 @@
 appId: com.ricton.health
-name: Booking - 09-verify-fail
+name: Booking - double-booking the same slot is rejected
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Runs after journey 05 in suite order: slot-0 is now taken, so the server
+# answers 409 SLOT_TAKEN and the lobby offers another time — never a silent
+# double booking (exclusion constraint + idempotency server-side).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
+- tapOn:
+    id: booking.search
+- inputText: Emeka
+- tapOn: Emeka E2E
+- tapOn:
+    id: booking.slot-0
+- tapOn:
+    id: booking.reason
+- inputText: E2E maestro double booking
+- tapOn:
+    id: booking.confirm
+- assertVisible: That time was just taken. Pick another.

@@ -1,6 +1,40 @@
 appId: com.ricton.health
 name: Telemedicine - 01-permission-granted
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- assertVisible:
+    id: patient.appointments.screen
+- tapOn:
+    id: patient.appointments.joinVideo
+- assertVisible:
+    id: tele.lobby.screen
+- tapOn:
+    id: tele.join
+- assertVisible:
+    id: tele.active
+- assertVisible:
+    id: tele.participants
+- assertVisible:
+    id: tele.mic.toggle
+- assertVisible:
+    id: tele.camera.toggle
+- tapOn:
+    id: tele.leave
+- assertVisible:
+    id: tele.summary

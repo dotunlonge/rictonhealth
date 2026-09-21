@@ -1,6 +1,23 @@
 appId: com.ricton.health
-name: Pharmacy - 01-browse
+name: Pharmacy - catalog browse from seeded stock
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- launchApp:
+    url: ricton://pharmacy
+- assertVisible:
+    id: pharmacy.catalog.screen
+- assertVisible: E2E Paracetamol 500mg

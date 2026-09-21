@@ -1,6 +1,32 @@
 appId: com.ricton.health
 name: Telemedicine - 02-camera-denied
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Manual precondition (OS-level, once): Settings -> RictonHealth -> Camera OFF.
+# Expected then: tele.blocked ("Camera is blocked...") and join stays gated.
+# With Camera ON this flow proves lobby reachability instead. The denied-copy
+# itself is unit-locked (telemedicine-ui "explains blocked camera").
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- assertVisible:
+    id: patient.appointments.screen
+- tapOn:
+    id: patient.appointments.joinVideo
+- assertVisible:
+    id: tele.lobby.screen
+- assertVisible:
+    id: tele.join

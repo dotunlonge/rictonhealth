@@ -1,6 +1,32 @@
 appId: com.ricton.health
-name: Messages - 05-read
+name: Messages - opening a thread syncs read state
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Opening marks messages read server-side (mark-read on open); returning to
+# the inbox must not crash or duplicate the thread.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Idempotent send covered by phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.messages
+- tapOn: Emeka E2E
+- assertVisible:
+    id: messages.thread.screen
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.messages
+- assertVisible:
+    id: messages.inbox.screen
+- assertVisible: Emeka E2E

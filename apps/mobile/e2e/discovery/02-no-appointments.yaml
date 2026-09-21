@@ -1,11 +1,21 @@
 appId: com.ricton.health
-name: Discovery - 02-no-appointments
+name: Discovery - home without upcoming appointments
 env:
   E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
   E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# The seeded VIDEO visit is in the past, so "next appointment" is honestly
+# empty; future bookings flip this card (booking journeys prove it).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Unit/contract covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
 - assertVisible:
     id: patient.home.screen
+- assertVisible: No upcoming appointment

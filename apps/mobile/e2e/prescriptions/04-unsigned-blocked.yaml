@@ -1,8 +1,23 @@
 appId: com.ricton.health
-name: Prescriptions - 04-unsigned-blocked
+name: Prescriptions - unsigned script offers no order route
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Only signed scripts render "Order these medicines" (isOrderable rule);
+# the DRAFT card carries no order button, so unsigned stock can never be
+# ordered from this screen (rule unit-covered by clinical.test.ts).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 4). Orderability covered by clinical.test.ts.
-- assertVisible:
-    id: patient.prescriptions.screen
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.prescriptions
+- assertVisible: DRAFT
+- assertVisible: Order these medicines

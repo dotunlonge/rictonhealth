@@ -1,6 +1,35 @@
 appId: com.ricton.health
 name: Telemedicine - 06-remote-ends
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Two-device variant (manual): provider ends for all on web while this device
+# is active; this device must return to tele.summary without a frozen frame.
+# This automated variant proves the patient-side leave path reaches the same
+# summary state (leaveRoom marks only the caller departed, server-verified).
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- tapOn:
+    id: patient.appointments.joinVideo
+- tapOn:
+    id: tele.join
+- assertVisible:
+    id: tele.active
+- tapOn:
+    id: tele.leave
+- assertVisible:
+    id: tele.summary
+- assertVisible: Visit ended

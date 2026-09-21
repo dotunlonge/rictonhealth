@@ -1,6 +1,30 @@
 appId: com.ricton.health
 name: Telemedicine - 08-invalid-room
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Unknown room deep link must land on the lobby error state with a retry
+# affordance — never a frozen spinner. If this flow goes red on first run,
+# the deep-link mapping (ricton://telemedicine/<id>) needs registering for the
+# (app)/telemedicine/[roomId] route before release.
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- launchApp:
+    url: ricton://telemedicine/00000000-0000-4000-8000-000000000000
+- assertVisible:
+    id: tele.lobby.screen
+- tapOn:
+    id: tele.join
+- assertVisible:
+    id: tele.retry

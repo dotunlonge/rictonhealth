@@ -1,6 +1,31 @@
 appId: com.ricton.health
-name: Subscription - 02-subscribe-ok
+name: Subscription - resubscribe hands off to Paystack
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Reseed first (seed restores ACTIVE PREMIUM). Cancelling drops to FREE then
+# subscribe opens provider-hosted checkout — completing payment there is the
+# manual sandbox step, so the flow ends at the handoff.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Entitlement server-authoritative; see phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.premium
+- tapOn:
+    id: premium.cancel
+- assertVisible:
+    id: premium.current-free
+- tapOn:
+    id: premium.subscribe
+- assertVisible:
+    id: premium.screen

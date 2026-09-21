@@ -5,4 +5,13 @@ name: Auth - validation errors block submit
 - launchApp
 - assertVisible:
     id: auth.signIn.screen
-# TODO: empty/invalid email + short password inline errors (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.createAccount
+- assertVisible:
+    id: auth.register.screen
+- tapOn:
+    id: auth.register.submit
+- assertVisible:
+    id: auth.register.error
+- assertNotVisible:
+    id: patient.home.screen

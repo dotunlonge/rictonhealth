@@ -1,6 +1,21 @@
 appId: com.ricton.health
 name: Auth - forgot/reset password does not leak existence
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
 ---
+# Requesting a code for a real account reaches the reset-code step; the
+# six-digit code + new password entry is the manual sandbox step. Unknown
+# emails get the identical copy (no existence leak, server-verified).
 - clearState
 - launchApp
-# TODO: forgot screen -> POST /api/auth/password/forgot -> reset confirm (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.forgot
+- assertVisible:
+    id: auth.forgot.screen
+- tapOn:
+    id: auth.forgot.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.forgot.submit
+- assertVisible:
+    id: auth.forgot.otp

@@ -1,8 +1,21 @@
 appId: com.ricton.health
-name: Prescriptions - 03-detail
+name: Prescriptions - all three clinical states visible
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 4). Orderability covered by clinical.test.ts.
-- assertVisible:
-    id: patient.prescriptions.screen
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.prescriptions
+- assertVisible: DRAFT
+- assertVisible: SIGNED
+- assertVisible: DISPENSED

@@ -1,6 +1,28 @@
 appId: com.ricton.health
-name: Account - 10-logout
+name: Account - sign out returns to a clean gate
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.signOut
+- assertVisible:
+    id: auth.signIn.screen
+- stopApp
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen
+- assertNotVisible:
+    id: patient.home.screen

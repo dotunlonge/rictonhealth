@@ -7,6 +7,7 @@ import { PatientHeader } from '@/components/PatientHeader';
 import { Screen, StateNotice } from '@/components/ui';
 import type { Prescription } from '@/features/prescriptions/types';
 import { apiClient } from '@/lib/api/client';
+import { GATEWAY_PATHS } from '@ricton/api-contract';
 import { useRemoteResource } from '@/lib/use-remote-resource';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
@@ -20,7 +21,10 @@ function prescriberName(prescription: Prescription): string {
 }
 
 export default function PrescriptionsScreen() {
-  const load = useCallback(() => apiClient.get<Prescription[]>('/prescriptions'), []);
+  const load = useCallback(
+    () => apiClient.get<Prescription[]>(GATEWAY_PATHS.prescriptions.replace(/^\/api/, '')),
+    []
+  );
   const resource = useRemoteResource(load);
 
   return (

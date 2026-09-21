@@ -1,6 +1,24 @@
 appId: com.ricton.health
-name: Booking - 03-empty-day
+name: Booking - empty directory for unknown queries
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
+- tapOn:
+    id: booking.search
+- inputText: zzz-no-such-day
+- assertVisible:
+    id: booking.empty
+- assertVisible: No clinicians found

@@ -1,6 +1,26 @@
 appId: com.ricton.health
-name: Booking - 01-provider-detail
+name: Booking - provider detail with live slots
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
+- tapOn:
+    id: booking.search
+- inputText: Emeka
+- tapOn: Emeka E2E
+- assertVisible:
+    id: booking.detail.screen
+- assertVisible:
+    id: booking.slots

@@ -1,8 +1,26 @@
 appId: com.ricton.health
-name: Auth - email registration requires verification
+name: Auth - registration reaches OTP verification
 ---
+# Reseed first (seed deletes e2e.otp.a). The six-digit code itself is manual /
+# sandbox (email/SMS delivery); this flow proves register -> code-entry UI.
 - clearState
 - launchApp
 - assertVisible:
     id: auth.signIn.screen
-# TODO: registration screen + POST /api/auth/register + OTP verify (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.createAccount
+- assertVisible:
+    id: auth.register.screen
+- tapOn:
+    id: auth.register.firstName
+- inputText: E2E OTP
+- tapOn:
+    id: auth.register.email
+- inputText: e2e.otp.a@ricton.health
+- tapOn:
+    id: auth.register.password
+- inputText: E2ePass123!
+- tapOn:
+    id: auth.register.submit
+- assertVisible:
+    id: auth.register.otp

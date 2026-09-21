@@ -1,6 +1,24 @@
 appId: com.ricton.health
-name: Messages - 06-push-link
+name: Messages - push deep link opens the inbox
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Push taps land on ricton:// deep links; the inbox must resolve them into an
+# authenticated session instead of dropping to a blank route.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Idempotent send covered by phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- launchApp:
+    url: ricton://messages
+- assertVisible:
+    id: messages.inbox.screen

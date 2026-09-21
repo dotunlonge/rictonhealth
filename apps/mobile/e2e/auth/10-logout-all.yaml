@@ -1,6 +1,32 @@
 appId: com.ricton.health
 name: Auth - logout-all invalidates sessions everywhere
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: login on A+B -> POST /api/auth/logout-all -> both unauthenticated (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.account
+- assertVisible:
+    id: patient.account.screen
+- tapOn:
+    id: account.signOutAll
+- assertVisible:
+    id: auth.signIn.screen
+- stopApp
+- launchApp
+- assertVisible:
+    id: auth.signIn.screen
+- assertNotVisible:
+    id: patient.home.screen

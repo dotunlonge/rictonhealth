@@ -1,6 +1,22 @@
 appId: com.ricton.health
-name: Wallet - 08-redaction
+name: Wallet - balances are server-rendered, no card fields
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + Paystack sandbox + device run (Phase 5/6). No local credit; verify via server.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- assertVisible:
+    id: wallet.screen
+- assertVisible: Available balance
+- assertNotVisible: Card number

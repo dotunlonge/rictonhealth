@@ -1,11 +1,25 @@
 appId: com.ricton.health
-name: Discovery - 04-specialty-filter
+name: Discovery - provider search by specialty
 env:
   E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
   E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Unit/contract covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
 - assertVisible:
-    id: patient.home.screen
+    id: booking.discover.screen
+- tapOn:
+    id: booking.search
+- inputText: Cardiology
+- assertVisible: Emeka E2E
+- assertVisible: Cardiology

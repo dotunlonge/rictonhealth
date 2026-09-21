@@ -1,6 +1,28 @@
 appId: com.ricton.health
-name: Booking - 04-slot-conflict
+name: Booking - confirm without a slot books nothing
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# No slot selected: the confirm button stays disabled, so nothing is booked
+# and no request reaches the server (slot-taken recovery is journey 09).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.findDoctor
+- tapOn:
+    id: booking.search
+- inputText: Emeka
+- tapOn: Emeka E2E
+- assertVisible:
+    id: booking.confirm
+- assertNotVisible:
+    id: booking.confirmed

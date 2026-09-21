@@ -1,6 +1,30 @@
 appId: com.ricton.health
-name: Account - 09-revoke
+name: Account - push toggle persists without dropping session
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Toggling push persists preferences (and revokes the token server-side when
+# turning off); the session must survive the round trip.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.notifications
+- tapOn:
+    id: notifications.push-toggle
+- assertVisible:
+    id: notifications.screen
+- tapOn:
+    id: navigation.account
+- assertVisible:
+    id: patient.account.screen

@@ -26,11 +26,25 @@ jest.mock('@/features/telemedicine/use-permissions', () => ({
 
 jest.mock('@/features/telemedicine/video-client', () => ({
   parseCredentials: jest.requireActual('@/features/telemedicine/video-client').parseCredentials,
-  videoClient: { connect: jest.fn(), disconnect: jest.fn() },
+  hasNativeVideoView: jest.fn(() => false),
+  videoClient: {
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+    toggleMic: jest.fn(),
+    toggleCamera: jest.fn(),
+    getSnapshot: jest.fn(() => ({
+      state: 'connected',
+      remoteParticipants: 0,
+      micEnabled: true,
+      cameraEnabled: true,
+    })),
+    subscribe: jest.fn(() => () => undefined),
+  },
 }));
 
 import { telemedicineService } from '@/features/telemedicine/telemedicine-service';
 import { useCallPermissions } from '@/features/telemedicine/use-permissions';
+import { videoClient } from '@/features/telemedicine/video-client';
 import LobbyScreen from '../app/(app)/telemedicine/[roomId]';
 
 const mockedPerms = useCallPermissions as jest.Mock;
@@ -71,5 +85,27 @@ describe('telemedicine lobby', () => {
     await fireEvent.press(screen.getByTestId('tele.leave'));
     await waitFor(() => expect(telemedicineService.leave).toHaveBeenCalledWith('room-1'));
     expect(await screen.findByTestId('tele.summary')).toBeTruthy();
+  });
+
+  it('shows participant status and mic/camera toggles when active', async () => {
+    (telemedicineService.lobbyToken as jest.Mock).mockResolvedValue({
+      token: 'tok',
+      serverUrl: 'https://livekit.example',
+    });
+    await render(<LobbyScreen />);
+    await fireEvent.press(screen.getByTestId('tele.join'));
+    expect(await screen.findByTestId('tele.participants')).toBeTruthy();
+    expect(await screen.findByTestId('tele.audio-only')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('tele.mic.toggle'));
+    await waitFor(() => expect(videoClient.toggleMic).toHaveBeenCalled());
+    await fireEvent.press(screen.getByTestId('tele.camera.toggle'));
+    await waitFor(() => expect(videoClient.toggleCamera).toHaveBeenCalled());
+  });
+
+  it('offers retry when join fails', async () => {
+    (telemedicineService.lobbyToken as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    await render(<LobbyScreen />);
+    await fireEvent.press(screen.getByTestId('tele.join'));
+    expect(await screen.findByTestId('tele.retry')).toBeTruthy();
   });
 });

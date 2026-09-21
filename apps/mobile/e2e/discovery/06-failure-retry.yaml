@@ -1,11 +1,28 @@
 appId: com.ricton.health
-name: Discovery - 06-failure-retry
+name: Discovery - directory survives an app relaunch
 env:
   E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
   E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Backend-outage retry copy is unit-covered (providers error + retry state);
+# this flow proves session restore keeps the directory reachable.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Unit/contract covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
 - assertVisible:
     id: patient.home.screen
+- stopApp
+- launchApp
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: patient.home.findDoctor
+- assertVisible:
+    id: booking.discover.screen

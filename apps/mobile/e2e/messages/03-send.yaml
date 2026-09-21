@@ -1,6 +1,29 @@
 appId: com.ricton.health
-name: Messages - 03-send
+name: Messages - idempotent send lands in the thread
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Idempotent send covered by phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.messages
+- tapOn: Emeka E2E
+- assertVisible:
+    id: messages.thread.screen
+- tapOn:
+    id: messages.composer
+- inputText: E2E hello from the device run
+- tapOn:
+    id: messages.send
+- assertVisible: E2E hello from the device run

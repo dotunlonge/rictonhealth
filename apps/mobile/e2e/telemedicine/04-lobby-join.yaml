@@ -1,6 +1,36 @@
 appId: com.ricton.health
 name: Telemedicine - 04-lobby-join
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Seeded join window is open (appointment 5 min ago, 30-min duration).
+# Dev builds without the native video module stay audio+controls live and show
+# tele.audio-only truthfully; device builds with @livekit/react-native render video.
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- assertVisible:
+    id: patient.appointments.screen
+- tapOn:
+    id: patient.appointments.joinVideo
+- assertVisible:
+    id: tele.lobby.screen
+- tapOn:
+    id: tele.join
+- assertVisible:
+    id: tele.active
+- assertVisible:
+    id: tele.participants
+- assertVisible: Waiting for your clinician

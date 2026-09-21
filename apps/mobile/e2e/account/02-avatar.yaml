@@ -1,6 +1,28 @@
 appId: com.ricton.health
-name: Account - 02-avatar
+name: Account - avatar picker is permission-gated
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Picking a real photo + presigned upload is manual (photo library + S3);
+# this flow proves the permission-gated entry from the profile screen.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Biometric/PHI handling needs privacy review.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.edit-profile
+- tapOn:
+    id: account.change-photo
+- assertVisible:
+    id: account.avatar.screen
+- assertVisible:
+    id: account.avatar-pick

@@ -1,6 +1,30 @@
 appId: com.ricton.health
-name: Booking - 07-paystack-success
+name: Booking - top-up hands off to Paystack (manual complete)
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# A valid amount opens provider-hosted checkout in the browser — Ricton never
+# takes card fields. Completing payment + verify is the manual sandbox step;
+# the flow ends once the handoff notice is up.
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 3). Idempotency + SLOT_TAKEN covered by booking.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- tapOn:
+    id: wallet.go-topup
+- tapOn:
+    id: wallet.amount
+- inputText: 5000
+- tapOn:
+    id: wallet.launch
+- assertVisible:
+    id: wallet.checkout-opened

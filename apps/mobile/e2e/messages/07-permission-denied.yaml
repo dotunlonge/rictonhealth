@@ -1,6 +1,27 @@
 appId: com.ricton.health
-name: Messages - 07-permission-denied
+name: Messages - notification center with push control
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Denying OS push permission is manual (Settings); the in-app toggle and the
+# seeded welcome notification must render regardless (preferences unit-covered).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 6). Idempotent send covered by phase6.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: navigation.account
+- tapOn:
+    id: account.notifications
+- assertVisible:
+    id: notifications.screen
+- assertVisible:
+    id: notifications.push-toggle
+- assertVisible: Welcome to Ricton E2E

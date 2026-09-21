@@ -1,6 +1,12 @@
 appId: com.ricton.health
-name: Auth - Google callback creates PATIENT session
+name: Auth - Google button is wired (tap-through is sandbox)
 ---
+# The native button renders only when EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID is set;
+# tapping it opens the OS account sheet, which Maestro cannot drive, so the
+# tap-through stays a manual sandbox step (service unit-covered).
 - clearState
 - launchApp
-# TODO: provider token -> POST /api/auth/oauth/google (Phase 2 device run, sandbox)
+- assertVisible:
+    id: auth.signIn.screen
+- assertVisible:
+    id: auth.signIn.google

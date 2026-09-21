@@ -1,6 +1,37 @@
 appId: com.ricton.health
-name: Pharmacy - 09-paystack-idempotent
+name: Pharmacy - delivery order with notes places once
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Each place attempt carries a fresh idempotency key; a double tap cannot
+# silently fork two orders (server dedupes, concurrency suite proves it).
 - clearState
 - launchApp
-# TODO: seeded gateway + device run (Phase 5). Server totals + idempotency covered by pharmacy-wallet.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- launchApp:
+    url: ricton://pharmacy
+- tapOn: E2E Paracetamol 500mg
+- tapOn:
+    id: pharmacy.add
+- tapOn:
+    id: pharmacy.go-cart
+- tapOn:
+    id: pharmacy.go-checkout
+- tapOn:
+    id: pharmacy.address
+- inputText: 15 E2E Street, Lagos
+- tapOn:
+    id: pharmacy.notes
+- inputText: E2E idempotency check
+- tapOn:
+    id: pharmacy.place-order
+- assertVisible:
+    id: pharmacy.order-placed

@@ -1,6 +1,23 @@
 appId: com.ricton.health
 name: Auth - OTP verification persists session
 ---
+# Reseed first (seed deletes e2e.otp.a). Register reaches the code screen;
+# entering the real delivered code is the manual sandbox step, after which the
+# app lands on patient.home.screen (session unit-covered by auth-extended).
 - clearState
 - launchApp
-# TODO: register -> POST /api/auth/otp/verify -> patient.home.screen (Phase 2 device run)
+- tapOn:
+    id: auth.signIn.createAccount
+- tapOn:
+    id: auth.register.firstName
+- inputText: E2E OTP
+- tapOn:
+    id: auth.register.email
+- inputText: e2e.otp.a@ricton.health
+- tapOn:
+    id: auth.register.password
+- inputText: E2ePass123!
+- tapOn:
+    id: auth.register.submit
+- assertVisible:
+    id: auth.register.otp

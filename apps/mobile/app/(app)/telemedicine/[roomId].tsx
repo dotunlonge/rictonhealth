@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { PatientHeader } from '@/components/PatientHeader';
@@ -10,7 +10,12 @@ import {
   telemedicineService,
 } from '@/features/telemedicine/telemedicine-service';
 import { useCallPermissions } from '@/features/telemedicine/use-permissions';
-import { parseCredentials, videoClient } from '@/features/telemedicine/video-client';
+import {
+  hasNativeVideoView,
+  parseCredentials,
+  videoClient,
+  type VideoSnapshot,
+} from '@/features/telemedicine/video-client';
 import { spacing, typography } from '@/theme/tokens';
 
 type Phase = 'lobby' | 'active' | 'summary';
@@ -26,10 +31,15 @@ export default function TelemedicineLobbyScreen() {
   const [joining, setJoining] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [requesting, setRequesting] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [video, setVideo] = useState<VideoSnapshot>(() => videoClient.getSnapshot());
+
+  useEffect(() => videoClient.subscribe(setVideo), []);
 
   const inWindow = scheduledAt ? canJoinNow(scheduledAt, Number(durationMinutes ?? 30)) : true;
   const blocked = lobbyBlockedReason(permissions.camera, permissions.mic);
+  const nativeVideo = hasNativeVideoView();
 
   const ensurePermissions = async (): Promise<boolean> => {
     if (permissions.camera === 'granted' && permissions.mic === 'granted') return true;
@@ -66,6 +76,28 @@ export default function TelemedicineLobbyScreen() {
     }
   };
 
+  const toggleMic = async () => {
+    setToggling(true);
+    try {
+      await videoClient.toggleMic();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not toggle microphone.');
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const toggleCamera = async () => {
+    setToggling(true);
+    try {
+      await videoClient.toggleCamera();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not toggle camera.');
+    } finally {
+      setToggling(false);
+    }
+  };
+
   const leave = async () => {
     setLeaving(true);
     try {
@@ -92,9 +124,19 @@ export default function TelemedicineLobbyScreen() {
             </View>
           ) : null}
           {!inWindow ? (
-            <StateNotice title="Not time yet" message="Join opens 10 minutes before your visit." />
+            <StateNotice title="Not time yet" message="Join opens 15 minutes before your visit." />
           ) : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? (
+            <View>
+              <Text style={styles.error}>{error}</Text>
+              <PrimaryButton
+                accessibilityLabel="Retry joining"
+                label="Retry joining"
+                onPress={() => void join()}
+                testID="tele.retry"
+              />
+            </View>
+          ) : null}
           <PrimaryButton
             accessibilityLabel="Join video visit"
             disabled={!inWindow}
@@ -107,10 +149,49 @@ export default function TelemedicineLobbyScreen() {
       ) : null}
       {phase === 'active' ? (
         <View testID="tele.active" style={styles.stack}>
-          <StateNotice
-            title="You are connected"
-            message="Your clinician will join shortly. Stay on this screen."
-          />
+          {video.state === 'reconnecting' ? (
+            <View testID="tele.reconnecting">
+              <StateNotice
+                title="Reconnecting…"
+                message="LiveKit is recovering media automatically. Stay on this screen."
+              />
+            </View>
+          ) : (
+            <StateNotice
+              title="You are connected"
+              message="Your clinician will join shortly. Stay on this screen."
+            />
+          )}
+          <Text testID="tele.participants">
+            {video.remoteParticipants === 0
+              ? 'Waiting for your clinician…'
+              : `${video.remoteParticipants} participant${video.remoteParticipants === 1 ? '' : 's'} with you`}
+          </Text>
+          {!nativeVideo ? (
+            <View testID="tele.audio-only">
+              <StateNotice
+                title="Audio + controls live"
+                message="Remote video preview needs the native video build. Your mic, camera, and leave controls below are fully live."
+              />
+            </View>
+          ) : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <View style={styles.controls}>
+            <PrimaryButton
+              accessibilityLabel={video.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+              disabled={toggling}
+              label={video.micEnabled ? 'Mute' : 'Unmute'}
+              onPress={() => void toggleMic()}
+              testID="tele.mic.toggle"
+            />
+            <PrimaryButton
+              accessibilityLabel={video.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
+              disabled={toggling}
+              label={video.cameraEnabled ? 'Camera off' : 'Camera on'}
+              onPress={() => void toggleCamera()}
+              testID="tele.camera.toggle"
+            />
+          </View>
           <PrimaryButton
             accessibilityLabel="Leave visit"
             label="Leave visit"
@@ -136,5 +217,6 @@ export default function TelemedicineLobbyScreen() {
 const styles = StyleSheet.create({
   content: { gap: spacing[5] },
   stack: { gap: spacing[4] },
+  controls: { flexDirection: 'row', gap: spacing[3] },
   error: { ...typography.caption, color: '#BE123C' },
 });

@@ -1,6 +1,31 @@
 appId: com.ricton.health
 name: Telemedicine - 03-mic-denied
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Manual precondition (OS-level, once): Settings -> RictonHealth -> Microphone OFF.
+# Expected then: tele.blocked ("Microphone is blocked..."). With Mic ON this
+# flow proves lobby reachability. Denied-copy is unit-locked (lobbyBlockedReason).
 - clearState
 - launchApp
-# TODO: real video provider path required before production (Phase 4). Join window covered by clinical.test.ts.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- assertVisible:
+    id: patient.home.screen
+- tapOn:
+    id: navigation.appointments
+- assertVisible:
+    id: patient.appointments.screen
+- tapOn:
+    id: patient.appointments.joinVideo
+- assertVisible:
+    id: tele.lobby.screen
+- assertVisible:
+    id: tele.join

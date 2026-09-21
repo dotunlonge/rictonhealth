@@ -1,6 +1,30 @@
 appId: com.ricton.health
-name: Wallet - 03-topup-launch
+name: Wallet - top-up hands off to provider checkout
+env:
+  E2E_PATIENT_EMAIL: ${E2E_PATIENT_EMAIL}
+  E2E_PATIENT_PASSWORD: ${E2E_PATIENT_PASSWORD}
 ---
+# Needs the Paystack sandbox for init; completing payment in the browser and
+# tapping verify is the manual step. The flow ends once the handoff is up —
+# no card fields exist anywhere in this app (release-hardening locked).
 - clearState
 - launchApp
-# TODO: seeded gateway + Paystack sandbox + device run (Phase 5/6). No local credit; verify via server.
+- tapOn:
+    id: auth.signIn.email
+- inputText: ${E2E_PATIENT_EMAIL}
+- tapOn:
+    id: auth.signIn.password
+- inputText: ${E2E_PATIENT_PASSWORD}
+- tapOn:
+    id: auth.signIn.submit
+- tapOn:
+    id: patient.home.wallet
+- tapOn:
+    id: wallet.go-topup
+- tapOn:
+    id: wallet.amount
+- inputText: 5000
+- tapOn:
+    id: wallet.launch
+- assertVisible:
+    id: wallet.checkout-opened
