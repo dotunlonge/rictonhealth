@@ -637,3 +637,76 @@ case-insensitive FS).
 - Earlier `test 6 ad-hoc 404` in the same run was a stale-DB artifact of the
   first alt-DB provisioning, not code: the file passes 9/9 alone and in-slice
   on a properly migrated DB (verified twice).
+
+### Full system check (2026-09-17, Docker down — local Postgres 18 + Redis)
+
+- Contracts (no Docker): 11/11 suites, 228/228 GREEN.
+- Typechecks: root (now incl. seeds) + web + mobile all exit 0.
+- Mobile: 21/21 suites, 105/105 GREEN. Packages (db/shared/contract/tokens): 8/8, 38/38.
+- DB-backed services on fresh `ricton_syscheck` (all 14 migrations applied clean):
+  28/28 suites, 195/195 GREEN in 4 chunks (full single-process run stalls at
+  teardown without `--forceExit` — pre-existing open handles, results unaffected).
+- Live seed proven on real Postgres + rerun idempotency verified
+  (1 room / 2 participants / 1 appointment / 1 thread / 1 catalog / 500 pts /
+  15000.00 NGN / 0 otp users).
+- Caught + fixed by this check: `seed-mobile-e2e.ts` never compiled (string
+  enums, unsupported nested create/include on the room relation, orphan rooms
+  on reseed) and was invisible to `typecheck` (db config only covered `src/`).
+  Fixed with real enums, room-first linking, explicit orphan cleanup, and a new
+  `typecheck:seeds` wired into root `typecheck`.
+- Not runnable here: Maestro device runs (no Maestro CLI, no Docker/Kong
+  gateway) and `test-e2e.sh` as written (Docker-only). Device pass stays the
+  release gate.
+
+### Role separation fix (2026-09-20, live stack + real browser proof)
+
+- Report: a CONSULTANT saw "My Patients" but also the patient booking flow
+  (could open booking for other doctors, self included). Audit found the same
+  class in 5 places: `/appointments` (pure patient booking UI linked from
+  doctor + hospital-admin nav), `/providers` ("Book Slot" for hospital admins),
+  `/wallet` ("Fund Wallet" for all staff), `/pharmacy` store (ordering for
+  hospital admins), `/dashboard/availability` (no role guard at all).
+- Backend was already correct (POST /appointments is PATIENT-only, GET scopes
+  per role) — confusion was UI-only, never a privilege hole.
+- Fix (role-aware content, existing pattern): `/appointments` now renders
+  patient booking vs consultant "My clinic schedule" (Confirm/Complete/Cancel
+  - room join + availability link) vs hospital read-only oversight; booking
+    CTA/modal, provider "Book Slot", wallet funding, and pharmacy ordering are
+    PATIENT-gated; availability page is CONSULTANT/HOSPITAL_ADMIN/SUPER_ADMIN.
+    Sidebar doctor entry renamed Appointments → My Schedule.
+- Guards: new `tests/role-separation.test.ts` 6/6 GREEN (was 0/6 RED).
+- Live proof (Playwright + Chromium vs running stack): fresh CONSULTANT login
+  → sidebar has My Schedule, no Find Doctors/booking; /appointments renders
+  "My clinic schedule" with queue semantics (`/tmp/role-proof-consultant-schedule.png`).
+- Contracts 12/12, 234/234 GREEN; web tsc clean; eslint 0 errors on touched files.
+
+### Deep role + wiring audit fixes (2026-09-20, three-crew audit + live proofs)
+
+- Onboarding loop (highest user impact): login sent ALL staff to onboarding
+  every time, and hospital/pharmacy onboarding bounced off the /dashboard role
+  guard. Root causes: completion was never recorded (doctor license collected
+  but dropped — schema stripped it, controller ignored it) and routing never
+  checked. Fixed: `licenseNumber` accepted end-to-end (schema → controller →
+  submit), `lib/role-home.ts` single source of truth (license/pharmacyName/
+  hospital link), login consults fresh `/users/me`, onboarding submits land on
+  role homes. Browser-proven: incomplete → /onboarding/doctor, licensed → /dashboard.
+- Backend boot crashes: 13 services imported @ricton/shared before dotenv
+  (otp.ts FATAL) + dd-trace init before env. All 13 now use the auth/admin
+  root-first pattern; all 15/15 healthy after respawn.
+- Hardening: Paystack fake-KYC/bank fallbacks 503 in production; LiveKit
+  webhook verifies raw bytes (express.raw, fixes false 403s); prescription
+  create/sign/dispense/send carry router-level requireRole (1 test message
+  updated to the edge rejection); TOTP key + real port names + preferred bank
+  provisioned across example/compose/deploy (gen script already had TOTP).
+- Product honesty: wallet empty-state fund + providers Book Slot + pharmacy
+  ordering patient-gated; patient Join Call keeps room context; SUPER_ADMIN out
+  of pharmacy portal (API 403s); fake fallback names neutralized; landing
+  HIPAA→NDPA, ambulance copy de-hyped; Premium added to patient nav; Apple
+  OAuth uses role-aware landing.
+- Mobile: tab screens compose GATEWAY_PATHS (parity test now resolves composed
+  paths against openapi.yaml); lobby copy 15 min to match the real window.
+- Not done on purpose: @livekit/react-native (needs a device build to verify —
+  mobile video stays honestly audio+presence); router roles where the
+  controller intentionally allows self (patients/:id).
+- Verification: contracts 12/12 (244), mobile 107/107, user 22/22,
+  payment+tele+rx 33/33, root+web tsc clean, eslint 0 errors, 15/15 live.

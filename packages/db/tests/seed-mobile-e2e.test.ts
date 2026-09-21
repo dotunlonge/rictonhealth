@@ -4,13 +4,18 @@
  */
 import {
   E2E_AVAILABILITY,
+  E2E_MESSAGE_BODY,
+  E2E_OTP_USERS,
   E2E_PASSWORD,
   E2E_PATIENT,
   E2E_PHARMACY,
   E2E_PRESCRIPTIONS,
   E2E_PRODUCTS,
   E2E_PROVIDER,
+  E2E_REWARD,
+  E2E_REWARD_POINTS,
   E2E_SUBSCRIPTION_PLAN,
+  E2E_VIDEO_VISIT,
   E2E_WALLET_BALANCE,
 } from '../prisma/seed-mobile-e2e.fixtures';
 
@@ -51,5 +56,22 @@ describe('mobile E2E seed fixtures', () => {
   it('funds the wallet and sets a premium entitlement', () => {
     expect(E2E_WALLET_BALANCE).toBeGreaterThan(0);
     expect(E2E_SUBSCRIPTION_PLAN).toBe('PREMIUM');
+  });
+
+  it('seeds an in-window video visit with a linked room', () => {
+    expect(E2E_VIDEO_VISIT.reason.length).toBeGreaterThan(0);
+    expect(E2E_VIDEO_VISIT.durationMinutes).toBeGreaterThan(0);
+    expect(E2E_VIDEO_VISIT.externalRoomId.startsWith('ricton-')).toBe(true);
+  });
+
+  it('reserves OTP-registration identities for rerunnable register journeys', () => {
+    expect(E2E_OTP_USERS).toHaveLength(2);
+    expect(new Set(E2E_OTP_USERS).size).toBe(2);
+  });
+
+  it('seeds a clinician thread and redeemable rewards', () => {
+    expect(E2E_MESSAGE_BODY.length).toBeGreaterThan(0);
+    expect(E2E_REWARD.name.length).toBeGreaterThan(0);
+    expect(E2E_REWARD_POINTS).toBeGreaterThan(E2E_REWARD.pointsCost);
   });
 });

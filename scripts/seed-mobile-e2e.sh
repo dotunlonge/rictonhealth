@@ -10,5 +10,7 @@ export DATABASE_URL="${DATABASE_URL:-postgresql://ricton_test_user:ricton_test_p
 echo "Seeding mobile E2E fixtures into ${DATABASE_URL%%@*}@..."
 npm run seed:e2e --workspace=@ricton/db
 echo "Seeded: e2e.patient / e2e.doctor (+availability) / e2e.pharmacy (+products),"
-echo "3 prescriptions (DRAFT/SIGNED/DISPENSED), wallet 15000 NGN, PREMIUM sub, welcome notification."
+echo "3 prescriptions (DRAFT/SIGNED/DISPENSED), wallet 15000 NGN (virtual account cleared, 2FA cleared),"
+echo "PREMIUM sub, welcome notification, in-window VIDEO visit + room, clinician thread,"
+echo "reward voucher + 500 pts, OTP-registration identities; E2E-marked bookings removed."
 echo "E2E credentials: E2E_PATIENT_EMAIL=e2e.patient@ricton.health E2E_PATIENT_PASSWORD=E2ePass123!"

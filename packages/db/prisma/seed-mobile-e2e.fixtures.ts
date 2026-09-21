@@ -72,3 +72,33 @@ export const E2E_WALLET_BALANCE = 15000;
 export const E2E_WALLET_CURRENCY = 'NGN';
 
 export const E2E_SUBSCRIPTION_PLAN = 'PREMIUM';
+
+/** Fixed OTP-registration identities (seed deletes them first, so the
+ *  register → code-entry journeys are rerunnable). */
+export const E2E_OTP_USERS = ['e2e.otp.a@ricton.health', 'e2e.otp.b@ricton.health'] as const;
+
+export const E2E_PATIENT_FIRST_NAME = 'Adaeze';
+
+/** Seeded clinician message shown in the inbox/thread journeys. */
+export const E2E_MESSAGE_BODY = 'E2E seeded hello from your clinician';
+
+/** Seeded reward catalog + points for the redeem journeys. */
+export const E2E_REWARD = {
+  name: 'E2E Health Voucher',
+  description: 'Seeded redeem journey reward',
+  pointsCost: 100,
+  stock: 50,
+} as const;
+export const E2E_REWARD_POINTS = 500;
+
+/**
+ * Seeded VIDEO visit for telemedicine journeys: booked CONFIRMED with a linked
+ * LiveKit room, scheduled 5 minutes ago (30-min duration) so the 15-early /
+ * 30-late join window is open at seed time. Reason doubles as the idempotency
+ * marker — the seed deletes only rows carrying it before recreating.
+ */
+export const E2E_VIDEO_VISIT = {
+  reason: 'E2E video follow-up visit',
+  durationMinutes: 30,
+  externalRoomId: 'ricton-e2e-video-visit',
+} as const;

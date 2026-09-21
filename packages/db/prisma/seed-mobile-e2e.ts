@@ -6,22 +6,30 @@
  */
 import {
   PrismaClient,
-  UserRole,
-  UserStatus,
+  ParticipantRole,
   PrescriptionStatus,
   SubscriptionPlan,
   SubscriptionStatus,
+  TelemedicineRoomStatus,
+  TelemedicineRoomType,
+  UserRole,
+  UserStatus,
 } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import {
   E2E_AVAILABILITY,
+  E2E_MESSAGE_BODY,
+  E2E_OTP_USERS,
   E2E_PASSWORD,
   E2E_PATIENT,
   E2E_PHARMACY,
   E2E_PRESCRIPTIONS,
   E2E_PRODUCTS,
   E2E_PROVIDER,
+  E2E_REWARD,
+  E2E_REWARD_POINTS,
   E2E_SUBSCRIPTION_PLAN,
+  E2E_VIDEO_VISIT,
   E2E_WALLET_BALANCE,
   E2E_WALLET_CURRENCY,
 } from './seed-mobile-e2e.fixtures';
@@ -39,7 +47,13 @@ async function main() {
 
   const patient = await prisma.user.upsert({
     where: { email: E2E_PATIENT.email },
-    update: { passwordHash, status: UserStatus.ACTIVE, emailVerified: true },
+    update: {
+      passwordHash,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      twoFactorEnabled: false,
+      twoFactorSecret: null,
+    },
     create: {
       email: E2E_PATIENT.email,
       phone: E2E_PATIENT.phone,
@@ -132,7 +146,12 @@ async function main() {
 
   await prisma.wallet.upsert({
     where: { userId: patient.id },
-    update: { balance: E2E_WALLET_BALANCE, currency: E2E_WALLET_CURRENCY },
+    update: {
+      balance: E2E_WALLET_BALANCE,
+      currency: E2E_WALLET_CURRENCY,
+      virtualAccountNumber: null,
+      virtualBankName: null,
+    },
     create: { userId: patient.id, balance: E2E_WALLET_BALANCE, currency: E2E_WALLET_CURRENCY },
   });
 
@@ -158,7 +177,100 @@ async function main() {
     },
   });
 
+  // Seeded VIDEO visit with a linked telemedicine room, join window open now.
+  // All E2E-marked bookings are cleared first so the booking journeys (which
+  // book real slots) stay rerunnable: reseed, then run the suite.
+  await prisma.appointment.deleteMany({
+    where: { patientId: patient.id, reason: { contains: 'E2E' } },
+  });
+  // Appointment deletes do not cascade to rooms — remove the previous seeded
+  // room explicitly (participants cascade from the room).
+  await prisma.telemedicineRoom.deleteMany({
+    where: { externalRoomId: E2E_VIDEO_VISIT.externalRoomId },
+  });
+  const videoAppointment = await prisma.appointment.create({
+    data: {
+      patient: { connect: { id: patient.id } },
+      provider: { connect: { id: provider.id } },
+      scheduledAt: new Date(Date.now() - 5 * 60_000),
+      durationMinutes: E2E_VIDEO_VISIT.durationMinutes,
+      type: 'VIDEO',
+      status: 'CONFIRMED',
+      reason: E2E_VIDEO_VISIT.reason,
+      telemedicineRoom: {
+        create: {
+          provider: { connect: { id: provider.id } },
+          roomType: TelemedicineRoomType.ONE_ON_ONE,
+          externalRoomId: E2E_VIDEO_VISIT.externalRoomId,
+          status: TelemedicineRoomStatus.CREATED,
+        },
+      },
+    },
+    include: { telemedicineRoom: true },
+  });
+  if (videoAppointment.telemedicineRoom) {
+    await prisma.telemedicineParticipant.createMany({
+      data: [
+        {
+          roomId: videoAppointment.telemedicineRoom.id,
+          userId: provider.id,
+          role: ParticipantRole.HOST,
+        },
+        {
+          roomId: videoAppointment.telemedicineRoom.id,
+          userId: patient.id,
+          role: ParticipantRole.PARTICIPANT,
+        },
+      ],
+    });
+  }
+
+  // Seeded 1:1 clinician thread (unread for the patient) for inbox journeys.
+  const seededThreads = await prisma.chatThread.findMany({
+    where: {
+      messages: { some: { body: E2E_MESSAGE_BODY } },
+      participants: { some: { userId: patient.id } },
+    },
+    select: { id: true },
+  });
+  if (seededThreads.length) {
+    await prisma.chatThread.deleteMany({
+      where: { id: { in: seededThreads.map((t) => t.id) } },
+    });
+  }
+  const thread = await prisma.chatThread.create({
+    data: {
+      participants: { create: [{ userId: provider.id }, { userId: patient.id }] },
+      messages: {
+        create: [{ senderId: provider.id, body: E2E_MESSAGE_BODY }],
+      },
+    },
+  });
+
+  // Seeded reward catalog + points for the redeem journeys.
+  await prisma.rewardCatalog.deleteMany({ where: { name: E2E_REWARD.name } });
+  await prisma.rewardCatalog.create({
+    data: {
+      name: E2E_REWARD.name,
+      description: E2E_REWARD.description,
+      pointsCost: E2E_REWARD.pointsCost,
+      stock: E2E_REWARD.stock,
+      isActive: true,
+    },
+  });
+  await prisma.rewardPoint.deleteMany({
+    where: { userId: patient.id, reason: 'E2E seed' },
+  });
+  await prisma.rewardPoint.create({
+    data: { userId: patient.id, points: E2E_REWARD_POINTS, reason: 'E2E seed' },
+  });
+
+  // OTP-registration identities are deleted so the register → code-entry
+  // journeys start clean on every seed.
+  await prisma.user.deleteMany({ where: { email: { in: [...E2E_OTP_USERS] } } });
+
   console.log(`Seeded mobile E2E fixtures for ${patient.email}`);
+  console.log(`Seeded thread ${thread.id} + rewards for ${patient.email}`);
 }
 
 main()

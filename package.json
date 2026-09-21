@@ -14,6 +14,8 @@
   ],
   "scripts": {
     "dev": "npm run format && npm run lint:fix && docker-compose up -d --scale auth-service=0 --scale user-service=0 --scale payment-service=0 --scale wallet-service=0 --scale docs-service=0 && npm run docs:generate && npm run services:dev",
+    "dev:all": "bash scripts/dev-up.sh",
+    "dev:down": "bash scripts/dev-down.sh",
     "prod:up": "docker compose -f docker-compose.prod.yml --env-file .env.production up -d",
     "services:dev": "REDIS_URL=${REDIS_URL:-redis://localhost:6379} REDIS_PASSWORD=${REDIS_PASSWORD:-ricton-secure-redis-2026} concurrently -c \"cyan,magenta,yellow,blue,green\" \"npm run dev -w @ricton/auth-service\" \"npm run dev -w @ricton/user-service\" \"npm run dev -w @ricton/payment-service\" \"npm run dev -w @ricton/wallet-service\" \"npm run dev -w @ricton/docs-service\"",
     "worker": "JWT_SECRET=worker-secret npx ts-node -O '{\"module\":\"commonjs\"}' -e \"import('./packages/shared/src/jobs/processors').then(m => m.startJobProcessors())\"",
@@ -28,7 +30,7 @@
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,json,md}\"",
-    "typecheck": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json && npm run typecheck:seeds --workspace=@ricton/db",
     "db:push": "npm run push --workspace=@ricton/db",
     "db:migrate": "npm run migrate --workspace=@ricton/db",
     "db:generate": "npm run generate --workspace=@ricton/db",
@@ -78,7 +80,8 @@
     "@types/uuid": "^10.0.0",
     "bullmq": "^5.20.0",
     "react-is": "^19.2.8",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "react-native": "0.86.3"
   },
   "overrides": {
     "react": "19.2.4",
