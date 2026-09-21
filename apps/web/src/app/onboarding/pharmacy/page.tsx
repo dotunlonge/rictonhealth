@@ -213,7 +213,7 @@ export default function PharmacyOnboardingPage() {
     setSubmitting(false);
 
     if (res.success && res.data) {
-      router.push('/dashboard');
+      router.push('/dashboard/pharmacy');
     } else {
       setFormError(res.error?.message || 'Could not save your pharmacy profile. Please try again.');
     }

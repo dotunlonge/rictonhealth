@@ -66,7 +66,7 @@ export default function PharmacyDashboard() {
   }, []);
 
   return (
-    <SidebarLayout allowedRoles={['PHARMACIST', 'SUPER_ADMIN']}>
+    <SidebarLayout allowedRoles={['PHARMACIST']}>
       <div className="space-y-8 max-w-6xl mx-auto">
         {/* Header Action Bar */}
         <div className="flex items-center justify-between flex-wrap gap-4">

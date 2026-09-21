@@ -191,6 +191,7 @@ export default function DoctorOnboardingPage() {
       lastName: formData.lastName,
       specialty: formData.specialty,
       title: 'Dr.',
+      licenseNumber: formData.licenseNumber,
       bankName: formData.bankName,
       accountNumber: formData.accountNumber,
       accountName: formData.accountName,

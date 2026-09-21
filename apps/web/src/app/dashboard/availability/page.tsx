@@ -48,7 +48,7 @@ export default function AvailabilityPage() {
   };
 
   return (
-    <SidebarLayout>
+    <SidebarLayout allowedRoles={['CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']}>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-slate-900">

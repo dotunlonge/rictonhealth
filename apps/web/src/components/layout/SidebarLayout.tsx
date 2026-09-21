@@ -71,6 +71,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
     },
     { label: 'My Wallet', href: '/wallet', icon: Wallet, keywords: 'balance payment money top-up' },
     {
+      label: 'Premium Plan',
+      href: '/subscription',
+      icon: Award,
+      keywords: 'subscription premium plan billing upgrade',
+    },
+    {
       label: 'Rewards & Points',
       href: '/rewards',
       icon: Award,
@@ -98,10 +104,10 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       keywords: 'patients directory records',
     },
     {
-      label: 'Appointments',
+      label: 'My Schedule',
       href: '/appointments',
       icon: Calendar,
-      keywords: 'booking schedule availability',
+      keywords: 'schedule clinic queue availability',
     },
     {
       label: 'Availability',

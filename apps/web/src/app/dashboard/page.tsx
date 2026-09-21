@@ -52,16 +52,16 @@ function formatTimeRange(iso: string, durationMinutes = 60) {
 }
 
 function getPatientName(appointment: any): string {
-  if (!appointment) return 'Patient Record';
+  if (!appointment) return 'Patient record';
   const profile = appointment.patient?.patientProfile || appointment.patientProfile;
   if (profile?.firstName && profile?.lastName) {
     return `${profile.firstName} ${profile.lastName}`;
   }
-  return appointment.patient?.email || appointment.name || 'Registered Patient';
+  return appointment.patient?.email || appointment.name || 'Patient record';
 }
 
 function getDoctorName(appointment: any): string {
-  if (!appointment) return 'Dr. Medical Specialist';
+  if (!appointment) return 'Medical specialist';
   const profile = appointment.provider?.providerProfile || appointment.providerProfile;
   if (profile?.firstName && profile?.lastName) {
     return `Dr. ${profile.firstName} ${profile.lastName}`;
@@ -69,7 +69,7 @@ function getDoctorName(appointment: any): string {
   if (appointment.provider?.email) {
     return `Dr. ${appointment.provider.email.split('@')[0]}`;
   }
-  return appointment.doctor || 'Dr. Oluwaseun Davies';
+  return appointment.doctor || 'Medical specialist';
 }
 
 function getMonthName(offset: number): string {

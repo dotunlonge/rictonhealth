@@ -116,7 +116,7 @@ export default function LandingPage() {
                     d="M5 13l4 4L19 7"
                   />
                 </svg>
-                <span>Designed with HIPAA-aligned safeguards</span>
+                <span>Designed with NDPA-ready safeguards</span>
               </div>
               <div className="flex items-center gap-2">
                 <svg
@@ -339,8 +339,8 @@ export default function LandingPage() {
                     Emergency & Ambulance Triage
                   </h3>
                   <p className="text-slate-600 text-sm leading-relaxed">
-                    Real-time GPS ambulance tracking, urgent dispatch coordination, and instant
-                    patient status notifications.
+                    Urgent video triage with a clinician, appointment escalation, and instant visit
+                    status notifications.
                   </p>
                 </div>
                 <Link

@@ -15,6 +15,9 @@ export default function ProvidersPage() {
   // "Add / Register Doctor" CTA (it previously routed them into the doctor
   // onboarding flow).
   const canRegisterDoctors = user?.role === 'SUPER_ADMIN' || user?.role === 'HOSPITAL_ADMIN';
+  // Booking is a patient action — staff browsing this directory (e.g. a
+  // hospital admin reviewing medical staff) must never see a "Book Slot" CTA.
+  const canBook = (user?.role ?? 'PATIENT') === 'PATIENT';
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('All');
   const [loading, setLoading] = useState(true);
@@ -184,13 +187,15 @@ export default function ProvidersPage() {
                   >
                     Direct Call
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => router.push('/appointments')}
-                    className="flex-1 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
-                  >
-                    Book Slot
-                  </button>
+                  {canBook && (
+                    <button
+                      type="button"
+                      onClick={() => router.push('/appointments')}
+                      className="flex-1 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
+                    >
+                      Book Slot
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

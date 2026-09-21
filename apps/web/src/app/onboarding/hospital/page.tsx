@@ -250,7 +250,7 @@ export default function HospitalOnboardingPage() {
     setSubmitting(false);
 
     if (res.success && res.data) {
-      router.push('/dashboard');
+      router.push('/dashboard/hospital');
     } else {
       setFormError(res.error?.message || 'Could not save your hospital profile. Please try again.');
     }

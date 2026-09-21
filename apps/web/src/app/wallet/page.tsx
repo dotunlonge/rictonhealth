@@ -18,6 +18,9 @@ interface Transaction {
 
 export default function WalletPage() {
   const { user, walletBalance, walletStatus, walletError, fetchWallet } = useAppStore();
+  // Funding/spending is a patient action — staff see balances and history
+  // only (earnings land via consultation payouts, never a top-up button).
+  const canFund = (user?.role ?? 'PATIENT') === 'PATIENT';
   // walletStatus distinguishes "genuinely ₦0" (success) from "unknown" (error):
   // an unavailable balance must never render as a valid-looking ₦0.
   const balanceKnown = walletStatus !== 'error';
@@ -25,11 +28,24 @@ export default function WalletPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [banks, setBanks] = useState<Array<{ name: string; code: string }>>([]);
+  const [bankCode, setBankCode] = useState('');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawMsg, setWithdrawMsg] = useState<string | null>(null);
+  const [withdrawError, setWithdrawError] = useState(false);
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       await fetchWallet();
+      const banksRes = await api.get<{ banks: Array<{ name: string; code: string }> }>(
+        '/payments/banks'
+      );
+      if (banksRes.success && Array.isArray(banksRes.data?.banks)) {
+        setBanks(banksRes.data.banks);
+      }
       const res = await api.get<{ transactions: any[] }>('/wallets/transactions');
       if (res.success && Array.isArray(res.data?.transactions)) {
         setTransactions(
@@ -53,8 +69,18 @@ export default function WalletPage() {
     loadData();
   }, [fetchWallet]);
 
+  const [topUpAmount, setTopUpAmount] = useState('10000');
+  const [toppingUp, setToppingUp] = useState(false);
+
   const handleTopUp = async () => {
-    const amount = 10000;
+    if (toppingUp) return;
+    const amount = Math.floor(Number(topUpAmount));
+    if (!Number.isFinite(amount) || amount < 100) {
+      setActionMsg('Enter at least ₦100 to fund your wallet.');
+      setTimeout(() => setActionMsg(null), 4000);
+      return;
+    }
+    setToppingUp(true);
     // Server-authoritative funding: initialize Paystack checkout, redirect to
     // pay, and let the webhook credit the wallet. Never credit locally.
     const res = await api.post<{ authorizationUrl?: string; reference?: string }>(
@@ -67,6 +93,7 @@ export default function WalletPage() {
             : `${Date.now()}`,
       }
     );
+    setToppingUp(false);
     if (!res.success || !res.data?.authorizationUrl) {
       setActionMsg(`Failed: ${res.error?.message || 'Could not initialize payment'}`);
       setTimeout(() => setActionMsg(null), 4000);
@@ -74,6 +101,62 @@ export default function WalletPage() {
     }
     setActionMsg(`Redirecting to Paystack to complete ₦${amount.toLocaleString()} payment…`);
     window.location.href = res.data.authorizationUrl;
+  };
+
+  const handleWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (withdrawing) return;
+    const amount = Number(withdrawAmount);
+    if (!Number.isFinite(amount) || amount < 100) {
+      setWithdrawMsg('Enter at least ₦100 to withdraw.');
+      setWithdrawError(true);
+      return;
+    }
+    if (!bankCode || accountNumber.trim().length < 10) {
+      setWithdrawMsg('Choose a bank and enter the 10-digit account number.');
+      setWithdrawError(true);
+      return;
+    }
+    setWithdrawing(true);
+    setWithdrawMsg(null);
+    setWithdrawError(false);
+    const res = await api.post<{
+      reference?: string;
+      accountName?: string;
+      transferStatus?: string;
+    }>('/wallets/withdraw', {
+      amount,
+      bankCode,
+      accountNumber: accountNumber.trim(),
+    });
+    setWithdrawing(false);
+    if (res.success && res.data?.reference) {
+      setWithdrawMsg(
+        `₦${amount.toLocaleString()} sent to ${res.data.accountName || 'your account'}. Ref ${res.data.reference.slice(-8)}.`
+      );
+      setWithdrawAmount('');
+      await fetchWallet();
+      const txRes = await api.get<{ transactions: any[] }>('/wallets/transactions');
+      if (txRes.success && Array.isArray(txRes.data?.transactions)) {
+        setTransactions(
+          txRes.data.transactions.map((t: any) => ({
+            id: t.id,
+            type: t.type === 'CREDIT' ? 'DEPOSIT' : t.type === 'DEBIT' ? 'WITHDRAWAL' : 'PAYMENT',
+            description: t.description || 'Wallet transaction',
+            amount: Number(t.amount) || 0,
+            date: new Date(t.createdAt || Date.now()).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            status: t.status || 'COMPLETED',
+          }))
+        );
+      }
+    } else {
+      setWithdrawMsg(res.error?.message || 'Withdrawal failed. No money moved.');
+      setWithdrawError(true);
+    }
+    setTimeout(() => setWithdrawMsg(null), 6000);
   };
 
   const monthlyExpenses = useMemo(() => {
@@ -111,14 +194,31 @@ export default function WalletPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={handleTopUp}
-            className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Fund Wallet (₦10,000)</span>
-          </button>
+          {canFund ? (
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="Top-up amount in naira"
+                inputMode="numeric"
+                placeholder="Amount (₦, min 100)"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-40 p-2.5 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+              />
+              <button
+                type="button"
+                onClick={handleTopUp}
+                disabled={toppingUp}
+                className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{toppingUp ? 'Starting…' : 'Fund Wallet'}</span>
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-slate-500">
+              Staff wallets receive consultation payouts — funding is patient-only.
+            </p>
+          )}
         </div>
 
         {actionMsg && (
@@ -183,6 +283,68 @@ export default function WalletPage() {
           </div>
         </div>
 
+        {/* Withdraw to bank — available to every role for their own funds.
+            The destination holder is verified server-side before any debit. */}
+        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Withdraw to bank account</h2>
+            <p className="text-[11px] font-semibold text-slate-500">
+              Minimum ₦100. The account name is verified before money moves.
+            </p>
+          </div>
+          {withdrawMsg && (
+            <div
+              role={withdrawError ? 'alert' : 'status'}
+              className={`p-3 rounded-2xl text-xs font-bold border ${
+                withdrawError
+                  ? 'bg-red-50 text-red-700 border-red-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+            >
+              {withdrawMsg}
+            </div>
+          )}
+          <form onSubmit={handleWithdraw} className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <select
+              aria-label="Destination bank"
+              value={bankCode}
+              onChange={(e) => setBankCode(e.target.value)}
+              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+            >
+              <option value="">Select bank</option>
+              {banks.map((b) => (
+                <option key={b.code} value={b.code}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="Account number"
+              inputMode="numeric"
+              maxLength={10}
+              placeholder="10-digit account number"
+              value={accountNumber}
+              onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ''))}
+              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+            />
+            <input
+              aria-label="Amount in naira"
+              inputMode="decimal"
+              placeholder="Amount (₦)"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+            />
+            <button
+              type="submit"
+              disabled={withdrawing}
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all"
+            >
+              {withdrawing ? 'Sending…' : 'Withdraw'}
+            </button>
+          </form>
+        </div>
+
         {/* Analytics & Transactions Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Chart Canvas */}
@@ -217,13 +379,15 @@ export default function WalletPage() {
                   <p className="text-xs font-bold text-slate-600">
                     No transaction activity recorded
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleTopUp}
-                    className="text-xs text-[#1877F2] font-bold hover:underline"
-                  >
-                    + Fund Wallet Now
-                  </button>
+                  {canFund && (
+                    <button
+                      type="button"
+                      onClick={handleTopUp}
+                      className="text-xs text-[#1877F2] font-bold hover:underline"
+                    >
+                      + Fund Wallet Now
+                    </button>
+                  )}
                 </div>
               ) : (
                 transactions.map((tx) => (

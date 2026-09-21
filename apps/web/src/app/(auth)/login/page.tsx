@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { homeForRole, landingForUser } from '@/lib/role-home';
 import {
   triggerAppleAuth,
   loginWithGoogleToken,
@@ -47,18 +48,19 @@ export default function LogInPage() {
     ? totpCode.length === 6
     : email.trim().length > 0 && password.length > 0;
 
-  const redirectAfterAuth = (u: any) => {
-    if (u?.role === 'SUPER_ADMIN') {
-      router.replace('/admin');
-    } else if (u?.role === 'HOSPITAL_ADMIN') {
-      router.replace('/onboarding/hospital');
-    } else if (u?.role === 'CONSULTANT') {
-      router.replace('/onboarding/doctor');
-    } else if (u?.role === 'PHARMACIST') {
-      router.replace('/onboarding/pharmacy');
-    } else {
-      router.replace('/dashboard');
+  const redirectAfterAuth = async (u: any) => {
+    // Returning staff land in their workspace — onboarding only when their
+    // profile record is actually missing (fresh profile from /users/me).
+    let full = u;
+    if (u?.role === 'CONSULTANT' || u?.role === 'PHARMACIST' || u?.role === 'HOSPITAL_ADMIN') {
+      try {
+        const fresh = await useAppStore.getState().fetchUser();
+        if (fresh) full = fresh;
+      } catch {
+        // Fall through to the role-based default below.
+      }
     }
+    router.replace(landingForUser(full) ?? homeForRole(u?.role));
   };
 
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
@@ -270,7 +272,7 @@ export default function LogInPage() {
         if (res.data.user) {
           setUser(res.data.user);
         }
-        router.push('/dashboard');
+        await redirectAfterAuth(res.data.user);
       } else {
         setErrorMsg(res.error?.message || 'Apple Sign-In failed.');
       }

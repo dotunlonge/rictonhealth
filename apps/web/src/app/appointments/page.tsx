@@ -14,6 +14,7 @@ interface AppointmentRecord {
   scheduledAt: string;
   type: string;
   status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED';
+  telemedicineRoomId: string | null;
 }
 
 function AppointmentsContent() {
@@ -25,6 +26,15 @@ function AppointmentsContent() {
   const bookParam = searchParams.get('book') || '';
 
   const { user, appointments: storeAppointments } = useAppStore();
+  // Component-level role separation: patients book here; consultants run
+  // their clinic schedule; hospital admins get read-only oversight. Booking
+  // CTAs and the booking modal never render for non-patients (the API
+  // rejects non-patient booking with 403 regardless).
+  const role = user?.role ?? 'PATIENT';
+  const isPatient = role === 'PATIENT';
+  const isConsultant = role === 'CONSULTANT';
+  const [staffMsg, setStaffMsg] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
   const [appointmentsList, setAppointmentsList] = useState<AppointmentRecord[]>(() => {
     const list = storeAppointments || [];
     return list.map((a: any) => ({
@@ -34,9 +44,12 @@ function AppointmentsContent() {
       scheduledAt: a.scheduledAt || '',
       type: a.type || 'VIDEO',
       status: a.status || 'CONFIRMED',
+      telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
     }));
   });
-  const [loading, setLoading] = useState(() => !(storeAppointments && storeAppointments.length > 0));
+  const [loading, setLoading] = useState(
+    () => !(storeAppointments && storeAppointments.length > 0)
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [statusTab, setStatusTab] = useState<'ALL' | 'CONFIRMED' | 'PENDING' | 'CANCELLED'>('ALL');
 
@@ -93,8 +106,21 @@ function AppointmentsContent() {
   const [bookingError, setBookingError] = useState(false);
   const [booking, setBooking] = useState(false);
 
-  // Synchronize modal state if query parameters change or deep link is navigated to
+  // Synchronize modal state if query parameters change or deep link is navigated to.
+  // Patients only: staff landing on ?book links get an explanatory notice
+  // in the schedule view instead of a booking modal that could never succeed.
+  // Pharmacists and super-admins have no schedule here at all — send them to
+  // their own homes instead of an oversight table that isn't theirs.
   useEffect(() => {
+    if (!user) return;
+    if (user.role === 'PHARMACIST') router.replace('/dashboard/pharmacy');
+    else if (user.role === 'SUPER_ADMIN') router.replace('/admin');
+  }, [user, router]);
+  useEffect(() => {
+    if (!isPatient) {
+      setShowBookModal(false);
+      return;
+    }
     const isDeep =
       providerIdParam !== '' ||
       dateParam !== '' ||
@@ -116,14 +142,15 @@ function AppointmentsContent() {
         setSlotDate(dateParam);
       }
     }
-  }, [providerIdParam, dateParam, bookParam, scheduledAtParam]);
+  }, [providerIdParam, dateParam, bookParam, scheduledAtParam, isPatient]);
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
+      // Staff never book: skip the provider directory entirely.
       const [apptRes, docRes] = await Promise.all([
         api.get('/appointments'),
-        api.get('/users/providers'),
+        isPatient ? api.get('/users/providers') : Promise.resolve({ success: false as const }),
       ]);
 
       if (docRes.success) {
@@ -167,6 +194,7 @@ function AppointmentsContent() {
                 : '—',
               type: a.type || 'VIDEO',
               status: a.status || 'PENDING',
+              telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
             };
           })
       );
@@ -285,6 +313,7 @@ function AppointmentsContent() {
         }),
         type: res.data.type || consultType,
         status: res.data.status || 'PENDING',
+        telemedicineRoomId: res.data.telemedicineRoomId || null,
       };
 
       setAppointmentsList((prev) => [newAppt, ...prev]);
@@ -320,6 +349,278 @@ function AppointmentsContent() {
     const cancelled = appointmentsList.filter((a) => a.status === 'CANCELLED').length;
     return { confirmed, pending, cancelled };
   }, [appointmentsList]);
+
+  // Consultant schedule actions (HOSPITAL_ADMIN is read-only oversight).
+  const setStaffStatus = async (id: string, status: 'CONFIRMED' | 'COMPLETED') => {
+    setActingId(id);
+    setStaffMsg(null);
+    const res = await api.patch(`/appointments/${id}/status`, { status });
+    setActingId(null);
+    if (res.success) {
+      setAppointmentsList((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    } else {
+      setStaffMsg(res.error?.message || 'Could not update appointment.');
+      setTimeout(() => setStaffMsg(null), 4000);
+    }
+  };
+
+  const cancelStaffAppointment = async (id: string) => {
+    setActingId(id);
+    setStaffMsg(null);
+    const res = await api.patch(`/appointments/${id}/cancel`, {});
+    setActingId(null);
+    if (res.success) {
+      setAppointmentsList((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: 'CANCELLED' as const } : a))
+      );
+    } else {
+      setStaffMsg(res.error?.message || 'Could not cancel appointment.');
+      setTimeout(() => setStaffMsg(null), 4000);
+    }
+  };
+
+  // Staff schedule view: no booking CTA, no booking modal — consultants work
+  // their queue here, hospital admins observe it.
+  if (!isPatient) {
+    const title = isConsultant ? 'My clinic schedule' : 'Hospital appointments';
+    const subtitle = isConsultant
+      ? 'Confirm requests, complete visits, and join video sessions from your queue.'
+      : 'Read-only oversight of this facility’s consultation schedule.';
+    return (
+      <SidebarLayout>
+        <div className="space-y-8 max-w-6xl mx-auto">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <Calendar className="w-6 h-6 text-[#1877F2]" /> {title}
+              </h1>
+              <p className="text-xs font-semibold text-slate-500 mt-1">{subtitle}</p>
+            </div>
+            {isConsultant && (
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/availability')}
+                className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+              >
+                <Clock className="w-4 h-4" />
+                <span>Manage Availability</span>
+              </button>
+            )}
+          </div>
+
+          {hasDeepLink() && (
+            <div
+              role="status"
+              className="p-4 rounded-2xl text-xs font-bold border flex items-center gap-2 bg-slate-50 text-slate-600 border-slate-200"
+            >
+              <User className="w-4 h-4" />
+              <span>Booking is a patient action — this view shows the schedule only.</span>
+            </div>
+          )}
+          {staffMsg && (
+            <div
+              role="alert"
+              className="p-4 rounded-2xl text-xs font-bold border flex items-center gap-2 bg-red-50 text-red-700 border-red-200"
+            >
+              <XCircle className="w-4 h-4" />
+              <span>{staffMsg}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Confirmed Sessions
+                </span>
+                <p className="text-3xl font-black text-slate-900 mt-1">{counts.confirmed}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Pending Approval
+                </span>
+                <p className="text-3xl font-black text-amber-600 mt-1">{counts.pending}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                <Clock className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Cancelled / Closed
+                </span>
+                <p className="text-3xl font-black text-slate-400 mt-1">{counts.cancelled}</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center font-bold">
+                <XCircle className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="relative w-80">
+              <Search className="absolute inset-y-0 left-3.5 my-auto text-slate-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder={
+                  isConsultant ? 'Search patient, or type...' : 'Search patient, doctor, or type...'
+                }
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-full text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1877F2] shadow-xs"
+              />
+            </div>
+            <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
+              {(['ALL', 'CONFIRMED', 'PENDING', 'CANCELLED'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setStatusTab(tab)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+                    statusTab === tab
+                      ? 'bg-[#1877F2] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-100 font-bold uppercase tracking-wider">
+                    <th className="pb-4 px-4">Patient</th>
+                    {!isConsultant && <th className="pb-4 px-4">Consultant Doctor</th>}
+                    <th className="pb-4 px-4">Scheduled Date</th>
+                    <th className="pb-4 px-4">Consultation Type</th>
+                    <th className="pb-4 px-4">Status</th>
+                    <th className="pb-4 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-xs font-bold text-slate-400">
+                        Loading clinic schedule...
+                      </td>
+                    </tr>
+                  ) : filteredAppts.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center space-y-3">
+                        <Calendar className="w-10 h-10 text-slate-300 mx-auto" />
+                        <p className="text-xs font-bold text-slate-600">
+                          No appointments on this schedule
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAppts.map((apt) => (
+                      <tr key={apt.id} className="group hover:bg-slate-50/80 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
+                              <User className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="font-extrabold text-slate-900 text-xs">
+                                {apt.patientName}
+                              </p>
+                              <p className="text-[10px] font-semibold text-slate-400">{apt.id}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {!isConsultant && (
+                          <td className="py-4 px-4 font-bold text-[#1877F2]">{apt.doctorName}</td>
+                        )}
+                        <td className="py-4 px-4 font-semibold text-slate-700">
+                          {apt.scheduledAt}
+                        </td>
+                        <td className="py-4 px-4 font-semibold text-slate-600">{apt.type}</td>
+                        <td className="py-4 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
+                              apt.status === 'CONFIRMED'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : apt.status === 'PENDING'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {apt.status}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-right">
+                          {isConsultant ? (
+                            <div className="flex items-center justify-end gap-2 flex-wrap">
+                              {apt.telemedicineRoomId && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    router.push(`/telemedicine/${apt.telemedicineRoomId}`)
+                                  }
+                                  className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
+                                >
+                                  Join Call →
+                                </button>
+                              )}
+                              {apt.status === 'PENDING' && (
+                                <button
+                                  type="button"
+                                  disabled={actingId === apt.id}
+                                  onClick={() => void setStaffStatus(apt.id, 'CONFIRMED')}
+                                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                                >
+                                  Confirm
+                                </button>
+                              )}
+                              {apt.status === 'CONFIRMED' && (
+                                <button
+                                  type="button"
+                                  disabled={actingId === apt.id}
+                                  onClick={() => void setStaffStatus(apt.id, 'COMPLETED')}
+                                  className="px-4 py-1.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                                >
+                                  Complete visit
+                                </button>
+                              )}
+                              {(apt.status === 'PENDING' || apt.status === 'CONFIRMED') && (
+                                <button
+                                  type="button"
+                                  disabled={actingId === apt.id}
+                                  onClick={() => void cancelStaffAppointment(apt.id)}
+                                  className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">
+                              Oversight only
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </SidebarLayout>
+    );
+  }
 
   return (
     <SidebarLayout>
@@ -502,7 +803,13 @@ function AppointmentsContent() {
                       <td className="py-4 px-4 text-right">
                         <button
                           type="button"
-                          onClick={() => router.push('/telemedicine')}
+                          onClick={() =>
+                            router.push(
+                              apt.telemedicineRoomId
+                                ? `/telemedicine/${apt.telemedicineRoomId}`
+                                : '/telemedicine'
+                            )
+                          }
                           className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
                         >
                           Join Call →

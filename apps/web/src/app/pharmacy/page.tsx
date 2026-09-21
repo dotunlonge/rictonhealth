@@ -5,6 +5,7 @@ import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import Link from 'next/link';
 import { ShoppingBag, CheckCircle2, ShoppingCart, Search, Pill, ShieldCheck } from 'lucide-react';
+import { useAppStore } from '@/store/useAppStore';
 
 interface PharmacyProduct {
   id: string;
@@ -26,6 +27,10 @@ interface PharmacyOrder {
 }
 
 export default function PharmacyPage() {
+  const { user } = useAppStore();
+  // Ordering is a patient action — staff browsing this store (e.g. a hospital
+  // admin reviewing the pharmacy department) get a read-only catalog.
+  const canOrder = (user?.role ?? 'PATIENT') === 'PATIENT';
   const [products, setProducts] = useState<PharmacyProduct[]>([]);
   const [orders, setOrders] = useState<PharmacyOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,25 +208,31 @@ export default function PharmacyPage() {
                     </div>
 
                     <div className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleOrderProduct(prod)}
-                        disabled={
-                          prod.requiresPrescription || prod.stock <= 0 || orderingId === prod.id
-                        }
-                        className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
-                      >
-                        <ShoppingCart className="w-3.5 h-3.5" />
-                        <span>
-                          {orderingId === prod.id
-                            ? 'Ordering...'
-                            : prod.stock <= 0
-                              ? 'Out of stock'
-                              : prod.requiresPrescription
-                                ? 'Prescription required'
-                                : 'Order Now'}
+                      {canOrder ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOrderProduct(prod)}
+                          disabled={
+                            prod.requiresPrescription || prod.stock <= 0 || orderingId === prod.id
+                          }
+                          className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>
+                            {orderingId === prod.id
+                              ? 'Ordering...'
+                              : prod.stock <= 0
+                                ? 'Out of stock'
+                                : prod.requiresPrescription
+                                  ? 'Prescription required'
+                                  : 'Order Now'}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                          Staff view — ordering is patient-only
                         </span>
-                      </button>
+                      )}
                       {prod.requiresPrescription && (
                         <Link
                           href="/prescriptions"
