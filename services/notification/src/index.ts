@@ -1,3 +1,12 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Repo-root .env first (works from src/ and dist/ alike), then an optional
+// service-local override. Must run before dd-trace init and before any
+// @ricton/* import (shared/otp.ts throws at import time without secrets).
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import ddTrace from 'dd-trace';
 
 ddTrace.init({
@@ -7,7 +16,6 @@ ddTrace.init({
 
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import { redis } from '@ricton/shared';
 import {
@@ -22,8 +30,6 @@ import {
 import notificationRoutes from './routes/notification.routes';
 import internalRoutes from './routes/internal.routes';
 import { startJobProcessors } from '@ricton/shared/jobs';
-
-dotenv.config({ path: '../../.env' });
 
 initSentry('notification-service');
 

@@ -44,6 +44,33 @@ interface PaystackInitializeResponse {
   };
 }
 
+interface PaystackResolveResponse {
+  status: boolean;
+  message: string;
+  data: {
+    account_number: string;
+    account_name: string;
+  };
+}
+
+interface PaystackRecipientResponse {
+  status: boolean;
+  message: string;
+  data: {
+    recipient_code: string;
+  };
+}
+
+interface PaystackTransferResponse {
+  status: boolean;
+  message: string;
+  data: {
+    reference: string;
+    transfer_code: string;
+    status: string;
+  };
+}
+
 export interface AtomicWalletOperationOptions {
   walletId: string;
   amount: number;
@@ -338,6 +365,7 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
       body: JSON.stringify({
         email: user.email,
         amount: Math.round(amount * 100), // Convert to kobo
+        currency: 'NGN',
         reference: `WALLET_TOPUP_${userId}_${Date.now()}`,
         first_name: firstName,
         last_name: lastName,
@@ -381,6 +409,141 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
         amount,
       })
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Withdraw wallet funds to a verified bank account (Paystack transfer).
+ *
+ * Money-safety order: validate → verify holder → debit atomically →
+ * initiate provider transfer. The debit happens BEFORE the provider call so
+ * a lost race can never pay out unbacked money; if the provider then
+ * rejects, the debit is reversed with a distinct `${reference}:reversal`
+ * idempotency key (the [walletId, referenceId] namespace is shared across
+ * credits and debits, so reversals must not reuse the debit reference).
+ * transfer.failed / transfer.reversed webhooks refund the same way.
+ */
+export const withdrawToBank = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!PAYSTACK_SECRET_KEY)
+      throw new AppError('PAYSTACK_SECRET_KEY is not configured', 500, 'SERVICE_NOT_CONFIGURED');
+
+    const userPayload = req.user as JwtPayload;
+    const userId = userPayload.userId;
+    const { amount, bankCode, accountNumber } = req.body;
+
+    if (!amount || typeof amount !== 'number' || amount < 100) {
+      throw new ValidationError('Amount must be at least 100 NGN');
+    }
+    if (!bankCode || typeof bankCode !== 'string' || !accountNumber) {
+      throw new ValidationError('bankCode and accountNumber are required');
+    }
+
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    if (!wallet) throw new NotFoundError('Wallet not found');
+    if (Number(wallet.balance) < amount) {
+      throw new ValidationError('Insufficient wallet balance');
+    }
+
+    // 1. Transfer recipient first: Paystack resolves the account itself, so a
+    // successful recipient creation IS the existence check (this also works
+    // in test mode, where standalone bank/resolve only serves test codes).
+    const recipientRes = await fetch(`${PAYSTACK_API_URL}/transferrecipient`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'nuban',
+        name: 'Ricton wallet holder',
+        account_number: String(accountNumber),
+        bank_code: String(bankCode),
+        currency: 'NGN',
+      }),
+    });
+    const recipientData = (await recipientRes.json()) as PaystackRecipientResponse;
+    if (!recipientRes.ok || !recipientData.status) {
+      throw new AppError(
+        `Destination account could not be verified: ${recipientData.message}`,
+        400,
+        'PAYSTACK_ERROR'
+      );
+    }
+
+    // 2. Human-readable holder name (best effort; never blocks on lookup).
+    let accountName = `Account ${String(accountNumber).slice(-4).padStart(10, '•')}`;
+    try {
+      const verifyRes = await fetch(
+        `${PAYSTACK_API_URL}/bank/resolve?account_number=${encodeURIComponent(String(accountNumber))}&bank_code=${encodeURIComponent(String(bankCode))}`,
+        { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+      );
+      const verifyData = (await verifyRes.json()) as PaystackResolveResponse;
+      if (verifyRes.ok && verifyData.status && verifyData.data?.account_name) {
+        accountName = verifyData.data.account_name;
+      }
+    } catch {
+      // Display-name lookup is cosmetic; existence is already proven above.
+    }
+
+    const reference = `WALLET_WITHDRAW_${userId}_${Date.now()}`;
+
+    // 3. Debit first (atomic, conditional on sufficient balance).
+    await debitWalletAtomic({
+      walletId: wallet.id,
+      amount,
+      referenceType: WalletReferenceType.PAYOUT,
+      referenceId: reference,
+      description: `Withdrawal to ${accountName} (${bankCode})`,
+    });
+
+    // 4. Initiate the provider transfer; reverse on provider rejection.
+    try {
+      const transferRes = await fetch(`${PAYSTACK_API_URL}/transfer`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          source: 'balance',
+          amount: Math.round(amount * 100),
+          recipient: recipientData.data.recipient_code,
+          reference,
+          reason: `Ricton wallet withdrawal for ${userId}`,
+        }),
+      });
+      const transferData = (await transferRes.json()) as PaystackTransferResponse;
+      if (!transferRes.ok || !transferData.status) {
+        throw new AppError(
+          `Transfer initiation failed: ${transferData.message}`,
+          400,
+          'PAYSTACK_ERROR'
+        );
+      }
+
+      res.status(200).json(
+        successResponse({
+          reference,
+          amount,
+          accountName,
+          bankCode: String(bankCode),
+          transferCode: transferData.data.transfer_code,
+          transferStatus: transferData.data.status,
+        })
+      );
+    } catch (transferError) {
+      await creditWalletAtomic({
+        walletId: wallet.id,
+        amount,
+        referenceType: WalletReferenceType.REFUND,
+        referenceId: `${reference}:reversal`,
+        description: 'Withdrawal reversal (provider rejected transfer)',
+      });
+      throw transferError;
+    }
   } catch (error) {
     next(error);
   }
@@ -562,6 +725,31 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
             referenceId: event.data.reference,
             description: 'Wallet top-up via Card/Bank Transfer',
           });
+        }
+      }
+    }
+
+    // Transfer settlement: success needs no action (debited at initiation);
+    // failed/reversed refund exactly once via the reversal reference key.
+    if (event.event === 'transfer.failed' || event.event === 'transfer.reversed') {
+      const reference = event.data?.reference;
+      if (reference && event.data?.amount > 0) {
+        // Find the wallet that carries the original debit.
+        const debit = await prisma.walletTransaction.findFirst({
+          where: { referenceId: reference },
+          select: { walletId: true },
+        });
+        if (debit) {
+          const wallet = await prisma.wallet.findUnique({ where: { id: debit.walletId } });
+          if (wallet) {
+            await creditWalletAtomic({
+              walletId: wallet.id,
+              amount: event.data.amount / 100,
+              referenceType: WalletReferenceType.REFUND,
+              referenceId: `${reference}:reversal`,
+              description: `Withdrawal reversal (${event.event})`,
+            });
+          }
         }
       }
     }

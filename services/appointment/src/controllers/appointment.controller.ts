@@ -474,8 +474,12 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 
             // Auto-create telemedicine room for VIDEO appointments. The external
             // provider identity is provisioned explicitly at token time.
+            // Link BOTH directions: room.appointmentId and
+            // appointment.telemedicineRoomId. The Prisma relation (and every
+            // membership/include check) keys off appointment.telemedicineRoomId;
+            // without it patients 403 on token mint for their own visit.
             if (type === AppointmentType.VIDEO) {
-              await tx.telemedicineRoom.create({
+              const autoRoom = await tx.telemedicineRoom.create({
                 data: {
                   providerId: resolvedProviderId,
                   appointmentId: appt.id,
@@ -483,6 +487,10 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
                   externalRoomId: `ricton-${appt.id}`,
                   status: 'CREATED',
                 },
+              });
+              await tx.appointment.update({
+                where: { id: appt.id },
+                data: { telemedicineRoomId: autoRoom.id },
               });
             }
 

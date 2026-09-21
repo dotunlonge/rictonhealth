@@ -179,6 +179,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       body: JSON.stringify({
         email,
         amount: amountInKobo,
+        currency: 'NGN',
         metadata: {
           custom_fields: [
             {
@@ -528,6 +529,11 @@ export const getBanks = async (_req: Request, res: Response, next: NextFunction)
     ];
 
     if (!PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY.includes('replace_me')) {
+      // Dev-only static reference data. In production a missing key must
+      // fail closed — a stale hardcoded list would misrepresent availability.
+      if (process.env.NODE_ENV === 'production') {
+        throw new AppError('Payment provider is not configured', 503, 'SERVICE_NOT_CONFIGURED');
+      }
       return res.status(200).json(successResponse({ banks: fallbackBanks }));
     }
 
@@ -558,6 +564,11 @@ export const resolveAccount = async (req: Request, res: Response, next: NextFunc
     }
 
     if (!PAYSTACK_SECRET_KEY || PAYSTACK_SECRET_KEY.includes('replace_me')) {
+      // NEVER fake KYC: without a provider key there is no verification.
+      // Dev may use the placeholder below; production fails closed.
+      if (process.env.NODE_ENV === 'production') {
+        throw new AppError('Payment provider is not configured', 503, 'SERVICE_NOT_CONFIGURED');
+      }
       return res.status(200).json(
         successResponse({
           accountNumber: String(accountNumber),

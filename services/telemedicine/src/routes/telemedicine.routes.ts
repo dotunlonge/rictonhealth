@@ -4,8 +4,9 @@ import * as controller from '../controllers/telemedicine.controller';
 
 const router = Router();
 
-// Provider-signed status callbacks carry no JWT (Twilio cannot); the handler
-// validates X-Twilio-Signature instead. Must precede the auth gate.
+// Provider-signed status callbacks carry no JWT (LiveKit cannot); the handler
+// validates the HMAC-SHA256 Authorization signature instead. Must precede the
+// auth gate. Verified against raw bytes (express.raw in index.ts).
 router.post('/callbacks/status', controller.handleStatusCallback);
 
 router.use(requireAuth);

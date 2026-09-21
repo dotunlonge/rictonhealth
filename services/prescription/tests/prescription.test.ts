@@ -230,7 +230,9 @@ describe('Prescription Service Lifecycle & Safety (TDD)', () => {
       });
 
     expect(res.status).toBe(403);
-    expect(res.body.error.message).toMatch(/only medical consultants/i);
+    // Rejected at the router allowlist (generic RBAC message); the
+    // controller keeps its own consultant check as defense in depth.
+    expect(res.body.error.message).toMatch(/permission|only medical consultants/i);
   });
 
   it('3. should reject signing prescription if doctor license is unverified', async () => {

@@ -274,6 +274,7 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
         specialty: updateData.specialty,
         consultationFee: updateData.consultationFee,
         title: updateData.title,
+        licenseNumber: updateData.licenseNumber,
       };
       Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
       await prisma.providerProfile.upsert({

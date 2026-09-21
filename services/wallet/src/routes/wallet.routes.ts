@@ -81,6 +81,39 @@ router.post('/topup', walletController.topupWallet);
 
 /**
  * @openapi
+ * /api/wallets/withdraw:
+ *   post:
+ *     summary: Withdraw wallet funds to a verified bank account
+ *     tags:
+ *       - Wallets
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - amount
+ *               - bankCode
+ *               - accountNumber
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 minimum: 100
+ *               bankCode:
+ *                 type: string
+ *               accountNumber:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Transfer initiated (debited, provider reference returned)
+ */
+router.post('/withdraw', walletController.withdrawToBank);
+
+/**
+ * @openapi
  * /api/wallets/transactions:
  *   get:
  *     summary: Get wallet transaction history

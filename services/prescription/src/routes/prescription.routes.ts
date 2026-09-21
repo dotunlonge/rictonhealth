@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
+import { requireAuth, requireRole } from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
 import * as controller from '../controllers/prescription.controller';
 
@@ -68,7 +68,7 @@ router.use(prescriptionRateLimit);
  *       400:
  *         description: Validation error
  */
-router.post('/', controller.createPrescription);
+router.post('/', requireRole('CONSULTANT'), controller.createPrescription);
 
 /**
  * @openapi
@@ -138,7 +138,7 @@ router.get('/:id', controller.getPrescriptionById);
  *       403:
  *         description: Unverified license forbidden
  */
-router.post('/:id/sign', controller.signPrescription);
+router.post('/:id/sign', requireRole('CONSULTANT'), controller.signPrescription);
 
 /**
  * @openapi
@@ -174,7 +174,11 @@ router.post('/:id/sign', controller.signPrescription);
  *       403:
  *         description: Only the owning patient may assign the prescription
  */
-router.patch('/:id/send-to-pharmacy', controller.sendPrescriptionToPharmacy);
+router.patch(
+  '/:id/send-to-pharmacy',
+  requireRole('PATIENT'),
+  controller.sendPrescriptionToPharmacy
+);
 
 /**
  * @openapi
@@ -196,6 +200,6 @@ router.patch('/:id/send-to-pharmacy', controller.sendPrescriptionToPharmacy);
  *       400:
  *         description: Bad Request
  */
-router.patch('/:id/dispense', controller.dispensePrescription);
+router.patch('/:id/dispense', requireRole('PHARMACIST'), controller.dispensePrescription);
 
 export default router;

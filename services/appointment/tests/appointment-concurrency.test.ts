@@ -131,8 +131,10 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
   });
 
   afterAll(async () => {
-    await prisma.telemedicineRoom.deleteMany({ where: { providerId: provider.id } });
+    // Appointments first: they now carry telemedicineRoomId (bidirectional
+    // room link), so rooms must be deleted after, not before.
     await prisma.appointment.deleteMany({ where: { providerId: provider.id } });
+    await prisma.telemedicineRoom.deleteMany({ where: { providerId: provider.id } });
     await prisma.providerAvailability.deleteMany({ where: { providerId: provider.id } });
     await prisma.providerProfile.deleteMany({ where: { userId: provider.id } });
     await prisma.user.deleteMany({
@@ -159,6 +161,18 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
     expect(res.body.data.providerId).toBe(provider.id);
     expect(res.body.data.patientId).toBe(patientA.id);
     expect(res.body.data.status).toBe(AppointmentStatus.PENDING);
+  });
+
+  it('1b. VIDEO booking links the auto-room bidirectionally (token mint works)', async () => {
+    const booked = await prisma.appointment.findFirstOrThrow({
+      where: { providerId: provider.id, patientId: patientA.id },
+      include: { telemedicineRoom: true },
+    });
+    // Both directions of the link must exist: the relation every membership
+    // and include check keys off appointment.telemedicineRoomId.
+    expect(booked.telemedicineRoomId).toBeTruthy();
+    expect(booked.telemedicineRoom).toBeTruthy();
+    expect(booked.telemedicineRoom?.appointmentId).toBe(booked.id);
   });
 
   it('2. should reject booking if requested time is outside provider availability window', async () => {

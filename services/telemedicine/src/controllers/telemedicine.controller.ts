@@ -526,7 +526,11 @@ export const handleStatusCallback = async (req: Request, res: Response, next: Ne
     if (!signature) {
       throw new ForbiddenError('Missing LiveKit webhook signature');
     }
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {});
+    const rawBody = Buffer.isBuffer(req.body)
+      ? req.body.toString('utf8')
+      : typeof req.body === 'string'
+        ? req.body
+        : JSON.stringify(req.body ?? {});
     const expected = crypto.createHmac('sha256', apiSecret).update(rawBody).digest('base64');
     const valid =
       signature.length === expected.length &&
@@ -535,7 +539,12 @@ export const handleStatusCallback = async (req: Request, res: Response, next: Ne
       throw new ForbiddenError('Invalid LiveKit webhook signature');
     }
 
-    const event = req.body as { event?: string; room?: { name?: string; sid?: string } };
+    let event: { event?: string; room?: { name?: string; sid?: string } };
+    try {
+      event = JSON.parse(rawBody);
+    } catch {
+      throw new ForbiddenError('Invalid LiveKit webhook payload');
+    }
     const roomName = event?.room?.name;
     if (!roomName) {
       res.status(200).json(successResponse({ ignored: true }));

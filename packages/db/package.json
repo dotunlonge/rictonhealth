@@ -6,6 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b .",
+    "typecheck:seeds": "tsc --noEmit -p tsconfig.seeds.json",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
     "seed": "ts-node prisma/seed.ts",

@@ -1,11 +1,14 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { createCors, logger } from '@ricton/shared';
 import * as Sentry from '@sentry/node';
 import adminRoutes from './routes/admin.routes';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT_ADMIN || 3010;

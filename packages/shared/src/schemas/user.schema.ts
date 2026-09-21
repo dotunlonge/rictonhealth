@@ -86,6 +86,7 @@ export const UpdateProfileInputSchema = registry.register(
     specialty: z.string().optional(),
     consultationFee: z.number().optional(),
     title: z.string().optional(),
+    licenseNumber: z.string().optional(),
     pharmacyName: z.string().optional(),
     // Hospital Onboarding fields
     hospitalName: z.string().optional(),

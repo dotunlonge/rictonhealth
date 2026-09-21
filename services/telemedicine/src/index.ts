@@ -1,3 +1,12 @@
+import dotenv from 'dotenv';
+import path from 'path';
+
+// Repo-root .env first (works from src/ and dist/ alike), then an optional
+// service-local override. Must run before dd-trace init and before any
+// @ricton/* import (shared/otp.ts throws at import time without secrets).
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
 import ddTrace from 'dd-trace';
 
 ddTrace.init({
@@ -7,7 +16,6 @@ ddTrace.init({
 
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
-import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import {
   HTTP_STATUS,
@@ -22,8 +30,6 @@ import {
 } from '@ricton/shared';
 import telemedicineRoutes from './routes/telemedicine.routes';
 
-dotenv.config({ path: '../../.env' });
-
 initSentry('telemedicine-service');
 
 const app = express();
@@ -32,6 +38,13 @@ const PORT = process.env.PORT_TELEMEDICINE || 3013;
 app.set('trust proxy', true);
 app.use(helmet());
 app.use(createCors());
+// LiveKit signs raw bytes — parse the status callback as a Buffer BEFORE
+// express.json(), otherwise verification runs against re-serialized JSON and
+// false-rejects on whitespace/key-order drift.
+app.use(
+  '/api/telemedicine/callbacks/status',
+  express.raw({ type: 'application/json', limit: '1mb' })
+);
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(httpLogger);

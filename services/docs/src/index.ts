@@ -1,3 +1,12 @@
+import dotenv from 'dotenv';
+import rootPath from 'path';
+
+// Repo-root .env first (works from src/ and dist/ alike), then an optional
+// service-local override. Must run before dd-trace init and before any
+// @ricton/* import (shared/otp.ts throws at import time without secrets).
+dotenv.config({ path: rootPath.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: rootPath.resolve(__dirname, '../.env') });
+
 import ddTrace from 'dd-trace';
 
 ddTrace.init({
@@ -11,7 +20,6 @@ import swaggerUi from 'swagger-ui-express';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'yaml';
-import dotenv from 'dotenv';
 import { prisma } from '@ricton/db';
 import {
   logger,
@@ -23,8 +31,6 @@ import {
   AppError,
   HTTP_STATUS,
 } from '@ricton/shared';
-
-dotenv.config({ path: '../../.env' });
 
 initSentry('docs-service');
 
