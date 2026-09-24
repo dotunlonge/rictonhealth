@@ -798,3 +798,55 @@ All items from the booking/calling deep audit closed. Docker test stack
   torn down afterwards.
 - Still open (devices/humans): Maestro runs, live two-party media, native
   VideoView build, a11y passes, pentest, store assets, rollout drill.
+
+### Production secrets pass (2026-09-24 — generated what is generatable)
+
+- Created: `TOTP_ENCRYPTION_KEY` (was missing) and a real `REDIS_PASSWORD`
+  (was a literal placeholder) via `scripts/gen-prod-secrets.sh`; file stays
+  mode 600 and gitignored. Full `.env.production` validated against
+  `packages/shared/src/env.ts` — schema-clean.
+- Pre-existing real values kept: JWT/REFRESH/OTP/INTERNAL secrets, Google
+  web+iOS OAuth, Twilio keys, Paystack keys, LiveKit trio.
+- Still human-only (external accounts / AWS outputs — cannot be generated):
+  real `DATABASE_URL` (RDS endpoint/user/password — file holds placeholders
+  and fails validation until replaced), Paystack LIVE keys (file has TEST
+  keys), `TWILIO_PHONE_NUMBER`, `SENDGRID_API_KEY`, AWS account + IAM keys,
+  Apple OAuth IDs, `TELEMEDICINE_CALLBACK_URL` (template added — needs the
+  public API base i.e. `NEXT_PUBLIC_API_URL`), `EXPO_PUBLIC_API_URL` for
+  mobile builds, Sentry DSN (optional). Confirm LiveKit keys are the prod
+  project (file comment says local-dev).
+
+### Prod-track secrets completion (2026-09-24 — local vs AWS tracks)
+
+- Local (.env + compose) vs AWS prod (Helm + Secrets Manager) confirmed as
+  the standing split; built out the prod side. Found: Helm rendered only 6
+  secret keys (prod k8s would boot without Paystack/Twilio/SendGrid/LiveKit/
+  Redis-password/Frontend values) and the Terraform app secret lacked
+  LiveKit/Google/Frontend keys entirely.
+- Fixed: `secrets.yaml` now renders the full 16-key set (optional blocks) +
+  matching `values.yaml` defaults; `secrets.tf` app JSON stages the same key
+  set; new `values-prod.yaml` (eu-west-2, replicas/HPA, migration hook,
+  ingress, every secret as SET_VIA_DEPLOY with source derivations + ESO
+  bypass documented). Pinned by 3 new `ops-integrity` IaC tests (43/43).
+- Still human: `terraform apply` (no state/AWS creds on this machine),
+  provider keys, public API base for ingress + callback URL.
+
+### Zero-console domain attach (2026-09-24 — local docker to AWS stays self-sufficient)
+
+- Confirmed the standing split: local (.env + compose) vs AWS (Helm +
+  Secrets Manager); deploy is push → ECR → SSH compose on the staging host
+  with ECR repos self-creating. Only the backend domain needed code.
+- `scripts/render-kong-tls.ts` (pinned by `tests/kong-tls-render.test.ts`
+  5/5): renders the deploy Kong config — global ACME plugin (Let's Encrypt
+  http-01, auto-renew, certs in the stack redis) only when API_DOMAIN +
+  ACME_EMAIL are set, else byte-identical passthrough (HTTP as today).
+  Kong 443 was already mapped; challenge path bypasses edge JWT by prefix.
+- Deploy workflow now: derives API_DOMAIN (explicit secret, else API URL
+  host; never localhost/private IPs), derives TELEMEDICINE_CALLBACK_URL,
+  appends the API origin to CORS, renders Kong TLS, upserts the Route53 A
+  record + opens 80/443 on the host SG (best-effort with warnings), then
+  ships the rendered kong.yml. Only possible manual step left: a single A
+  record at a non-Route53 registrar, or buying the domain itself.
+- Verified: workflow YAML parses, both bash blocks pass `bash -n`,
+  derivation matrix correct (domain/empty/local/private cases), ops 44/44,
+  root tsc clean.

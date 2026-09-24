@@ -330,3 +330,74 @@ describe('Shared-package imports have no queue side effects', () => {
     );
   });
 });
+
+describe('Prod secrets cover every runtime credential', () => {
+  it('helm renders the full key set (or defers to existingSecret)', () => {
+    const tpl = read('infra/helm/ricton-service/templates/secrets.yaml');
+    for (const key of [
+      'DATABASE_URL',
+      'REDIS_URL',
+      'REDIS_PASSWORD',
+      'JWT_SECRET',
+      'PAYSTACK_SECRET_KEY',
+      'TWILIO_ACCOUNT_SID',
+      'TWILIO_AUTH_TOKEN',
+      'TWILIO_PHONE_NUMBER',
+      'SENDGRID_API_KEY',
+      'SENDGRID_FROM_EMAIL',
+      'LIVEKIT_URL',
+      'LIVEKIT_API_KEY',
+      'LIVEKIT_API_SECRET',
+      'GOOGLE_CLIENT_ID',
+      'GOOGLE_CLIENT_SECRET',
+      'FRONTEND_URL',
+    ]) {
+      expect(tpl).toMatch(new RegExp(key));
+    }
+    expect(tpl).toMatch(/existingSecret/);
+  });
+
+  it('terraform app secret stages the same key set', () => {
+    const tf = read('infra/terraform/secrets.tf');
+    for (const key of [
+      'DATABASE_URL',
+      'REDIS_URL',
+      'REDIS_PASSWORD',
+      'JWT_SECRET',
+      'PAYSTACK_SECRET_KEY',
+      'TWILIO_ACCOUNT_SID',
+      'TWILIO_AUTH_TOKEN',
+      'TWILIO_PHONE_NUMBER',
+      'SENDGRID_API_KEY',
+      'SENDGRID_FROM_EMAIL',
+      'LIVEKIT_URL',
+      'LIVEKIT_API_KEY',
+      'LIVEKIT_API_SECRET',
+      'GOOGLE_CLIENT_ID',
+      'GOOGLE_CLIENT_SECRET',
+      'FRONTEND_URL',
+    ]) {
+      expect(tf).toMatch(new RegExp(key));
+    }
+  });
+
+  it('values-prod pins prod posture with deploy-time secret markers', () => {
+    const values = read('infra/helm/ricton-service/values-prod.yaml');
+    expect(values).toMatch(/SET_VIA_DEPLOY/);
+    expect(values).toMatch(/databaseUrl/);
+    expect(values).toMatch(/migration:/);
+    expect(values).toMatch(/ingress:/);
+  });
+
+  it('deploys the backend behind a domain with zero console steps', () => {
+    // Domain attach is code: render Kong TLS (ACME), upsert the Route53 A
+    // record, derive the telemedicine callback + CORS origin. Nothing here
+    // may require an AWS-console click.
+    const workflow = read('.github/workflows/deploy-aws-ecr.yml');
+    expect(workflow).toMatch(/render-kong-tls/);
+    expect(workflow).toMatch(/route53|Route53|change-resource-record-sets/);
+    expect(workflow).toMatch(/TELEMEDICINE_CALLBACK_URL/);
+    expect(workflow).toMatch(/ALLOWED_ORIGINS/);
+    expect(workflow).toMatch(/API_DOMAIN/);
+  });
+});

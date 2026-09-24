@@ -43,6 +43,12 @@ resource "aws_secretsmanager_secret_version" "app" {
     TWILIO_PHONE_NUMBER  = ""
     SENDGRID_API_KEY     = ""
     SENDGRID_FROM_EMAIL  = ""
+    LIVEKIT_URL          = ""
+    LIVEKIT_API_KEY      = ""
+    LIVEKIT_API_SECRET   = ""
+    GOOGLE_CLIENT_ID     = ""
+    GOOGLE_CLIENT_SECRET = ""
+    FRONTEND_URL         = ""
   })
   lifecycle {
     ignore_changes = [secret_string]

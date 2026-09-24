@@ -104,6 +104,15 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Node.js (kong render)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13
+          cache: npm
+
+      - name: Install Dependencies (kong render)
+        run: npm ci --ignore-scripts
+
       - name: Prepare deployment bundle
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
@@ -141,6 +150,8 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
           TELEMEDICINE_CALLBACK_URL: ${{ secrets.TELEMEDICINE_CALLBACK_URL }}
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
           LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
@@ -151,6 +162,41 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
+          # --- Domain attach derivations (zero console): explicit secrets win,
+          # derived values fill the rest. Nothing here requires AWS clicks.
+          # API_DOMAIN: explicit secret, else the host of NEXT_PUBLIC_API_URL
+          # (never localhost/private IPs — LE cannot issue for those).
+          if [ -z "${API_DOMAIN:-}" ] && [ -n "${NEXT_PUBLIC_API_URL:-}" ]; then
+            CANDIDATE="$(echo "$NEXT_PUBLIC_API_URL" | sed -E 's|https?://([^/:]+).*|\1|')"
+            if echo "$CANDIDATE" | grep -Eq '^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$|.*\.local)$'; then
+              API_DOMAIN=""
+            else
+              API_DOMAIN="$CANDIDATE"
+            fi
+          fi
+          # Telemedicine callback: explicit secret, else <api-base>/telemedicine/callbacks/status.
+          if [ -z "${TELEMEDICINE_CALLBACK_URL:-}" ] && [ -n "${NEXT_PUBLIC_API_URL:-}" ]; then
+            API_BASE="${NEXT_PUBLIC_API_URL%/}"
+            if [[ "$API_BASE" == */api ]]; then
+              TELEMEDICINE_CALLBACK_URL="${API_BASE}/telemedicine/callbacks/status"
+            else
+              TELEMEDICINE_CALLBACK_URL="${API_BASE}/api/telemedicine/callbacks/status"
+            fi
+          fi
+          # CORS: browsers call the API domain, so it must be allowed.
+          if [ -n "${API_DOMAIN:-}" ]; then
+            case ",${ALLOWED_ORIGINS:-}," in
+              *",https://${API_DOMAIN},"*) ;;
+              *)
+                if [ -z "${ALLOWED_ORIGINS:-}" ]; then
+                  ALLOWED_ORIGINS="https://${API_DOMAIN}"
+                else
+                  ALLOWED_ORIGINS="${ALLOWED_ORIGINS},https://${API_DOMAIN}"
+                fi
+                ;;
+            esac
+          fi
+          echo "API_DOMAIN=${API_DOMAIN:-}" >> "$GITHUB_ENV"
           cat > .env.production <<EOF
           NODE_ENV="production"
           DATABASE_URL="${DATABASE_URL}"
@@ -198,6 +244,58 @@ jobs:
           AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
           AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
           EOF
+          # Render Kong TLS: ACME plugin only when API_DOMAIN + ACME_EMAIL are
+          # set, else the source config ships byte-identical (HTTP as today).
+          KONG_IN=gateway/kong.yml KONG_OUT=gateway/kong.deploy.yml \
+            API_DOMAIN="${API_DOMAIN:-}" ACME_EMAIL="${ACME_EMAIL:-}" \
+            NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-}" \
+            npx ts-node -O '{"module":"commonjs"}' scripts/render-kong-tls.ts
+          echo "Effective API_DOMAIN=${API_DOMAIN:-<none>}"
+
+      - name: Configure AWS Credentials (domain attach)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'eu-west-2' }}
+
+      - name: Attach backend domain (DNS + firewall, zero console)
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          API_DOMAIN: ${{ env.API_DOMAIN }}
+        run: |
+          if [ -z "${API_DOMAIN:-}" ]; then
+            echo "No API_DOMAIN — skipping domain attach (HTTP as today)."
+            exit 0
+          fi
+          # Resolve the staging host to an IPv4 address.
+          if [[ "$STAGING_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            HOST_IP="$STAGING_HOST"
+          else
+            HOST_IP="$(getent hosts "$STAGING_HOST" | awk '{print $1}' | grep -E '^[0-9.]+$' | head -1 || true)"
+          fi
+          if [ -z "${HOST_IP:-}" ]; then
+            echo "::warning::Could not resolve STAGING_HOST to an IP — add an A record for ${API_DOMAIN} manually."
+            exit 0
+          fi
+          # Upsert the A record in Route53 when the parent zone lives there;
+          # otherwise print the single manual record needed.
+          PARENT="$(echo "$API_DOMAIN" | rev | cut -d. -f1-2 | rev)"
+          ZONE_ID="$(aws route53 list-hosted-zones-by-name --dns-name "${PARENT}." --query "HostedZones[?Name=='${PARENT}.'].Id" --output text 2>/dev/null || true)"
+          if [ -n "$ZONE_ID" ] && [ "$ZONE_ID" != "None" ]; then
+            aws route53 change-resource-record-sets --hosted-zone-id "$ZONE_ID" --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${API_DOMAIN}.\",\"Type\":\"A\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"${HOST_IP}\"}]}}]}" \
+              || echo "::warning::Route53 upsert failed — add A ${API_DOMAIN} -> ${HOST_IP} manually."
+            # Open 80/443 on the host's security groups (best effort).
+            SG_IDS="$(aws ec2 describe-instances --filters "Name=ip-address,Values=${HOST_IP}" --query "Reservations[].Instances[].SecurityGroups[].GroupId" --output text 2>/dev/null || true)"
+            for SG in $SG_IDS; do
+              for PORT in 80 443; do
+                aws ec2 authorize-security-group-ingress --group-id "$SG" --protocol tcp --port "$PORT" --cidr 0.0.0.0/0 2>/dev/null \
+                  || echo "Port $PORT already open on $SG (or unauthorized)."
+              done
+            done
+          else
+            echo "::warning::No Route53 zone for ${PARENT} — add one A record: ${API_DOMAIN} -> ${HOST_IP}."
+          fi
 
       - name: Sync bundle to staging host
         env:
@@ -215,7 +313,7 @@ jobs:
           ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/id_ed25519 "${STAGING_USER}@${STAGING_HOST}" "mkdir -p /opt/ricton/gateway /opt/ricton/scripts"
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml .env.production openapi.yaml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/"
-          scp -i ~/.ssh/id_ed25519 gateway/kong.yml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/gateway/"
+          scp -i ~/.ssh/id_ed25519 gateway/kong.deploy.yml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/gateway/kong.yml"
 
       - name: Run migrations and deploy containers
         env:

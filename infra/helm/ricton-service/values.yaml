@@ -64,6 +64,19 @@ secrets:
   refreshSecret: ""
   otpSecret: ""
   internalApiSecret: ""
+  redisPassword: ""
+  paystackSecretKey: ""
+  twilioAccountSid: ""
+  twilioAuthToken: ""
+  twilioPhoneNumber: ""
+  sendgridApiKey: ""
+  sendgridFromEmail: ""
+  livekitUrl: ""
+  livekitApiKey: ""
+  livekitApiSecret: ""
+  googleClientId: ""
+  googleClientSecret: ""
+  frontendUrl: ""
 
 ingress:
   enabled: false

@@ -1,0 +1,77 @@
+# Production values for the Ricton service chart (AWS prod track).
+#
+# Local dev (.env + compose) and AWS prod (this file + Secrets Manager) are
+# separate tracks: this file is the prod side. NEVER commit real secret
+# values here — every secret below is a SET_VIA_DEPLOY marker resolved at
+# deploy time from `terraform output` (infra endpoints) and human-held
+# provider keys, or bypassed entirely via secrets.existingSecret (ESO).
+#
+# Deploy shape:
+#   helm upgrade --install ricton-service ./infra/helm/ricton-service \
+#     -f ./infra/helm/ricton-service/values-prod.yaml \
+#     --set secrets.databaseUrl="$(terraform -chdir=infra/terraform output -raw postgres_endpoint | sed 's|^|postgresql://USER:PASS@|;s|$|:5432/ricton?schema=public|')" \
+#     --set secrets.redisUrl="rediss://$(terraform -chdir=infra/terraform output -raw redis_endpoint)" \
+#     --set secrets.jwtSecret="$(openssl rand -hex 32)" \
+#     ... (remaining secrets below)
+# Or point secrets.existingSecret at the ESO-synced ricton/prod/app secret
+# and leave every value below empty.
+
+image:
+  # eu-west-2 to match the data plane (see infra/terraform + .env.production).
+  repository: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/ricton-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+replicaCount: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+migration:
+  # Pre-install/upgrade hook runs `prisma migrate deploy` before pods roll.
+  enabled: true
+  image:
+    repository: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/ricton-db
+    tag: "latest"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  # Must be the public API base patients and LiveKit reach. The
+  # TELEMEDICINE_CALLBACK_URL provider key is https://<this host>/api/telemedicine/callbacks/status.
+  host: "api.ricton.com"
+
+env:
+  - name: NODE_ENV
+    value: "production"
+  - name: LOG_LEVEL
+    value: "info"
+
+secrets:
+  existingSecret: ""
+  # From `terraform output` after apply (see header for exact derivations).
+  databaseUrl: "SET_VIA_DEPLOY"
+  redisUrl: "SET_VIA_DEPLOY"
+  # Generated per deploy (openssl rand -hex 32) or synced from Secrets Manager.
+  jwtSecret: "SET_VIA_DEPLOY"
+  refreshSecret: "SET_VIA_DEPLOY"
+  otpSecret: "SET_VIA_DEPLOY"
+  internalApiSecret: "SET_VIA_DEPLOY"
+  redisPassword: "SET_VIA_DEPLOY"
+  # Human-held provider keys (dashboards). Empty = fail-closed at runtime.
+  paystackSecretKey: "SET_VIA_DEPLOY"
+  twilioAccountSid: "SET_VIA_DEPLOY"
+  twilioAuthToken: "SET_VIA_DEPLOY"
+  twilioPhoneNumber: "SET_VIA_DEPLOY"
+  sendgridApiKey: "SET_VIA_DEPLOY"
+  sendgridFromEmail: "SET_VIA_DEPLOY"
+  livekitUrl: "SET_VIA_DEPLOY"
+  livekitApiKey: "SET_VIA_DEPLOY"
+  livekitApiSecret: "SET_VIA_DEPLOY"
+  googleClientId: "SET_VIA_DEPLOY"
+  googleClientSecret: "SET_VIA_DEPLOY"
+  frontendUrl: "SET_VIA_DEPLOY"
