@@ -33,9 +33,9 @@ export const GATEWAY_PATHS = {
   walletTopup: '/api/wallets/topup',
   walletTransactions: '/api/wallets/transactions',
   walletVirtualAccount: '/api/wallets/virtual-account',
+  paymentInitialize: '/api/payments/initialize',
   paymentVerify: '/api/payments/verify',
   teleRooms: '/api/telemedicine/rooms',
-  teleRoomToken: '/api/telemedicine/rooms/token',
   subscriptionPlans: '/api/subscriptions/plans',
   subscriptionMy: '/api/subscriptions/my',
   subscriptionUpgrade: '/api/subscriptions/upgrade',
@@ -54,4 +54,66 @@ export type GatewayPath = (typeof GATEWAY_PATHS)[keyof typeof GATEWAY_PATHS];
 
 export function joinGateway(base: string, path: string): string {
   return `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+}
+
+/** Per-room telemedicine paths (room id is part of the path, not a literal). */
+export function teleRoomTokenPath(roomId: string): string {
+  return `${GATEWAY_PATHS.teleRooms}/${roomId}/token`;
+}
+
+export function teleRoomJoinPath(roomId: string): string {
+  return `${GATEWAY_PATHS.teleRooms}/${roomId}/join`;
+}
+
+export function teleRoomLeavePath(roomId: string): string {
+  return `${GATEWAY_PATHS.teleRooms}/${roomId}/leave`;
+}
+
+/**
+ * Stable idempotency-key scope for write flows (booking, checkout, …).
+ *
+ * Generates one random key per selection and returns the SAME key on retry,
+ * so a timeout/double-tap replays against the original request instead of
+ * creating a duplicate. Call `reset()` after success/cancel so a later
+ * rebook of the same slot is a new intent with a fresh key.
+ */
+export interface IdempotencyScope {
+  keyFor(...parts: string[]): string;
+  reset(...parts: string[]): void;
+  clear(): void;
+}
+
+function randomKey(): string {
+  try {
+    const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+    if (c?.randomUUID) return c.randomUUID();
+  } catch {
+    // fall through to Math.random below
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}-${Math.random()
+    .toString(36)
+    .slice(2, 12)}`;
+}
+
+export function createIdempotencyScope(): IdempotencyScope {
+  const cache = new Map<string, string>();
+  const id = randomKey();
+  const cacheKey = (parts: string[]) => `${id}::${parts.join('|')}`;
+  return {
+    keyFor(...parts: string[]): string {
+      const k = cacheKey(parts);
+      let existing = cache.get(k);
+      if (!existing) {
+        existing = randomKey();
+        cache.set(k, existing);
+      }
+      return existing;
+    },
+    reset(...parts: string[]): void {
+      cache.delete(cacheKey(parts));
+    },
+    clear(): void {
+      cache.clear();
+    },
+  };
 }

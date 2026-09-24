@@ -22,6 +22,14 @@ jest.mock('@ricton/shared', () => {
   };
 });
 
+// Notification queues are external infrastructure: stub the enqueue calls so
+// lifecycle notifications resolve without Redis/BullMQ.
+jest.mock('@ricton/shared/jobs', () => ({
+  __esModule: true,
+  emailQueue: { add: jest.fn().mockResolvedValue(undefined) },
+  smsQueue: { add: jest.fn().mockResolvedValue(undefined) },
+}));
+
 describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
   let app: Express;
   let patientA: any;

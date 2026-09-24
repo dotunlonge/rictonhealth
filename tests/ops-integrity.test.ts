@@ -170,6 +170,15 @@ describe('Gateway abuse containment', () => {
     expect(kong).toMatch(/auth-service[\s\S]{0,600}rate-limiting/);
     expect(kong).toMatch(/fault_tolerant:\s*false/);
   });
+
+  it('verifies JWT at the edge for booking and video surfaces', () => {
+    // Service-level requireAuth stays authoritative; edge JWT sheds
+    // unauthenticated floods before they reach the appointment/telemedicine
+    // services (same iss/exp config as user-service).
+    const kong = read('gateway/kong.yml');
+    expect(kong).toMatch(/appointment-service[\s\S]{0,600}name: jwt/);
+    expect(kong).toMatch(/telemedicine-service[\s\S]{0,600}name: jwt/);
+  });
 });
 
 describe('Service ports: defaults match the canonical map', () => {

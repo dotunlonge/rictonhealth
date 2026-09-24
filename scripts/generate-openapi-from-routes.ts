@@ -206,6 +206,7 @@ export function syncOpenApiRouteCoverage() {
     'POST /api/rewards/internal/earn': 'EarnPointsRequest',
     'PUT /api/users/me/avatar': 'AvatarUploadInput',
     'PUT /api/users/me/medical-history': 'MedicalHistoryInput',
+    'PATCH /api/appointments/{id}/reschedule': 'RescheduleAppointment',
   };
   // Provider-defined webhook payloads (Paystack/Twilio): documented as
   // external contracts rather than fabricated schemas.

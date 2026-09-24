@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { requireAuth } from '@ricton/auth-middleware';
+import { rateLimit } from '@ricton/shared';
 import * as controller from '../controllers/telemedicine.controller';
 
 const router = Router();
+
+// Admit-by-code is a bearer credential: throttle join/token issuance before
+// the membership check so room codes cannot be brute-forced.
+const joinRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'telemedicine-join' });
 
 // Provider-signed status callbacks carry no JWT (LiveKit cannot); the handler
 // validates the HMAC-SHA256 Authorization signature instead. Must precede the
@@ -20,8 +25,8 @@ router.post('/rooms', controller.createRoom);
 router.post('/meetings', controller.createRoom);
 
 // Get token
-router.post('/rooms/:id/token', controller.getRoomToken);
-router.post('/meetings/:id/token', controller.getRoomToken);
+router.post('/rooms/:id/token', joinRateLimit, controller.getRoomToken);
+router.post('/meetings/:id/token', joinRateLimit, controller.getRoomToken);
 
 // Confirm lifecycle only after the browser/device RTC connection succeeds.
 /**
@@ -43,7 +48,7 @@ router.post('/meetings/:id/token', controller.getRoomToken);
  *       200:
  *         description: Participant lifecycle updated
  */
-router.post('/rooms/:id/join', controller.joinRoom);
+router.post('/rooms/:id/join', joinRateLimit, controller.joinRoom);
 
 /**
  * @openapi
@@ -64,7 +69,7 @@ router.post('/rooms/:id/join', controller.joinRoom);
  *       200:
  *         description: Participant lifecycle updated
  */
-router.post('/meetings/:id/join', controller.joinRoom);
+router.post('/meetings/:id/join', joinRateLimit, controller.joinRoom);
 
 // End room session (host/provider/admin only — ends for everyone)
 router.post('/rooms/:id/end', controller.endRoom);

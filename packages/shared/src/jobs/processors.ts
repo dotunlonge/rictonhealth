@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { bullmqConnection } from '../redis';
 import { EmailJob, SmsJob, NotificationJob, WebhookJob } from './types';
 import { startRenewalWorker, scheduleRenewalSweep } from './renewals';
+import { startReminderWorker, scheduleReminderSweep } from './reminders';
 import { startOutboxWorker, scheduleOutboxRelay } from './outbox';
 
 const SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
@@ -188,9 +189,22 @@ export const startJobProcessors = () => {
     logger.error({ err }, 'Failed to schedule subscription renewal sweep')
   );
 
+  const reminderWorker = startReminderWorker();
+  scheduleReminderSweep().catch((err) =>
+    logger.error({ err }, 'Failed to schedule appointment reminder sweep')
+  );
+
   const outboxWorker = startOutboxWorker();
   scheduleOutboxRelay().catch((err) => logger.error({ err }, 'Failed to schedule outbox relay'));
 
   logger.info('[JobProcessors] All workers started');
-  return { emailWorker, smsWorker, notificationWorker, webhookWorker, renewalWorker, outboxWorker };
+  return {
+    emailWorker,
+    smsWorker,
+    notificationWorker,
+    webhookWorker,
+    renewalWorker,
+    reminderWorker,
+    outboxWorker,
+  };
 };

@@ -5,7 +5,10 @@ export interface RoomCredentials {
   serverUrl: string;
 }
 
-export type VideoConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting';
+export type VideoConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
+
+/** Backend token TTL is 1h: refresh 10 minutes early so long visits never drop. */
+export const TOKEN_REFRESH_MS = 50 * 60 * 1000;
 
 export interface VideoSnapshot {
   state: VideoConnectionState;
@@ -95,7 +98,12 @@ export class VideoClient {
     this.emit({ remoteParticipants: remotes instanceof Map ? remotes.size : 0 });
   }
 
-  async connect(credentials: RoomCredentials, attempts = 2): Promise<LiveKitRoom> {
+  async connect(
+    credentials: RoomCredentials,
+    attempts = 2,
+    options: { video?: boolean } = {}
+  ): Promise<LiveKitRoom> {
+    const videoEnabled = options.video !== false;
     this.emit({ state: 'connecting' });
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= Math.max(1, attempts); attempt += 1) {
@@ -103,9 +111,11 @@ export class VideoClient {
       try {
         await room.connect(credentials.serverUrl, credentials.token, { autoSubscribe: true });
         await room.localParticipant.setMicrophoneEnabled(true);
-        await room.localParticipant.setCameraEnabled(true);
+        if (videoEnabled) {
+          await room.localParticipant.setCameraEnabled(true);
+        }
         this.room = room;
-        this.emit({ state: 'connected', micEnabled: true, cameraEnabled: true });
+        this.emit({ state: 'connected', micEnabled: true, cameraEnabled: videoEnabled });
         this.syncParticipants();
         this.onRoom(RoomEvent.Reconnecting, () => this.emit({ state: 'reconnecting' }));
         this.onRoom(RoomEvent.Reconnected, () => {
@@ -114,6 +124,12 @@ export class VideoClient {
         });
         this.onRoom(RoomEvent.ParticipantConnected, () => this.syncParticipants());
         this.onRoom(RoomEvent.ParticipantDisconnected, () => this.syncParticipants());
+        // Host end-for-all (or token expiry) closes the RTC session: surface
+        // it as ended so the lobby shows "visit ended", not a dead room.
+        this.onRoom(RoomEvent.Disconnected, () => {
+          this.room = null;
+          this.emit({ state: 'ended', remoteParticipants: 0 });
+        });
         return room;
       } catch (caught) {
         lastError = caught;
@@ -144,6 +160,20 @@ export class VideoClient {
     await this.room?.disconnect();
     this.room = null;
     this.emit({ state: 'idle', remoteParticipants: 0 });
+  }
+
+  /**
+   * Swap in fresh credentials before the 1h token TTL expires (the installed
+   * livekit-client has no seamless token update, so this reconnects). Tears
+   * down the old room only after the new credentials are in hand; on failure
+   * the client reports idle and the caller surfaces rejoin UI.
+   */
+  async refresh(credentials: RoomCredentials): Promise<void> {
+    const wasVideo = this.snapshot.cameraEnabled;
+    this.offRoom();
+    await this.room?.disconnect().catch(() => undefined);
+    this.room = null;
+    await this.connect(credentials, 1, { video: wasVideo });
   }
 }
 

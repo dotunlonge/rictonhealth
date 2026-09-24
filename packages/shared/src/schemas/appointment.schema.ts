@@ -87,6 +87,14 @@ export const UpdateAppointmentStatusSchema = registry.register(
   })
 );
 
+export const RescheduleAppointmentSchema = registry.register(
+  'RescheduleAppointment',
+  z.object({
+    scheduledAt: z.string().datetime(),
+    durationMinutes: z.number().int().positive().optional(),
+  })
+);
+
 export const GetAvailabilityQuerySchema = registry.register(
   'GetAvailabilityQuery',
   z.object({
@@ -136,6 +144,7 @@ export type GetAppointmentResponseSchema = z.infer<typeof GetAppointmentResponse
 export type ListAppointmentsResponseSchema = z.infer<typeof ListAppointmentsResponseSchema>;
 export type CreateAppointmentSchema = z.infer<typeof CreateAppointmentSchema>;
 export type UpdateAppointmentStatusSchema = z.infer<typeof UpdateAppointmentStatusSchema>;
+export type RescheduleAppointmentSchema = z.infer<typeof RescheduleAppointmentSchema>;
 export type GetAvailabilityQuerySchema = z.infer<typeof GetAvailabilityQuerySchema>;
 export type SetAvailabilityInputSchema = z.infer<typeof SetAvailabilityInputSchema>;
 export type GetAppointmentsQuerySchema = z.infer<typeof GetAppointmentsQuerySchema>;
@@ -258,6 +267,32 @@ registry.registerPath({
     200: { description: 'Status updated' },
     404: { description: 'Not found' },
     403: { description: 'Forbidden' },
+  },
+});
+
+registry.registerPath({
+  method: 'patch',
+  path: '/api/appointments/{id}/reschedule',
+  summary: 'Move a PENDING/CONFIRMED appointment to a new slot (same provider)',
+  security: [{ bearerAuth: [] }],
+  parameters: [
+    { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+  ],
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: RescheduleAppointmentSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: 'Appointment rescheduled' },
+    400: { description: 'Validation error' },
+    403: { description: 'Forbidden' },
+    404: { description: 'Not found' },
+    409: { description: 'Target slot already booked' },
   },
 });
 

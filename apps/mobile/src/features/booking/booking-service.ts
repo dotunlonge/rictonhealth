@@ -59,6 +59,51 @@ export class BookingService {
     return Array.isArray(data) ? { slots: data } : data;
   }
 
+  async cancelAppointment(id: string): Promise<unknown> {
+    return unwrapData(await this.api.patch(`${rel(GATEWAY_PATHS.appointments)}/${id}/cancel`, {}));
+  }
+
+  async rescheduleAppointment(id: string, scheduledAt: string): Promise<unknown> {
+    try {
+      return unwrapData(
+        await this.api.patch(`${rel(GATEWAY_PATHS.appointments)}/${id}/reschedule`, {
+          scheduledAt,
+        })
+      );
+    } catch (caught) {
+      const status =
+        caught instanceof ApiClientError ? caught.status : (caught as { status?: unknown }).status;
+      if (status === 409) {
+        throw new SlotTakenError(caught instanceof Error ? caught.message : undefined);
+      }
+      throw caught;
+    }
+  }
+
+  /**
+   * Provider-hosted consultation-fee checkout. The amount is server-priced
+   * from the provider's consultationFee; the client never sends an amount.
+   * Payment stays advisory (cash/offline flows exist) — confirmation never
+   * blocks on it.
+   */
+  async initiateAppointmentPayment(input: {
+    appointmentId: string;
+    email: string;
+  }): Promise<{ authorization_url: string; reference: string; paymentId: string }> {
+    return unwrapData(
+      await this.api.post(`${rel(GATEWAY_PATHS.paymentInitialize)}`, {
+        email: input.email,
+        type: 'APPOINTMENT',
+        referenceId: input.appointmentId,
+      })
+    );
+  }
+
+  /** Reconcile a provider return against server state. */
+  async verifyAppointmentPayment(reference: string): Promise<{ status: string }> {
+    return unwrapData(await this.api.get(`${rel(GATEWAY_PATHS.paymentVerify)}/${reference}`));
+  }
+
   async createAppointment(
     input: CreateAppointmentInput,
     options: { idempotencyKey: string }
@@ -75,11 +120,14 @@ export class BookingService {
         { headers: { 'Idempotency-Key': options.idempotencyKey } }
       );
     } catch (caught) {
-      if (
-        caught instanceof ApiClientError &&
-        (caught.status === 409 || caught.code === 'SLOT_TAKEN')
-      ) {
-        throw new SlotTakenError(caught.message);
+      // Server reality: 409 + code APPOINTMENT_CONFLICT (in-flight
+      // idempotency replays also surface here). Map every 409 to the typed
+      // slot-taken error while preserving the server message. Duck-type the
+      // status so the mapping survives cross-module class duplicates.
+      const status =
+        caught instanceof ApiClientError ? caught.status : (caught as { status?: unknown }).status;
+      if (status === 409) {
+        throw new SlotTakenError(caught instanceof Error ? caught.message : undefined);
       }
       throw caught;
     }

@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 
-import { GATEWAY_PATHS, joinGateway } from '../src';
+import {
+  GATEWAY_PATHS,
+  joinGateway,
+  teleRoomJoinPath,
+  teleRoomLeavePath,
+  teleRoomTokenPath,
+} from '../src';
 
 describe('api-contract paths', () => {
   it('uses plural gateway prefixes', () => {
@@ -30,6 +36,7 @@ describe('api-contract paths', () => {
     expect(GATEWAY_PATHS.pharmacyOrders).toBe('/api/pharmacy/orders');
     expect(GATEWAY_PATHS.walletTopup).toBe('/api/wallets/topup');
     expect(GATEWAY_PATHS.paymentVerify).toBe('/api/payments/verify');
+    expect(GATEWAY_PATHS.paymentInitialize).toBe('/api/payments/initialize');
   });
   it('exposes Phase 2 auth endpoints', () => {
     expect(GATEWAY_PATHS.authRegister).toBe('/api/auth/register');
@@ -58,6 +65,11 @@ describe('api-contract paths', () => {
     );
     expect(messaging).toMatch(/\/api\/messages\//);
     expect(messaging).not.toMatch(/\/messaging\//);
+  });
+  it('builds per-room telemedicine paths with the room id', () => {
+    expect(teleRoomTokenPath('room-1')).toBe('/api/telemedicine/rooms/room-1/token');
+    expect(teleRoomJoinPath('room-1')).toBe('/api/telemedicine/rooms/room-1/join');
+    expect(teleRoomLeavePath('room-1')).toBe('/api/telemedicine/rooms/room-1/leave');
   });
   it('web api-client calls match GATEWAY_PATHS for money/auth flows', () => {
     const webClient = fs.readFileSync(

@@ -251,6 +251,38 @@ describe('G2: appointments + admin + onboarding envelopes', () => {
     expect(src).not.toMatch(/General Consultation/);
   });
 
+  it('patients pay consultation fees via provider-hosted checkout (advisory)', () => {
+    // Backend prices from consultationFee; the client never sends an amount.
+    // Payment marks PAID but never blocks care (cash/offline flows exist).
+    const src = web('app/appointments/page.tsx');
+    expect(src).toMatch(/\/payments\/initialize/);
+    expect(src).toMatch(/APPOINTMENT/);
+    expect(src).toMatch(/referenceId/);
+    expect(src).toMatch(/authorization_url/);
+    expect(src).toMatch(/Paid/);
+    expect(src).not.toMatch(/amount:\s*consultationFee/);
+  });
+
+  it('patients reschedule through the availability grid, never free text', () => {
+    // Reschedule reuses the slot grid (server revalidates window/alignment)
+    // and PATCHes the reschedule endpoint with the chosen slot.
+    const src = web('app/appointments/page.tsx');
+    expect(src).toMatch(/\/reschedule/);
+    expect(src).toMatch(/reschedul/i);
+  });
+
+  it('patient cancel carries an optional reason to the provider', () => {
+    const src = web('app/appointments/page.tsx');
+    expect(src).toMatch(/\/cancel/);
+    expect(src).toMatch(/reason/);
+  });
+
+  it('in-person visits show where to go (hospital name + address)', () => {
+    const src = web('app/appointments/page.tsx');
+    expect(src).toMatch(/hospitalName|hospitalAddress/);
+    expect(src).toMatch(/confirm venue/i);
+  });
+
   it('privileged roles are provisioned by admins, never self-registered', () => {
     const register = web('app/(auth)/register/page.tsx');
     expect(register).not.toMatch(/HOSPITAL_ADMIN/);

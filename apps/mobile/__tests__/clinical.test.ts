@@ -48,4 +48,11 @@ describe('telemedicine join window', () => {
       false
     );
   });
+  it('accepts tuned windows without changing the 15/30 defaults', () => {
+    // A deployment that widens the backend window must not desync the lobby.
+    expect(
+      canJoinNow('2026-09-05T12:00:00Z', 30, now, { earlyMinutes: 180, lateMinutes: 60 })
+    ).toBe(true);
+    expect(canJoinNow('2026-09-05T12:00:00Z', 30, now)).toBe(false);
+  });
 });

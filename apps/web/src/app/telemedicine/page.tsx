@@ -5,7 +5,7 @@ import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
-import { Video, Plus, Play, Calendar, User, Clock, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Video, Plus, Play, ArrowRight } from 'lucide-react';
 
 type Meeting = {
   id: string;
@@ -110,12 +110,14 @@ export default function TelemedicinePage() {
     e.preventDefault();
     const code = joinCode.trim();
     if (!code || joining) return;
-    // Authorize before navigating: POST /rooms/:id/join is membership-checked
-    // server-side and returns 404/403 for unknown or unauthorized rooms, so a
-    // mistyped code surfaces a visible error instead of a dead room page.
+    // Validate before navigating WITHOUT joining: POST /rooms/:id/join flips
+    // CREATED→ACTIVE + joinedAt server-side, so a lobby pre-check through it
+    // would masquerade abandoned checks as attended sessions. The token
+    // endpoint is membership- and window-checked but presence-free; the room
+    // page performs the real join after its RTC connection succeeds.
     setJoining(true);
     setJoinError(null);
-    const res = await api.post(`/telemedicine/rooms/${encodeURIComponent(code)}/join`);
+    const res = await api.post(`/telemedicine/rooms/${encodeURIComponent(code)}/token`);
     setJoining(false);
     if (res.success) {
       router.push(`/telemedicine/${encodeURIComponent(code)}`);

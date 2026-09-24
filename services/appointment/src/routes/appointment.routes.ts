@@ -6,6 +6,7 @@ import {
   validateQuery,
   CreateAppointmentSchema,
   UpdateAppointmentStatusSchema,
+  RescheduleAppointmentSchema,
   GetAvailabilityQuerySchema,
   GetAppointmentsQuerySchema,
   SetAvailabilityInputSchema,
@@ -73,6 +74,14 @@ router.patch(
   '/:id/cancel',
   requireRole('PATIENT', 'CONSULTANT'),
   appointmentController.cancelAppointment
+);
+
+// Reschedule appointment (same provider, new slot; never double-books)
+router.patch(
+  '/:id/reschedule',
+  requireRole('PATIENT', 'CONSULTANT'),
+  validateRequest(RescheduleAppointmentSchema),
+  appointmentController.rescheduleAppointment
 );
 
 export default router;

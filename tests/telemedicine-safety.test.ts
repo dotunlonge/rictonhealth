@@ -113,6 +113,24 @@ describe('G4: leave ≠ end', () => {
     expect(leaveFn).not.toMatch(/status:\s*TelemedicineRoomStatus\.ENDED/);
   });
 
+  it('lobby validates room codes without joining (no presence pollution)', () => {
+    // POST …/join flips CREATED→ACTIVE + joinedAt server-side. The lobby
+    // pre-check must use the side-effect-free token endpoint instead, so
+    // abandoned lobby checks never masquerade as attended sessions.
+    const src = read('apps/web/src/app/telemedicine/page.tsx');
+    expect(src).not.toMatch(/telemedicine\/rooms\/.*\/join/);
+    expect(src).toMatch(/\/token/);
+  });
+
+  it('rate-limits join/token issuance (admit-by-code brute force)', () => {
+    // The room code is a bearer credential; unauthenticated guessing must be
+    // throttled before the membership check, not after.
+    const src = routes();
+    expect(src).toMatch(/rateLimit/);
+    expect(src).toMatch(/rooms\/:id\/token/);
+    expect(src).toMatch(/rooms\/:id\/join/);
+  });
+
   it('surfaces reconnect, network quality, and waiting-room states', () => {
     const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
     expect(src).toMatch(/networkQuality/);
@@ -127,6 +145,63 @@ describe('G4: leave ≠ end', () => {
     expect(src).toMatch(/\/end/);
     expect(src).not.toMatch(/end-to-end encrypted|End-to-end encrypted/i);
     expect(src).toMatch(/not recorded by Ricton/i);
+  });
+
+  it('web video room surfaces remote end and offers a fresh-token rejoin', () => {
+    // Host end-for-all closes the RTC session: the page must show "visit
+    // ended" (not a dead room) and re-mint a token on rejoin, since the old
+    // token may be expired.
+    const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
+    expect(src).toMatch(/RoomEvent\.Disconnected/);
+    expect(src).toMatch(/Visit ended|visit has ended/i);
+    expect(src).toMatch(/Rejoin/i);
+  });
+
+  it('web video room degrades to audio-only when the camera fails', () => {
+    // A blocked camera must not abort the whole visit: mic stays live with
+    // an honest audio-only notice.
+    const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
+    expect(src).toMatch(/audio-only|Audio-only/i);
+    const connectFn = src.slice(src.indexOf('async function connect'));
+    expect(connectFn).toMatch(/setCameraEnabled/);
+    // Camera enablement is attempted but never throws the whole connect.
+    expect(connectFn).not.toMatch(/await livekitRoom\.localParticipant\.setCameraEnabled\(true\);/);
+  });
+
+  it('web video room prompts a fresh-token rejoin before the 1h token TTL', () => {
+    // Backend tokens live 1h; the page warns before expiry and rejoins via a
+    // reload (the mount effect re-mints), so long consults never strand users.
+    const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
+    expect(src).toMatch(/50\s*\*\s*60|TOKEN_REFRESH|expiring soon|refresh/i);
+    expect(src).toMatch(/Rejoin/i);
+  });
+
+  it('web call controls reflect the device, never optimistic flips', () => {
+    // Fire-and-forget mute() + unconditional setState lies when the device
+    // call fails. Toggles must await the device and only flip on success.
+    const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
+    const muteFn = src.slice(src.indexOf('const toggleMute'), src.indexOf('const toggleVideo'));
+    expect(muteFn).toMatch(/await/);
+    expect(muteFn).toMatch(/setActionError|setError/);
+    const videoFn = src.slice(
+      src.indexOf('const toggleVideo'),
+      src.indexOf('const stopScreenShare')
+    );
+    expect(videoFn).toMatch(/await/);
+    expect(videoFn).toMatch(/setActionError|setError/);
+  });
+
+  it('web leave surfaces server failure instead of navigating away', () => {
+    // Redirecting after a failed /leave strands the user server-side-joined
+    // with no retry. Failure must stay on the page with an error.
+    const src = read('apps/web/src/app/telemedicine/[id]/page.tsx');
+    const leaveFn = src.slice(
+      src.indexOf('const handleLeave'),
+      src.indexOf('const handleEndForAll')
+    );
+    expect(leaveFn).toMatch(/\/leave/);
+    expect(leaveFn).toMatch(/success/);
+    expect(leaveFn).toMatch(/setActionError|setError/);
   });
 });
 

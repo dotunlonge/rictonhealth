@@ -6,17 +6,34 @@ export interface Appointment {
   status: string;
   reason?: string | null;
   provider?: {
+    id?: string | null;
     email?: string | null;
     providerProfile?: {
       firstName?: string | null;
       lastName?: string | null;
       specialty?: string | null;
+      consultationFee?: string | number | null;
     } | null;
+  } | null;
+  payment?: {
+    id: string;
+    status: string;
+    amount?: string | number | null;
   } | null;
   telemedicineRoom?: {
     id: string;
     status: string;
     externalRoomId?: string | null;
+  } | null;
+  hospital?: {
+    id: string;
+    name?: string | null;
+    address?: {
+      line1?: string | null;
+      city?: string | null;
+      state?: string | null;
+      country?: string | null;
+    } | null;
   } | null;
 }
 

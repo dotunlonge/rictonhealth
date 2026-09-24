@@ -710,3 +710,91 @@ case-insensitive FS).
   controller intentionally allows self (patients/:id).
 - Verification: contracts 12/12 (244), mobile 107/107, user 22/22,
   payment+tele+rx 33/33, root+web tsc clean, eslint 0 errors, 15/15 live.
+
+### Booking + calling audit fixes (2026-09-23, TDD RED→GREEN, live-verified)
+
+Method per fix: failing test first, minimal implementation, suite re-run.
+Live repro: appointment race returned [201, 500] instead of [201, 409].
+
+- Booking races now 409, never 500: `isSlotConflictError` maps P2034/40001/
+  40P01 + exclusion 23P01 (was P2034-only); Redis lock TTL 10→30s; redis-mock
+  honors NX (was always-OK, masking the race). `appointment-concurrency` 8/8.
+- Stable idempotency keys: new `createIdempotencyScope` in api-contract
+  (same key across retries, fresh after success/cancel); web + mobile booking
+  use it (were fresh-UUID-per-submit). 409 mapping duck-types status and
+  preserves the server message (`APPOINTMENT_CONFLICT`, never SLOT_TAKEN).
+- Contract: `POST /api/wallets/withdraw` schema + registerPath (coverage +
+  divergence green); new `PATCH /appointments/{id}/reschedule` (validated,
+  overlap-checked, exclusion-safe) promoted in the generator.
+- Lifecycle guard: PENDING→CONFIRMED→IN_PROGRESS→COMPLETED (+CONFIRMED→
+  COMPLETED for small clinics), terminal states immutable. New
+  `appointment-lifecycle` suite 7/7. Patient Cancel on web + mobile;
+  web Join Call gated to VIDEO (IN_PERSON showed a call button).
+- Mobile booking: 7-day picker (was today-only) + VIDEO/IN_PERSON toggle
+  (was VIDEO-only); idempotency keys include the visit type.
+- Calling: mobile join/leave failures no longer lie (stay lobby/active with
+  error); `endRoom`/`leaveRoom` best-effort provider cleanup (rooms/presence
+  no longer stuck when LiveKit is down); leave removes the LiveKit
+  participant; web lobby validates codes via token (was pre-join → presence
+  pollution); admit-by-code join/token rate-limited; edge JWT on
+  appointment/telemedicine services (callbacks route carved out — provider
+  webhooks carry no JWT); webhook HMAC suite (valid/invalid/missing/charset)
+  - callback-URL ops docs + boot warning; audio-only visits both clients;
+    join window parameterized (server authoritative); per-room contract path
+    builders (deleted wrong `teleRoomToken` literal); remote-end → ended UI
+    both clients; token refresh before the 1h TTL (mobile auto at 50 min via
+    `videoClient.refresh`, web prompt + one-tap fresh rejoin).
+- Verification: root+mobile+web tsc clean; mobile 122/122 (21 suites);
+  appointment+telemedicine 41/41 (8 suites); contracts 128/128
+  (coverage/divergence/ops/safety/frontend/p0/api-contract); eslint 0 errors
+  on touched files. Full DB-backed matrix still needs `scripts/test-e2e.sh`
+  (Docker); device runs (Maestro/two-party media) remain the open gate.
+
+### Production-readiness sweep (2026-09-23, TDD RED→GREEN, isolated-DB verified)
+
+All items from the booking/calling deep audit closed. Docker test stack
+(postgres 5433 + redis 6381, fresh migrate) used for the backend gate.
+
+- Notifications (was: lifecycle fully silent, reminders promised but
+  nonexistent): `services/appointment/src/notifications.ts` — IN_APP written
+  pre-response inside try/catch (inbox consistent on read, never fatal),
+  EMAIL/SMS post-response via BullMQ (preference-gated, all-on default).
+  Fired on book (patient+provider), confirm/cancel/reschedule (other party).
+  New `appointment-notifications` suite 6/6 (incl. queue-down resilience).
+  Found + fixed en route: notify-after-response races immediate readers
+  (split durable/best-effort), un-awaited async poll helper (late rejection
+  misattributed to the next test).
+- Reminders: `packages/shared/src/jobs/reminders.ts` hourly sweep
+  (PENDING/CONFIRMED, unreminded, within 24h; atomic updateMany claim →
+  no double-notify across replicas; bounded batch). Wired into
+  `startJobProcessors`. Suite 5/5. Mobile booking promise now true.
+- Payments (policy: pay-optional + PAID badges; never block care so cash/
+  offline flows keep working): appointment list/detail include
+  `payment{id,status,amount}`; `paymentInitialize` contract path; mobile
+  pay-via-Paystack + verify + paid badge + fee display; web Pay button +
+  paid/due badges on patient rows, paid/unpaid on staff queue. Suites green.
+- Reschedule UI: web reuses the slot grid (locked provider, PATCH
+  reschedule, 409-taken copy); mobile detail runs in reschedule mode via
+  `rescheduleId` param + Reschedule entry on appointment cards.
+- In-person location: hospital `{name,line1,city,state,country}` surfaced
+  from the already-included relation on both clients, with a confirm-venue
+  fallback when unlinked (no migration needed).
+- Web call honesty: mic/camera toggles await the device (flip on success,
+  error otherwise); failed `/leave` stays with retry instead of redirecting.
+- Tenancy: hospital admins can only set availability in their own hospital
+  (403 cross-hospital, super-admin bypass); hospital-less admin listing
+  fails closed (was null-hospital dump). Suite 4/4.
+- P3 edges: overlap-aware 409 copy, lock-scope comment, auto-provision
+  logging, cancel-reason prompt (web) forwarded into provider notifications.
+- Overturned on re-dig (not bugs): `user.hospitalId` access is valid;
+  `providerId` passes validation untouched; charset webhook HMAC already OK.
+- Verification: isolated-DB backend matrix green (appointment 31,
+  telemedicine 21, notification/payment/wallet, auth/user 76,
+  subscription/messaging/prescription 22, pharmacy/rewards/admin/analytics/
+  address/shared 48 incl. reminders); contracts 256/256; mobile 131/131
+  (22 suites); root+mobile+web tsc clean; eslint 0 errors. One flake noted:
+  wallet.test fails only in mixed multi-service runs, green alone and in
+  service-group runs (cross-suite pollution, pre-existing). Test containers
+  torn down afterwards.
+- Still open (devices/humans): Maestro runs, live two-party media, native
+  VideoView build, a11y passes, pentest, store assets, rollout drill.

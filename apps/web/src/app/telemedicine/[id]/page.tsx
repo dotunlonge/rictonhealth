@@ -135,9 +135,13 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [connectionState, setConnectionState] = useState<'connected' | 'reconnecting'>('connected');
   const [networkQuality, setNetworkQuality] = useState<number>(0);
+  const [ended, setEnded] = useState(false);
+  const [audioOnly, setAudioOnly] = useState(false);
+  const [showRefreshPrompt, setShowRefreshPrompt] = useState(false);
 
   const localVideoRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshTimersRef = useRef<NodeJS.Timeout[]>([]);
   const localDisplayNameRef = useRef('You');
 
   useEffect(() => {
@@ -170,10 +174,17 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
 
         await livekitRoom.connect(serverUrl, token, { autoSubscribe: true });
         await livekitRoom.localParticipant.setMicrophoneEnabled(true);
-        await livekitRoom.localParticipant.setCameraEnabled(true, {
-          resolution: { width: 1280, height: 720 },
-          facingMode: 'user',
-        });
+        try {
+          await livekitRoom.localParticipant.setCameraEnabled(true, {
+            resolution: { width: 1280, height: 720 },
+            facingMode: 'user',
+          });
+        } catch {
+          // A blocked camera degrades to audio-only instead of aborting the
+          // whole visit: the mic stays live with an honest notice below.
+          setAudioOnly(true);
+          setIsVideoOff(true);
+        }
         if (cancelled) {
           await livekitRoom.disconnect();
           return;
@@ -217,6 +228,14 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
         // we surface state so users don't stare at a frozen frame).
         livekitRoom.on(RoomEvent.Reconnecting, () => setConnectionState('reconnecting'));
         livekitRoom.on(RoomEvent.Reconnected, () => setConnectionState('connected'));
+        // Host end-for-all (or token expiry) closes the RTC session remotely:
+        // show "visit ended" with a fresh-token rejoin, not a dead room.
+        livekitRoom.on(RoomEvent.Disconnected, () => {
+          if (cancelled) return;
+          if (timerRef.current) clearInterval(timerRef.current);
+          setRoom(null);
+          setEnded(true);
+        });
         livekitRoom.on(RoomEvent.ConnectionQualityChanged, (quality) => {
           setNetworkQuality(
             quality === ConnectionQuality.Excellent
@@ -232,6 +251,18 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
 
         // Start call timer
         timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+
+        // Backend session tokens live 1h and this livekit-client has no
+        // seamless token update, so prompt a one-tap fresh-token rejoin at 50
+        // minutes (reload re-mints via the mount effect). A silent reload
+        // would drop media without consent, hence the prompt.
+        const refreshTimer = setTimeout(
+          () => {
+            if (!cancelled) setShowRefreshPrompt(true);
+          },
+          50 * 60 * 1000
+        );
+        refreshTimersRef.current.push(refreshTimer);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : 'Connection to video room failed.');
         setLoading(false);
@@ -245,6 +276,8 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
       cancelled = true;
       void livekitRoom.disconnect();
       if (timerRef.current) clearInterval(timerRef.current);
+      for (const t of refreshTimersRef.current) clearTimeout(t);
+      refreshTimersRef.current = [];
     };
   }, [id]);
 
@@ -263,27 +296,40 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
     return () => publication.track?.detach().forEach((item) => item.remove());
   }, [room]);
 
-  const toggleMute = () => {
+  const toggleMute = async () => {
     if (!room) return;
-    room.localParticipant.audioTrackPublications.forEach((publication) => {
-      const track = publication.track;
-      if (!track) return;
-      if (isMuted) void track.unmute();
-      else void track.mute();
-    });
-    setIsMuted(!isMuted);
+    // Await the device: an optimistic flip lies when mute() rejects.
+    const tracks = Array.from(room.localParticipant.audioTrackPublications.values())
+      .map((publication) => publication.track)
+      .filter((track): track is NonNullable<typeof track> => track !== null);
+    if (tracks.length === 0) {
+      setIsMuted(!isMuted);
+      return;
+    }
+    try {
+      await Promise.all(tracks.map((track) => (isMuted ? track.unmute() : track.mute())));
+      setIsMuted(!isMuted);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Microphone toggle failed.');
+    }
   };
 
-  const toggleVideo = () => {
+  const toggleVideo = async () => {
     if (!room) return;
-    room.localParticipant.videoTrackPublications.forEach((publication) => {
-      if (publication.source === Track.Source.ScreenShare) return;
-      const track = publication.track;
-      if (!track) return;
-      if (isVideoOff) void track.unmute();
-      else void track.mute();
-    });
-    setIsVideoOff(!isVideoOff);
+    const tracks = Array.from(room.localParticipant.videoTrackPublications.values())
+      .filter((publication) => publication.source !== Track.Source.ScreenShare)
+      .map((publication) => publication.track)
+      .filter((track): track is NonNullable<typeof track> => track !== null);
+    if (tracks.length === 0) {
+      setIsVideoOff(!isVideoOff);
+      return;
+    }
+    try {
+      await Promise.all(tracks.map((track) => (isVideoOff ? track.unmute() : track.mute())));
+      setIsVideoOff(!isVideoOff);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Camera toggle failed.');
+    }
   };
 
   const stopScreenShare = () => {
@@ -333,7 +379,13 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
   const handleLeave = async () => {
     if (room) room.disconnect();
     // Leave marks only this participant departed; the session continues.
-    await api.post(`/telemedicine/rooms/${id}/leave`);
+    // A failed /leave must stay on the page with a retry — redirecting would
+    // strand the user server-side-joined with no way back.
+    const res = await api.post(`/telemedicine/rooms/${id}/leave`);
+    if (!res.success) {
+      setActionError(res.error?.message || 'Could not leave the visit. Please retry leaving.');
+      return;
+    }
     window.location.href = '/telemedicine';
   };
 
@@ -411,6 +463,23 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
               Reconnecting…
             </div>
           )}
+          {audioOnly && !ended && (
+            <div className="px-3 py-1 rounded-full bg-slate-800 border border-slate-600 text-xs font-bold text-slate-300">
+              Audio-only — camera unavailable
+            </div>
+          )}
+          {showRefreshPrompt && !ended && (
+            <div className="px-3 py-1 rounded-full bg-amber-900/60 border border-amber-700 text-xs font-bold text-amber-300 flex items-center gap-2">
+              <span>Session expiring soon — rejoin to refresh</span>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="underline hover:text-amber-200"
+              >
+                Rejoin now
+              </button>
+            </div>
+          )}
           <div className="text-sm text-slate-400">
             {participants.length + 1} participant{participants.length !== 0 ? 's' : ''}
           </div>
@@ -419,7 +488,32 @@ export default function TelemedicineRoomPage({ params }: { params: Promise<{ id:
 
       {/* Video Area */}
       <main className="flex-1 relative bg-slate-950 overflow-hidden">
-        {loading ? (
+        {ended ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-slate-900/80 border border-slate-700 rounded-3xl p-8 max-w-md text-center">
+              <div className="text-4xl mb-4">👋</div>
+              <h2 className="font-bold text-lg mb-2">Visit ended</h2>
+              <p className="text-sm text-slate-300 mb-6">
+                The visit has ended. Rejoining mints a fresh session token.
+              </p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="bg-[#1877F2] hover:bg-blue-600 text-white px-6 py-2.5 rounded-full font-semibold text-sm transition-colors"
+                >
+                  Rejoin with fresh session
+                </button>
+                <Link
+                  href="/telemedicine"
+                  className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2.5 rounded-full font-semibold text-sm transition-colors"
+                >
+                  Back
+                </Link>
+              </div>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="w-12 h-12 border-4 border-[#1877F2] border-t-transparent rounded-full animate-spin" />
             <p className="text-slate-400 text-sm">

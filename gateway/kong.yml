@@ -75,6 +75,12 @@ services:
 
   - name: appointment-service
     url: http://appointment-service:3005
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
     routes:
       - name: appointment-routes
         paths:
@@ -92,10 +98,23 @@ services:
   - name: telemedicine-service
     url: http://telemedicine-service:3013
     routes:
+      # Provider-signed webhooks carry no JWT (LiveKit cannot); they
+      # authenticate via HMAC in the service. This route must precede the
+      # JWT-gated route and carry no jwt plugin.
+      - name: telemedicine-callbacks
+        paths:
+          - /api/telemedicine/callbacks
+        strip_path: false
       - name: telemedicine-routes
         paths:
           - /api/telemedicine
         strip_path: false
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
 
   - name: pharmacy-service
     url: http://pharmacy-service:3014

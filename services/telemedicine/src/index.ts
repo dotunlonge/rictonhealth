@@ -92,6 +92,15 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`Telemedicine service listening on port ${PORT}`);
+  // The LiveKit SDK cannot attach a webhook per room (project-level setting),
+  // so without TELEMEDICINE_CALLBACK_URL registered in the LiveKit dashboard,
+  // provider-driven room_finished transitions never arrive. Client
+  // join/leave/end calls remain the transition path; this warn is the paper trail.
+  if (!process.env.TELEMEDICINE_CALLBACK_URL) {
+    logger.warn(
+      'TELEMEDICINE_CALLBACK_URL is unset: register it as the LiveKit project webhook URL (POST /api/telemedicine/callbacks/status) or room_finished events will not arrive'
+    );
+  }
 });
 
 server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;

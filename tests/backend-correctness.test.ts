@@ -48,8 +48,10 @@ describe('Appointments: availability management', () => {
       ctrl.indexOf('export const createAppointment'),
       ctrl.indexOf('export const getAppointments')
     );
-    expect(create).toMatch(/P2034/);
+    expect(create).toMatch(/isSlotConflictError/);
     expect(create).toMatch(/APPOINTMENT_CONFLICT/);
+    // The mapper itself covers serializable conflicts + the exclusion guard.
+    expect(read('services/appointment/src/controllers/appointment.controller.ts')).toMatch(/P2034/);
   });
 });
 

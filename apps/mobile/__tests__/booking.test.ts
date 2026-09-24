@@ -1,10 +1,11 @@
 /** Phase 3 TDD RED: provider discovery + slot-aware booking with idempotency. */
-import { BookingService } from '@/features/booking/booking-service';
+import { BookingService, SlotTakenError } from '@/features/booking/booking-service';
+import { ApiClientError } from '@/lib/api/client';
 import type { ApiClient } from '@/lib/api/client';
 
 function deps() {
   return {
-    api: { get: jest.fn(), post: jest.fn() } as unknown as ApiClient,
+    api: { get: jest.fn(), post: jest.fn(), patch: jest.fn() } as unknown as ApiClient,
   };
 }
 
@@ -51,7 +52,12 @@ describe('BookingService (Phase 3)', () => {
 
   it('maps slot conflicts to a typed error', async () => {
     const d = deps();
-    const conflict = Object.assign(new Error('Slot taken'), { status: 409, code: 'SLOT_TAKEN' });
+    // Server reality: 409 + code APPOINTMENT_CONFLICT (never SLOT_TAKEN).
+    const conflict = new ApiClientError(
+      'This time slot is already booked',
+      'APPOINTMENT_CONFLICT',
+      409
+    );
     (d.api.post as jest.Mock).mockRejectedValue(conflict);
     const s = new BookingService(d.api);
     await expect(
@@ -59,6 +65,76 @@ describe('BookingService (Phase 3)', () => {
         { providerId: 'p', scheduledAt: new Date().toISOString(), type: 'VIDEO' },
         { idempotencyKey: 'k' }
       )
-    ).rejects.toMatchObject({ code: 'SLOT_TAKEN' });
+    ).rejects.toThrow(SlotTakenError);
+  });
+
+  it('maps bare 409s to a typed error even without a code', async () => {
+    const d = deps();
+    const conflict = new ApiClientError('Conflict', 'CONFLICT', 409);
+    (d.api.post as jest.Mock).mockRejectedValue(conflict);
+    const s = new BookingService(d.api);
+    await expect(
+      s.createAppointment(
+        { providerId: 'p', scheduledAt: new Date().toISOString(), type: 'VIDEO' },
+        { idempotencyKey: 'k' }
+      )
+    ).rejects.toThrow(SlotTakenError);
+  });
+
+  it('cancels an appointment via the cancel endpoint', async () => {
+    const d = deps();
+    (d.api.patch as jest.Mock).mockResolvedValue({ id: 'appt-1', status: 'CANCELLED' });
+    const s = new BookingService(d.api);
+    await s.cancelAppointment('appt-1');
+    expect(d.api.patch).toHaveBeenCalledWith(
+      expect.stringContaining('/appointments/appt-1/cancel'),
+      expect.anything()
+    );
+  });
+
+  it('reschedules an appointment to a new slot', async () => {
+    const d = deps();
+    const target = new Date(Date.now() + 86400000).toISOString();
+    (d.api.patch as jest.Mock).mockResolvedValue({ id: 'appt-1', scheduledAt: target });
+    const s = new BookingService(d.api);
+    await s.rescheduleAppointment('appt-1', target);
+    expect(d.api.patch).toHaveBeenCalledWith(
+      expect.stringContaining('/appointments/appt-1/reschedule'),
+      expect.objectContaining({ scheduledAt: target })
+    );
+  });
+
+  it('initiates an appointment payment via provider-hosted checkout', async () => {
+    const d = deps();
+    (d.api.post as jest.Mock).mockResolvedValue({
+      data: {
+        authorization_url: 'https://checkout.paystack.com/x',
+        reference: 'ref-1',
+        paymentId: 'pay-1',
+      },
+    });
+    const s = new BookingService(d.api);
+    const launched = await s.initiateAppointmentPayment({
+      appointmentId: 'appt-1',
+      email: 'patient@example.com',
+    });
+    expect(d.api.post).toHaveBeenCalledWith(
+      expect.stringContaining('/payments/initialize'),
+      expect.objectContaining({
+        type: 'APPOINTMENT',
+        referenceId: 'appt-1',
+        email: 'patient@example.com',
+      })
+    );
+    expect(launched.authorization_url).toBe('https://checkout.paystack.com/x');
+  });
+
+  it('verifies an appointment payment by reference', async () => {
+    const d = deps();
+    (d.api.get as jest.Mock).mockResolvedValue({ data: { status: 'SUCCESS' } });
+    const s = new BookingService(d.api);
+    const result = await s.verifyAppointmentPayment('ref-1');
+    expect(d.api.get).toHaveBeenCalledWith(expect.stringContaining('/payments/verify/ref-1'));
+    expect(result.status).toBe('SUCCESS');
   });
 });

@@ -30,6 +30,17 @@ export type WalletResponseSchema = z.infer<typeof WalletResponseSchema>;
 export type TopUpInputSchema = z.infer<typeof TopUpInputSchema>;
 export type TopUpResponseSchema = z.infer<typeof TopUpResponseSchema>;
 
+export const WithdrawInputSchema = registry.register(
+  'WithdrawInput',
+  z.object({
+    amount: z.number().min(100),
+    bankCode: z.string().min(1),
+    accountNumber: z.string().min(1),
+  })
+);
+
+export type WithdrawInputSchema = z.infer<typeof WithdrawInputSchema>;
+
 registry.registerPath({
   method: 'get',
   path: '/api/wallets/me',
@@ -86,6 +97,23 @@ registry.registerPath({
   ],
   responses: {
     200: { description: 'Wallet transactions' },
+    401: { description: 'Unauthorized' },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/wallets/withdraw',
+  summary: 'Withdraw wallet funds to a verified bank account',
+  security: [{ bearerAuth: [] }],
+  request: {
+    body: {
+      content: { 'application/json': { schema: WithdrawInputSchema } },
+    },
+  },
+  responses: {
+    200: { description: 'Transfer initiated (debited, provider reference returned)' },
+    400: { description: 'Validation error' },
     401: { description: 'Unauthorized' },
   },
 });

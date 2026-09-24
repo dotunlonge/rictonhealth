@@ -11,6 +11,10 @@ export function createRedisMock() {
       return val || null;
     }),
     set: jest.fn().mockImplementation(async (key: string, val: string, ..._args: unknown[]) => {
+      // Honor real Redis NX semantics: SET ... NX must fail when the key exists.
+      if (_args.includes('NX') && Object.prototype.hasOwnProperty.call(store, key)) {
+        return null;
+      }
       store[key] = val;
       return 'OK';
     }),

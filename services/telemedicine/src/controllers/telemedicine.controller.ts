@@ -443,7 +443,18 @@ export const endRoom = async (req: Request, res: Response, next: NextFunction) =
       return;
     }
 
-    await completeLiveKitRoom(room.externalRoomId);
+    // Best-effort provider cleanup: the local session is the source of truth.
+    // If LiveKit is down or unconfigured, the room must still end locally
+    // (clients poll our API, not the provider); the error is logged, not
+    // thrown, so patients are never stuck in an ACTIVE room that ended.
+    try {
+      await completeLiveKitRoom(room.externalRoomId);
+    } catch (providerError) {
+      console.warn(
+        `[telemedicine] provider room cleanup failed for ${room.id}; ending locally`,
+        providerError
+      );
+    }
 
     const updated = await prisma.telemedicineRoom.update({
       where: { id: room.id },
@@ -515,6 +526,13 @@ export const joinRoom = async (req: Request, res: Response, next: NextFunction) 
  * base64(HMAC-SHA256(body, apiSecret)). Transitions our session record from
  * provider ground truth; recording is never enabled server-side, so webhooks
  * can only move rooms toward ENDED.
+ *
+ * OPERATIONS NOTE: the LiveKit server SDK has no per-room webhook option, so
+ * TELEMEDICINE_CALLBACK_URL cannot be attached at room creation. Register it
+ * as the project webhook URL (LiveKit Cloud dashboard → Webhooks, or the
+ * self-hosted --webhook-url flag) pointing at
+ * POST /api/telemedicine/callbacks/status. Until then, rooms still transition
+ * via the client join/leave/end calls; the service logs a boot warning.
  */
 export const handleStatusCallback = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -587,7 +605,7 @@ export const leaveRoom = async (req: Request, res: Response, next: NextFunction)
 
     const room = await prisma.telemedicineRoom.findFirst({
       where: isUuid ? { OR: [{ id }, { externalRoomId: id }] } : { externalRoomId: id },
-      select: { id: true },
+      select: { id: true, externalRoomId: true },
     });
 
     if (!room) throw new NotFoundError('Telemedicine room not found');
@@ -598,6 +616,20 @@ export const leaveRoom = async (req: Request, res: Response, next: NextFunction)
       where: { roomId: room.id, userId: userPayload.userId, leftAt: null },
       data: { leftAt: new Date() },
     });
+
+    // Best-effort provider removal: without it the leaver's media ghost
+    // lingers until the 1h token TTL. Local departure is already committed
+    // above, so provider failure never fails the leave itself.
+    if (room.externalRoomId && !room.externalRoomId.startsWith('ricton-')) {
+      try {
+        await createRoomServiceClient().removeParticipant(room.externalRoomId, userPayload.userId);
+      } catch (providerError) {
+        console.warn(
+          `[telemedicine] provider participant removal failed for ${room.id}`,
+          providerError
+        );
+      }
+    }
 
     res.status(200).json(successResponse({ left: true, roomId: room.id }));
   } catch (error) {

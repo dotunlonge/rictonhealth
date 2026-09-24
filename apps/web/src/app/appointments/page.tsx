@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
@@ -15,6 +15,28 @@ interface AppointmentRecord {
   type: string;
   status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED';
   telemedicineRoomId: string | null;
+  paymentStatus: string | null;
+  providerId: string | null;
+  consultationFee: number | null;
+  hospitalName: string | null;
+  hospitalAddress: string | null;
+}
+
+function toFee(value: unknown): number | null {
+  const n = typeof value === 'string' ? Number(value) : (value as number | null);
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function toHospitalAddress(hospital: any): { name: string | null; address: string | null } {
+  if (!hospital) return { name: null, address: null };
+  const addr = hospital.address || {};
+  const parts = [addr.line1, addr.city, addr.state, addr.country].filter(
+    (p: unknown) => typeof p === 'string' && (p as string).trim().length > 0
+  );
+  return {
+    name: typeof hospital.name === 'string' ? hospital.name : null,
+    address: parts.length > 0 ? (parts as string[]).join(', ') : null,
+  };
 }
 
 function AppointmentsContent() {
@@ -45,6 +67,11 @@ function AppointmentsContent() {
       type: a.type || 'VIDEO',
       status: a.status || 'CONFIRMED',
       telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
+      paymentStatus: a.payment?.status || a.paymentStatus || null,
+      providerId: a.provider?.id || a.providerId || null,
+      hospitalName: a.hospitalName || a.hospital?.name || null,
+      hospitalAddress: a.hospitalAddress || toHospitalAddress(a.hospital).address || null,
+      consultationFee: toFee(a.provider?.providerProfile?.consultationFee ?? a.consultationFee),
     }));
   });
   const [loading, setLoading] = useState(
@@ -74,7 +101,25 @@ function AppointmentsContent() {
   // window" / "must align to the provider slot grid"), so the modal only
   // ever submits a slot returned by GET /appointments/slots/:providerId.
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
+  // Stable idempotency keys: one random key per (provider, slot), reused
+  // across retries of the same selection so a timeout/double-click replays
+  // instead of double-booking. Cleared on success or selection change, so a
+  // later rebook of the same slot is a new intent with a fresh key.
+  const idempotencyKeys = useRef(new Map<string, string>());
+  const bookingKeyFor = (providerId: string, slot: string): string => {
+    const k = `${providerId}|${slot}`;
+    let existing = idempotencyKeys.current.get(k);
+    if (!existing) {
+      existing =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+      idempotencyKeys.current.set(k, existing);
+    }
+    return existing;
+  };
   const [selectedDoctorId, setSelectedDoctorId] = useState(() => providerIdParam);
+  const [rescheduling, setRescheduling] = useState<AppointmentRecord | null>(null);
   const [consultType, setConsultType] = useState<'VIDEO' | 'IN_PERSON'>('VIDEO');
   const [slotDate, setSlotDate] = useState(() => {
     if (scheduledAtParam) {
@@ -195,6 +240,13 @@ function AppointmentsContent() {
               type: a.type || 'VIDEO',
               status: a.status || 'PENDING',
               telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
+              paymentStatus: a.payment?.status || null,
+              providerId: a.provider?.id || null,
+              ...(() => {
+                const h = toHospitalAddress(a.hospital);
+                return { hospitalName: h.name, hospitalAddress: h.address };
+              })(),
+              consultationFee: toFee(a.provider?.providerProfile?.consultationFee),
             };
           })
       );
@@ -205,6 +257,7 @@ function AppointmentsContent() {
 
   const closeBookModal = () => {
     setShowBookModal(false);
+    setRescheduling(null);
     setSlots([]);
     setSlotsError(null);
     setSelectedSlot('');
@@ -213,6 +266,22 @@ function AppointmentsContent() {
     if (typeof window !== 'undefined' && window.location.search) {
       router.replace('/appointments');
     }
+  };
+
+  // Reschedule reuses the same slot grid: same provider (locked), new slot.
+  // The backend revalidates window/grid/overlap, so the grid is the picker.
+  const openReschedule = (apt: AppointmentRecord) => {
+    if (!apt.providerId) {
+      setBookingMsg('Could not determine the provider for this visit.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 4000);
+      return;
+    }
+    setRescheduling(apt);
+    setSelectedDoctorId(apt.providerId);
+    setSelectedSlot('');
+    setBookingMsg(null);
+    setShowBookModal(true);
   };
 
   // Load the provider's real availability grid whenever doctor or date changes.
@@ -275,6 +344,44 @@ function AppointmentsContent() {
       doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId)?.id ||
       selectedDoctorId;
     const selectedDoc = doctorsList.find((d) => (d.userId || d.id) === selectedDoctorId);
+
+    // Reschedule path: same visit, new grid slot. The backend owns the
+    // provider (from the appointment) and revalidates window/grid/overlap.
+    if (rescheduling) {
+      const res = await api.patch(`/appointments/${rescheduling.id}/reschedule`, {
+        scheduledAt: selectedSlot,
+      });
+      setBooking(false);
+      if (res.success) {
+        const moved = res.data?.scheduledAt || selectedSlot;
+        setAppointmentsList((prev) =>
+          prev.map((a) =>
+            a.id === rescheduling.id
+              ? {
+                  ...a,
+                  scheduledAt: new Date(moved).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  }),
+                }
+              : a
+          )
+        );
+        closeBookModal();
+        setBookingMsg('Appointment rescheduled.');
+        setBookingError(false);
+        setTimeout(() => setBookingMsg(null), 4000);
+      } else {
+        const raw = res.error?.message || 'Could not reschedule. Please try again.';
+        const taken = /taken|conflict|processing|overlap/i.test(raw);
+        setBookingMsg(taken ? 'That slot was just taken. Please pick another.' : raw);
+        setBookingError(true);
+        setTimeout(() => setBookingMsg(null), 6000);
+      }
+      return;
+    }
+
     const doctorName =
       selectedDoc?.firstName || selectedDoc?.lastName
         ? `Dr. ${selectedDoc.firstName || ''} ${selectedDoc.lastName || ''}`.trim()
@@ -282,6 +389,7 @@ function AppointmentsContent() {
 
     // selectedSlot always comes from the availability grid, so it is
     // future-dated, minute-aligned, inside the provider window, and free.
+    // The idempotency key is stable per (provider, slot) so retries replay.
     const res = await api.post(
       '/appointments',
       {
@@ -290,16 +398,14 @@ function AppointmentsContent() {
         type: consultType,
       },
       {
-        idempotencyKey:
-          typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : `${Date.now()}`,
+        idempotencyKey: bookingKeyFor(providerId, selectedSlot),
       }
     );
 
     setBooking(false);
 
     if (res.success && res.data?.id) {
+      idempotencyKeys.current.delete(`${providerId}|${selectedSlot}`);
       const newAppt: AppointmentRecord = {
         id: res.data.id,
         patientName: user?.firstName
@@ -314,6 +420,13 @@ function AppointmentsContent() {
         type: res.data.type || consultType,
         status: res.data.status || 'PENDING',
         telemedicineRoomId: res.data.telemedicineRoomId || null,
+        paymentStatus: res.data.payment?.status || null,
+        providerId: providerId,
+        hospitalName: null,
+        hospitalAddress: null,
+        consultationFee: toFee(
+          selectedDoc?.providerProfile?.consultationFee ?? selectedDoc?.consultationFee
+        ),
       };
 
       setAppointmentsList((prev) => [newAppt, ...prev]);
@@ -376,6 +489,58 @@ function AppointmentsContent() {
     } else {
       setStaffMsg(res.error?.message || 'Could not cancel appointment.');
       setTimeout(() => setStaffMsg(null), 4000);
+    }
+  };
+
+  // Patient self-service consultation-fee checkout (Paystack-hosted).
+  // Payment stays advisory (cash/offline flows exist): it marks the visit
+  // PAID for the consultant's queue and never blocks care.
+  const payAppointment = async (apt: AppointmentRecord) => {
+    if (!user?.email) {
+      setBookingMsg('Your account has no email for the Paystack receipt.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 6000);
+      return;
+    }
+    setActingId(apt.id);
+    const res = await api.post<{ authorization_url?: string; reference?: string }>(
+      '/payments/initialize',
+      { email: user.email, type: 'APPOINTMENT', referenceId: apt.id }
+    );
+    setActingId(null);
+    if (res.success && res.data?.authorization_url) {
+      setBookingMsg(`Redirecting to Paystack to complete payment…`);
+      setBookingError(false);
+      window.location.href = res.data.authorization_url;
+    } else {
+      setBookingMsg(res.error?.message || 'Could not start payment.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 6000);
+    }
+  };
+  // Patient self-service cancel (same endpoint consultants use).
+  const cancelPatientAppointment = async (id: string) => {
+    setActingId(id);
+    setBookingMsg(null);
+    // Optional reason: stored as cancellationReason and forwarded to the
+    // provider's notification. Dismissing the prompt cancels nothing.
+    const reason =
+      typeof window !== 'undefined'
+        ? window.prompt('Reason for cancelling (optional)')?.trim() || undefined
+        : undefined;
+    const res = await api.patch(`/appointments/${id}/cancel`, reason ? { reason } : {});
+    setActingId(null);
+    if (res.success) {
+      setAppointmentsList((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, status: 'CANCELLED' as const } : a))
+      );
+      setBookingMsg('Appointment cancelled.');
+      setBookingError(false);
+      setTimeout(() => setBookingMsg(null), 4000);
+    } else {
+      setBookingMsg(res.error?.message || 'Could not cancel appointment.');
+      setBookingError(true);
+      setTimeout(() => setBookingMsg(null), 6000);
     }
   };
 
@@ -558,6 +723,18 @@ function AppointmentsContent() {
                           >
                             {apt.status}
                           </span>
+                          {apt.paymentStatus === 'SUCCESS' ? (
+                            <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700">
+                              Paid
+                            </span>
+                          ) : apt.consultationFee ? (
+                            <span
+                              className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-500"
+                              title="Online payment pending — cash/offline settlement still accepted"
+                            >
+                              Unpaid
+                            </span>
+                          ) : null}
                         </td>
                         <td className="py-4 px-4 text-right">
                           {isConsultant ? (
@@ -799,21 +976,83 @@ function AppointmentsContent() {
                         >
                           {apt.status}
                         </span>
+                        {apt.paymentStatus === 'SUCCESS' ? (
+                          <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700">
+                            Paid
+                          </span>
+                        ) : apt.consultationFee &&
+                          (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                          <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-500">
+                            ₦{apt.consultationFee.toLocaleString()} due
+                          </span>
+                        ) : null}
                       </td>
                       <td className="py-4 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(
-                              apt.telemedicineRoomId
-                                ? `/telemedicine/${apt.telemedicineRoomId}`
-                                : '/telemedicine'
-                            )
-                          }
-                          className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
-                        >
-                          Join Call →
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {apt.type === 'VIDEO' ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                router.push(
+                                  apt.telemedicineRoomId
+                                    ? `/telemedicine/${apt.telemedicineRoomId}`
+                                    : '/telemedicine'
+                                )
+                              }
+                              className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
+                            >
+                              Join Call →
+                            </button>
+                          ) : (
+                            <span
+                              className="px-4 py-1.5 text-slate-400 font-bold text-xs"
+                              title={
+                                apt.hospitalName || apt.hospitalAddress
+                                  ? [apt.hospitalName, apt.hospitalAddress]
+                                      .filter(Boolean)
+                                      .join(' — ')
+                                  : 'Confirm the venue with your clinic before your visit'
+                              }
+                            >
+                              📍{' '}
+                              {apt.hospitalName ||
+                                apt.hospitalAddress ||
+                                'In-person visit — confirm venue with clinic'}
+                            </span>
+                          )}
+                          {(apt.status === 'PENDING' || apt.status === 'CONFIRMED') && (
+                            <button
+                              type="button"
+                              disabled={actingId === apt.id}
+                              onClick={() => void cancelPatientAppointment(apt.id)}
+                              className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                          {(apt.status === 'PENDING' || apt.status === 'CONFIRMED') && (
+                            <button
+                              type="button"
+                              disabled={actingId === apt.id}
+                              onClick={() => openReschedule(apt)}
+                              className="px-4 py-1.5 bg-white hover:bg-blue-50 border border-slate-200 text-slate-600 hover:text-[#1877F2] font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                            >
+                              Reschedule
+                            </button>
+                          )}
+                          {apt.paymentStatus !== 'SUCCESS' &&
+                          apt.consultationFee &&
+                          (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                            <button
+                              type="button"
+                              disabled={actingId === apt.id}
+                              onClick={() => void payAppointment(apt)}
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                            >
+                              Pay ₦{apt.consultationFee.toLocaleString()}
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -835,7 +1074,9 @@ function AppointmentsContent() {
               className="relative bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full z-10 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <h2 className="text-base font-extrabold text-slate-900">Schedule Consultation</h2>
+                <h2 className="text-base font-extrabold text-slate-900">
+                  {rescheduling ? 'Reschedule Consultation' : 'Schedule Consultation'}
+                </h2>
                 <button
                   type="button"
                   onClick={closeBookModal}
@@ -854,6 +1095,8 @@ function AppointmentsContent() {
                   <select
                     id="book-doctor"
                     value={selectedDoctorId}
+                    disabled={!!rescheduling}
+                    title={rescheduling ? 'Rescheduling keeps the same provider' : undefined}
                     onChange={(e) => {
                       setSelectedDoctorId(e.target.value);
                       setDoctorError(null);
@@ -988,7 +1231,13 @@ function AppointmentsContent() {
                 disabled={booking || !selectedDoctorId || !selectedSlot}
                 className="w-full py-3 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-2xl text-xs shadow-md shadow-blue-500/20"
               >
-                {booking ? 'Booking...' : 'Confirm Appointment Booking'}
+                {booking
+                  ? rescheduling
+                    ? 'Rescheduling...'
+                    : 'Booking...'
+                  : rescheduling
+                    ? 'Confirm Reschedule'
+                    : 'Confirm Appointment Booking'}
               </button>
             </form>
           </div>

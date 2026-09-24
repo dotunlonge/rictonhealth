@@ -99,4 +99,61 @@ describe('VideoClient', () => {
     expect(room.localParticipant.setCameraEnabled).toHaveBeenCalledWith(false);
     expect(client.getSnapshot().cameraEnabled).toBe(false);
   });
+
+  it('connects audio-only when video is disabled (camera blocked)', async () => {
+    const room = roomDouble();
+    MockedRoom.mockImplementation(() => room);
+    const client = new VideoClient();
+    await client.connect({ token: 't', serverUrl: 'https://livekit.example' }, 2, {
+      video: false,
+    });
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(room.localParticipant.setCameraEnabled).not.toHaveBeenCalledWith(true);
+    expect(client.getSnapshot().state).toBe('connected');
+    expect(client.getSnapshot().cameraEnabled).toBe(false);
+  });
+
+  it('moves to ended when the room disconnects remotely (host ended)', async () => {
+    const room = roomDouble();
+    MockedRoom.mockImplementation(() => room);
+    const client = new VideoClient();
+    const seen: string[] = [];
+    client.subscribe((snap) => seen.push(snap.state));
+    await client.connect({ token: 't', serverUrl: 'https://livekit.example' });
+    const disconnected = room.handlers.get(RoomEvent.Disconnected) ?? [];
+    expect(disconnected.length).toBeGreaterThan(0);
+    disconnected.forEach((h) => h());
+    expect(client.getSnapshot().state).toBe('ended');
+    expect(seen).toContain('ended');
+  });
+
+  it('refreshes the session with fresh credentials before token expiry', async () => {
+    const first = roomDouble();
+    const second = roomDouble();
+    MockedRoom.mockImplementationOnce(() => first).mockImplementationOnce(() => second);
+    const client = new VideoClient();
+    await client.connect({ token: 'old', serverUrl: 'https://livekit.example' });
+    await client.refresh({ token: 'fresh', serverUrl: 'https://livekit.example' });
+    // Old room torn down, new room connected with the fresh token.
+    expect(first.disconnect).toHaveBeenCalled();
+    expect(second.connect).toHaveBeenCalledWith(
+      'https://livekit.example',
+      'fresh',
+      expect.objectContaining({ autoSubscribe: true })
+    );
+    expect(client.getSnapshot().state).toBe('connected');
+  });
+
+  it('reports idle when a refresh cannot reconnect', async () => {
+    const first = roomDouble();
+    const failing = roomDouble();
+    failing.connect.mockRejectedValue(new Error('network down'));
+    MockedRoom.mockImplementationOnce(() => first).mockImplementationOnce(() => failing);
+    const client = new VideoClient();
+    await client.connect({ token: 'old', serverUrl: 'https://livekit.example' });
+    await expect(
+      client.refresh({ token: 'fresh', serverUrl: 'https://livekit.example' })
+    ).rejects.toThrow('network down');
+    expect(client.getSnapshot().state).toBe('idle');
+  });
 });

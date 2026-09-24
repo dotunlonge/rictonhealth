@@ -904,6 +904,18 @@ components:
           type: string
       required:
         - status
+    RescheduleAppointment:
+      type: object
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+          minimum: 0
+          exclusiveMinimum: true
+      required:
+        - scheduledAt
     GetAvailabilityQuery:
       type: object
       properties:
@@ -2832,6 +2844,8 @@ components:
           type: number
         title:
           type: string
+        licenseNumber:
+          type: string
         pharmacyName:
           type: string
         hospitalName:
@@ -3104,6 +3118,22 @@ components:
       required:
         - checkoutUrl
         - reference
+    WithdrawInput:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 100
+        bankCode:
+          type: string
+          minLength: 1
+        accountNumber:
+          type: string
+          minLength: 1
+      required:
+        - amount
+        - bankCode
+        - accountNumber
     CreateConversationInput:
       type: object
       properties:
@@ -3931,6 +3961,34 @@ paths:
           description: Forbidden
         '404':
           description: Not found
+  '/api/appointments/{id}/reschedule':
+    patch:
+      summary: Move a PENDING/CONFIRMED appointment to a new slot (same provider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleAppointment'
+      responses:
+        '200':
+          description: Appointment rescheduled
+        '400':
+          description: Validation error
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '409':
+          description: Target slot already booked
   '/api/appointments/{id}/cancel':
     patch:
       summary: Cancel appointment
@@ -4877,6 +4935,23 @@ paths:
       responses:
         '200':
           description: Wallet transactions
+        '401':
+          description: Unauthorized
+  /api/wallets/withdraw:
+    post:
+      summary: Withdraw wallet funds to a verified bank account
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WithdrawInput'
+      responses:
+        '200':
+          description: Transfer initiated (debited, provider reference returned)
+        '400':
+          description: Validation error
         '401':
           description: Unauthorized
   /api/admin/users:
