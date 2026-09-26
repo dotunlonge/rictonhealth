@@ -159,6 +159,10 @@ class ApiClient {
   /** Server-authoritative logout: invalidates the refresh-token session. */
   public async logout(): Promise<void> {
     const rt = this.getRefreshToken();
+    // Clear the local session FIRST: callers navigate immediately (e.g. to
+    // /login), and a restore racing the server round-trip must not resurrect
+    // the session and bounce the user back to the dashboard.
+    this.clearToken();
     try {
       if (rt) {
         await this.request(
@@ -171,7 +175,6 @@ class ApiClient {
     } catch {
       // ignore network errors — local session is cleared regardless
     }
-    this.clearToken();
   }
 
   public async refreshAccessToken(): Promise<boolean> {

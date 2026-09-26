@@ -164,6 +164,7 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_PAYMENT: 3007
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
     volumes:
       - ./packages:/app/packages
@@ -197,6 +198,7 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       NODE_ENV: ${NODE_ENV:-development}
       PORT_WALLET: 3008
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       PAYSTACK_PREFERRED_BANK: ${PAYSTACK_PREFERRED_BANK:-}
     volumes:

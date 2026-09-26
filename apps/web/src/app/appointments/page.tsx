@@ -696,66 +696,76 @@ function AppointmentsContent() {
                             <div className="w-9 h-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
                               <User className="w-4 h-4" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="font-extrabold text-slate-900 text-xs">
                                 {apt.patientName}
                               </p>
-                              <p className="text-[10px] font-semibold text-slate-400">{apt.id}</p>
+                              <p
+                                className="text-[10px] font-semibold text-slate-400 font-mono"
+                                title={apt.id}
+                              >
+                                #{apt.id.slice(0, 8)}
+                              </p>
                             </div>
                           </div>
                         </td>
                         {!isConsultant && (
-                          <td className="py-4 px-4 font-bold text-[#1877F2]">{apt.doctorName}</td>
+                          <td className="py-4 px-4 font-bold text-[#1877F2] whitespace-nowrap">
+                            {apt.doctorName}
+                          </td>
                         )}
-                        <td className="py-4 px-4 font-semibold text-slate-700">
+                        <td className="py-4 px-4 font-semibold text-slate-700 whitespace-nowrap">
                           {apt.scheduledAt}
                         </td>
                         <td className="py-4 px-4 font-semibold text-slate-600">{apt.type}</td>
                         <td className="py-4 px-4">
-                          <span
-                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                              apt.status === 'CONFIRMED'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : apt.status === 'PENDING'
-                                  ? 'bg-amber-100 text-amber-700'
-                                  : 'bg-slate-100 text-slate-500'
-                            }`}
-                          >
-                            {apt.status}
-                          </span>
-                          {apt.paymentStatus === 'SUCCESS' ? (
-                            <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700">
-                              Paid
-                            </span>
-                          ) : apt.consultationFee ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span
-                              className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-500"
-                              title="Online payment pending — cash/offline settlement still accepted"
+                              className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap ${
+                                apt.status === 'CONFIRMED'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : apt.status === 'PENDING'
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-slate-100 text-slate-500'
+                              }`}
                             >
-                              Unpaid
+                              {apt.status}
                             </span>
-                          ) : null}
+                            {apt.paymentStatus === 'SUCCESS' ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap bg-emerald-100 text-emerald-700">
+                                Paid
+                              </span>
+                            ) : apt.consultationFee ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap bg-slate-100 text-slate-500"
+                                title="Online payment pending — cash/offline settlement still accepted"
+                              >
+                                Unpaid
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="py-4 px-4 text-right">
                           {isConsultant ? (
                             <div className="flex items-center justify-end gap-2 flex-wrap">
-                              {apt.telemedicineRoomId && (
+                              {apt.telemedicineRoomId &&
+                              (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     router.push(`/telemedicine/${apt.telemedicineRoomId}`)
                                   }
-                                  className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
+                                  className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all whitespace-nowrap"
                                 >
                                   Join Call →
                                 </button>
-                              )}
+                              ) : null}
                               {apt.status === 'PENDING' && (
                                 <button
                                   type="button"
                                   disabled={actingId === apt.id}
                                   onClick={() => void setStaffStatus(apt.id, 'CONFIRMED')}
-                                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
                                 >
                                   Confirm
                                 </button>
@@ -765,7 +775,7 @@ function AppointmentsContent() {
                                   type="button"
                                   disabled={actingId === apt.id}
                                   onClick={() => void setStaffStatus(apt.id, 'COMPLETED')}
-                                  className="px-4 py-1.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                                  className="px-4 py-1.5 bg-[#1877F2] hover:bg-[#1565C0] disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
                                 >
                                   Complete visit
                                 </button>
@@ -775,7 +785,7 @@ function AppointmentsContent() {
                                   type="button"
                                   disabled={actingId === apt.id}
                                   onClick={() => void cancelStaffAppointment(apt.id)}
-                                  className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                                  className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50 whitespace-nowrap"
                                 >
                                   Cancel
                                 </button>
@@ -953,43 +963,57 @@ function AppointmentsContent() {
                           <div className="w-9 h-9 rounded-full bg-blue-50 text-[#1877F2] flex items-center justify-center font-bold">
                             <Calendar className="w-4 h-4" />
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <p className="font-extrabold text-slate-900 text-xs">
                               {apt.patientName}
                             </p>
-                            <p className="text-[10px] font-semibold text-slate-400">{apt.id}</p>
+                            <p
+                              className="text-[10px] font-semibold text-slate-400 font-mono"
+                              title={apt.id}
+                            >
+                              #{apt.id.slice(0, 8)}
+                            </p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-4 px-4 font-bold text-[#1877F2]">{apt.doctorName}</td>
-                      <td className="py-4 px-4 font-semibold text-slate-700">{apt.scheduledAt}</td>
-                      <td className="py-4 px-4 font-semibold text-slate-600">{apt.type}</td>
+                      <td className="py-4 px-4 font-bold text-[#1877F2] whitespace-nowrap">
+                        {apt.doctorName}
+                      </td>
+                      <td className="py-4 px-4 font-semibold text-slate-700 whitespace-nowrap">
+                        {apt.scheduledAt}
+                      </td>
+                      <td className="py-4 px-4 font-semibold text-slate-600 whitespace-nowrap">
+                        {apt.type}
+                      </td>
                       <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${
-                            apt.status === 'CONFIRMED'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : apt.status === 'PENDING'
-                                ? 'bg-amber-100 text-amber-700'
-                                : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {apt.status}
-                        </span>
-                        {apt.paymentStatus === 'SUCCESS' ? (
-                          <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-700">
-                            Paid
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap ${
+                              apt.status === 'CONFIRMED'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : apt.status === 'PENDING'
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {apt.status}
                           </span>
-                        ) : apt.consultationFee &&
-                          (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
-                          <span className="ml-2 inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase bg-slate-100 text-slate-500">
-                            ₦{apt.consultationFee.toLocaleString()} due
-                          </span>
-                        ) : null}
+                          {apt.paymentStatus === 'SUCCESS' ? (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap bg-emerald-100 text-emerald-700">
+                              Paid
+                            </span>
+                          ) : apt.consultationFee &&
+                            (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase whitespace-nowrap bg-slate-100 text-slate-500">
+                              ₦{apt.consultationFee.toLocaleString()} due
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {apt.type === 'VIDEO' ? (
+                          {apt.type === 'VIDEO' &&
+                          (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
                             <button
                               type="button"
                               onClick={() =>
@@ -999,13 +1023,14 @@ function AppointmentsContent() {
                                     : '/telemedicine'
                                 )
                               }
-                              className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all"
+                              className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all whitespace-nowrap"
                             >
                               Join Call →
                             </button>
-                          ) : (
+                          ) : apt.type !== 'VIDEO' &&
+                            (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
                             <span
-                              className="px-4 py-1.5 text-slate-400 font-bold text-xs"
+                              className="px-4 py-1.5 text-slate-400 font-bold text-xs whitespace-nowrap"
                               title={
                                 apt.hospitalName || apt.hospitalAddress
                                   ? [apt.hospitalName, apt.hospitalAddress]
@@ -1019,13 +1044,13 @@ function AppointmentsContent() {
                                 apt.hospitalAddress ||
                                 'In-person visit — confirm venue with clinic'}
                             </span>
-                          )}
+                          ) : null}
                           {(apt.status === 'PENDING' || apt.status === 'CONFIRMED') && (
                             <button
                               type="button"
                               disabled={actingId === apt.id}
                               onClick={() => void cancelPatientAppointment(apt.id)}
-                              className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                              className="px-4 py-1.5 bg-white hover:bg-red-50 border border-slate-200 text-slate-600 hover:text-red-600 font-bold rounded-full text-xs transition-all disabled:opacity-50 whitespace-nowrap"
                             >
                               Cancel
                             </button>
@@ -1035,7 +1060,7 @@ function AppointmentsContent() {
                               type="button"
                               disabled={actingId === apt.id}
                               onClick={() => openReschedule(apt)}
-                              className="px-4 py-1.5 bg-white hover:bg-blue-50 border border-slate-200 text-slate-600 hover:text-[#1877F2] font-bold rounded-full text-xs transition-all disabled:opacity-50"
+                              className="px-4 py-1.5 bg-white hover:bg-blue-50 border border-slate-200 text-slate-600 hover:text-[#1877F2] font-bold rounded-full text-xs transition-all disabled:opacity-50 whitespace-nowrap"
                             >
                               Reschedule
                             </button>
@@ -1047,7 +1072,7 @@ function AppointmentsContent() {
                               type="button"
                               disabled={actingId === apt.id}
                               onClick={() => void payAppointment(apt)}
-                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all"
+                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
                             >
                               Pay ₦{apt.consultationFee.toLocaleString()}
                             </button>

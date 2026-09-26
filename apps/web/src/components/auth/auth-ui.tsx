@@ -258,7 +258,15 @@ export function AppleIcon({ className = 'h-5 w-5 fill-current' }: { className?: 
 /**
  * Tall social button geometry shared by Google + Apple: h-14, rounded-lg,
  * light border, left icon, centered label — per the auth mockups.
+ *
+ * Google's GIS iframe renders its own fixed-size button, so
+ * GoogleSignInButton reuses this exact class for its visual layer with the
+ * real (transparent) GIS button overlaid on top — the pair stays identical
+ * by construction.
  */
+export const SOCIAL_BUTTON_CLASS =
+  'relative flex h-14 w-full min-w-0 items-center rounded-lg border border-slate-200 bg-white text-[15px] font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60';
+
 export function SocialButton({
   onClick,
   disabled = false,
@@ -271,12 +279,7 @@ export function SocialButton({
   icon: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="relative flex h-14 w-full items-center rounded-lg border border-slate-200 bg-white text-[15px] font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
-    >
+    <button type="button" onClick={onClick} disabled={disabled} className={SOCIAL_BUTTON_CLASS}>
       <span className="absolute left-4">{icon}</span>
       <span className="w-full text-center">{label}</span>
     </button>

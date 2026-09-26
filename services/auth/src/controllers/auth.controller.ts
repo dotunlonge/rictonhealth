@@ -58,7 +58,9 @@ interface GoogleProfile {
  * Verify a Google credential from either frontend path.
  *
  * Path 1 (preferred): audience-bound OpenID ID token from One Tap / GIS
- * credential response — verified by signature + audience.
+ * credential response, or from the mobile native flow (expo-auth-session) —
+ * whose `aud` is the platform client (GOOGLE_IOS_CLIENT_ID), not the web
+ * client. Both audiences are accepted; signature + audience are verified.
  *
  * Path 2 (popup fallback): OAuth2 access token. Never trusted directly:
  * it is first bound to this app via tokeninfo (aud/azp must equal our
@@ -69,10 +71,16 @@ async function verifyGoogleCredential(
   googleClient: OAuth2Client,
   token: string
 ): Promise<GoogleProfile | null> {
+  // Web GIS tokens carry aud = GOOGLE_CLIENT_ID; mobile native tokens carry
+  // aud = GOOGLE_IOS_CLIENT_ID. Accept both — google-auth-library checks the
+  // token's aud against this list.
+  const audiences = [process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_IOS_CLIENT_ID].filter(
+    (id): id is string => Boolean(id)
+  );
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID || undefined,
+      audience: audiences.length > 0 ? audiences : undefined,
     });
     const payload = ticket.getPayload();
     if (payload?.email && payload.sub && payload.email_verified === true) {

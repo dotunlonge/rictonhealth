@@ -1,14 +1,58 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { loadScript } from '@/lib/oauth';
+import { GoogleGIcon, SOCIAL_BUTTON_CLASS } from './auth-ui';
 
 type GoogleSignInButtonProps = {
   onCredential: (credential: string) => void | Promise<void>;
   onError: (message: string) => void;
   busy?: boolean;
-  text?: 'signin_with' | 'signup_with' | 'continue_with';
+  text?: GoogleButtonText;
 };
+
+type GoogleAccountsId = NonNullable<NonNullable<Window['google']>['accounts']['id']>;
+
+type GoogleButtonText = 'signin_with' | 'signup_with' | 'continue_with';
+
+const BUTTON_LABEL: Record<GoogleButtonText, string> = {
+  signin_with: 'Sign in with Google',
+  signup_with: 'Sign up with Google',
+  continue_with: 'Continue with Google',
+};
+
+/**
+ * GIS only renders fixed-width iframes (240–400px). Measure the actual grid
+ * cell so the button fills its column instead of overflowing it.
+ */
+const MIN_BUTTON_WIDTH = 240;
+const MAX_BUTTON_WIDTH = 400;
+
+function measuredButtonWidth(container: HTMLElement) {
+  const measured = Math.floor(container.clientWidth || MAX_BUTTON_WIDTH);
+  return Math.min(MAX_BUTTON_WIDTH, Math.max(MIN_BUTTON_WIDTH, measured));
+}
+
+function renderGisButton(
+  container: HTMLElement,
+  googleIdentity: GoogleAccountsId,
+  text: GoogleButtonText,
+  renderedWidthRef: React.MutableRefObject<number>
+) {
+  const width = measuredButtonWidth(container);
+  if (width === renderedWidthRef.current && container.firstElementChild) return;
+  renderedWidthRef.current = width;
+  container.replaceChildren();
+  googleIdentity.renderButton(container, {
+    type: 'standard',
+    theme: 'outline',
+    size: 'large',
+    text,
+    shape: 'rectangular',
+    logo_alignment: 'left',
+    width,
+  });
+}
 
 export default function GoogleSignInButton({
   onCredential,
@@ -19,6 +63,8 @@ export default function GoogleSignInButton({
   const containerRef = useRef<HTMLDivElement>(null);
   const credentialHandlerRef = useRef(onCredential);
   const errorHandlerRef = useRef(onError);
+  const googleRef = useRef<GoogleAccountsId | null>(null);
+  const renderedWidthRef = useRef(0);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -30,11 +76,14 @@ export default function GoogleSignInButton({
 
   useEffect(() => {
     let cancelled = false;
+    let observer: ResizeObserver | null = null;
+    let debounce: number | undefined;
 
     async function initializeGoogleButton() {
       try {
         setReady(false);
         setFailed(false);
+        renderedWidthRef.current = 0;
         await loadScript('https://accounts.google.com/gsi/client');
         if (cancelled) return;
 
@@ -58,16 +107,8 @@ export default function GoogleSignInButton({
             }
           },
         });
-        container.replaceChildren();
-        googleIdentity.renderButton(container, {
-          type: 'standard',
-          theme: 'outline',
-          size: 'large',
-          text,
-          shape: 'rectangular',
-          logo_alignment: 'left',
-          width: Math.min(400, Math.max(240, Math.floor(container.clientWidth || 400))),
-        });
+        googleRef.current = googleIdentity;
+        renderGisButton(container, googleIdentity, text, renderedWidthRef);
 
         // GIS normally inserts its iframe synchronously. Give it one short
         // rendering window so an invalid OAuth origin cannot masquerade as a
@@ -80,6 +121,20 @@ export default function GoogleSignInButton({
           );
         }
         setReady(true);
+
+        // GIS iframes are fixed-width: re-render when the grid cell resizes
+        // (breakpoint change, rotation, devtools) so the button tracks its
+        // column instead of overflowing the card.
+        observer = new ResizeObserver(() => {
+          if (debounce !== undefined) window.clearTimeout(debounce);
+          debounce = window.setTimeout(() => {
+            if (cancelled) return;
+            const el = containerRef.current;
+            const gis = googleRef.current;
+            if (el && gis) renderGisButton(el, gis, text, renderedWidthRef);
+          }, 150);
+        });
+        observer.observe(container);
       } catch (error) {
         if (!cancelled) {
           setReady(false);
@@ -94,53 +149,60 @@ export default function GoogleSignInButton({
     void initializeGoogleButton();
     return () => {
       cancelled = true;
+      observer?.disconnect();
+      if (debounce !== undefined) window.clearTimeout(debounce);
+      googleRef.current = null;
+      renderedWidthRef.current = 0;
     };
   }, [attempt, text]);
 
   const retry = () => {
     errorHandlerRef.current('');
     containerRef.current?.replaceChildren();
+    renderedWidthRef.current = 0;
     setReady(false);
     setFailed(false);
     setAttempt((current) => current + 1);
   };
 
+  // Google's iframe dictates its own pixels, so an exact visual match is
+  // done by layering: a visual twin using the shared SocialButton geometry
+  // on the bottom, with the real (transparent) GIS button overlaid on top to
+  // receive clicks. Keyboard focus reveals the real button
+  // (focus-within:opacity-100) so the focus ring stays honest. The visible
+  // retry state is a real button since there is no GIS iframe then.
   return (
     <div
-      className={`relative mx-auto flex h-14 w-full max-w-[400px] items-center justify-center overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm ${busy ? 'pointer-events-none opacity-70' : ''}`}
+      className={`${SOCIAL_BUTTON_CLASS} cursor-pointer overflow-hidden ${busy ? 'pointer-events-none opacity-70' : ''}`}
       aria-busy={busy}
     >
-      <div ref={containerRef} className="flex w-full items-center justify-center" />
+      <span aria-hidden="true" className="absolute left-4">
+        <GoogleGIcon />
+      </span>
+      <span aria-hidden="true" className="w-full text-center">
+        {!ready && !failed ? 'Loading Google sign-in…' : BUTTON_LABEL[text]}
+      </span>
       {!ready && !failed && !busy && (
-        <span className="absolute text-sm font-semibold text-slate-500" role="status">
+        <span className="sr-only" role="status">
           Loading Google sign-in…
         </span>
       )}
+      <div className="absolute inset-0 cursor-pointer opacity-0 focus-within:opacity-100">
+        <div
+          ref={containerRef}
+          className="flex h-full w-full min-w-0 items-center justify-center [&_iframe]:max-w-full"
+        />
+      </div>
       {failed && !busy && (
         <button
           type="button"
           onClick={retry}
-          className="absolute inset-0 flex cursor-pointer items-center justify-center gap-3 bg-white text-sm font-bold text-slate-800 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#1c7bcf] active:bg-slate-100"
+          className="absolute inset-0 flex cursor-pointer items-center justify-center gap-3 bg-white text-[15px] font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#1c7bcf] active:bg-slate-100"
         >
-          <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
-            <path
-              fill="#4285F4"
-              d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.91h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.4Z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 22c2.7 0 4.98-.9 6.64-2.37l-3.24-2.54c-.9.6-2.05.96-3.4.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M6.39 13.92A6 6 0 0 1 6.07 12c0-.67.12-1.32.32-1.92V7.46H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.54l3.35-2.62Z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 5.95c1.47 0 2.79.51 3.83 1.5l2.88-2.88A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.46l3.35 2.62C7.18 7.71 9.39 5.95 12 5.95Z"
-            />
-          </svg>
-          Retry Google sign-in
+          <span aria-hidden="true" className="absolute left-4">
+            <GoogleGIcon />
+          </span>
+          <span className="w-full text-center">Retry Google sign-in</span>
         </button>
       )}
       {busy && (

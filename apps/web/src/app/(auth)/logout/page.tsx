@@ -13,8 +13,8 @@ export default function LogoutPage() {
     let cancelled = false;
 
     async function performLogout() {
-      // Store logout invalidates the server session ({ refreshToken }) before
-      // clearing local state. API failure is non-blocking.
+      // Store logout clears local state first, then best-effort invalidates
+      // the server session ({ refreshToken }). API failure is non-blocking.
       await logout();
       if (!cancelled) {
         setStatus('You have been securely logged out.');

@@ -169,6 +169,12 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
 
+    // Without an explicit callback_url Paystack leaves the payer stranded on
+    // its success screen. Point every checkout back at the verify page,
+    // which force-reconciles with Paystack (webhooks can't reach local dev,
+    // and may lag in prod). Paystack appends ?trxref=&reference= itself.
+    const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payments/verify`;
+
     // paystackBreaker resolves with the parsed JSON body (it throws on non-2xx).
     const data = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
@@ -180,6 +186,7 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         email,
         amount: amountInKobo,
         currency: 'NGN',
+        callback_url: callbackUrl,
         metadata: {
           custom_fields: [
             {
@@ -233,8 +240,11 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
     }
 
     const userPayload = req.user as JwtPayload;
-    const { reference } = req.params;
-    if (!reference) {
+    // Path param is canonical (GET /verify/:reference); the ?reference=
+    // query form is accepted too so older clients still reconcile.
+    const rawReference = req.params.reference ?? req.query.reference;
+    const reference = Array.isArray(rawReference) ? rawReference[0] : rawReference;
+    if (!reference || typeof reference !== 'string') {
       throw new ValidationError('Reference is required');
     }
 

@@ -355,6 +355,12 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
     const firstName = profile && 'firstName' in profile ? profile.firstName : 'Ricton';
     const lastName = profile && 'lastName' in profile ? profile.lastName : 'User';
 
+    // Without an explicit callback_url Paystack leaves the payer stranded on
+    // its success screen. Point top-ups back at the verify page, which
+    // force-reconciles with Paystack (webhooks can't reach local dev, and
+    // may lag in prod). Paystack appends ?trxref=&reference= itself.
+    const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payments/verify`;
+
     // Initialize Paystack payment
     const initializeRes = await fetch(`${PAYSTACK_API_URL}/transaction/initialize`, {
       method: 'POST',
@@ -367,6 +373,7 @@ export const topupWallet = async (req: Request, res: Response, next: NextFunctio
         amount: Math.round(amount * 100), // Convert to kobo
         currency: 'NGN',
         reference: `WALLET_TOPUP_${userId}_${Date.now()}`,
+        callback_url: callbackUrl,
         first_name: firstName,
         last_name: lastName,
         metadata: {

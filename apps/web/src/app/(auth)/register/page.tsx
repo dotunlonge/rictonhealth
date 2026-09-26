@@ -322,7 +322,7 @@ export default function RegisterPage() {
 
           <AuthDivider label="Or Fast Register With" />
 
-          <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 items-center gap-4 sm:grid-cols-2">
             <GoogleSignInButton
               onCredential={handleGoogleCredential}
               onError={setErrorMsg}
