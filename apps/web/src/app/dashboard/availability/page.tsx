@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { CalendarClock } from 'lucide-react';
@@ -25,6 +25,61 @@ export default function AvailabilityPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  type Rule = {
+    id?: string;
+    dayOfWeek: number;
+    startTime: string;
+    endTime: string;
+    slotDurationMinutes: number;
+    isActive: boolean;
+  };
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [listNote, setListNote] = useState<string | null>(null);
+  const [loadingList, setLoadingList] = useState(true);
+
+  useEffect(() => {
+    async function loadList() {
+      setLoadingList(true);
+      // No documented availability-windows list endpoint (only POST
+      // /appointments/availability + GET /appointments/slots). Try likely
+      // list routes; fall back to the session-local list below.
+      for (const path of ['/appointments/availability', '/users/me/availability']) {
+        try {
+          const res = await api.get<unknown>(path);
+          const list = res.success
+            ? Array.isArray(res.data)
+              ? res.data
+              : (res.data as { availability?: unknown[] })?.availability
+            : null;
+          if (res.success && Array.isArray(list)) {
+            setRules(list as Rule[]);
+            setListNote(null);
+            setLoadingList(false);
+            return;
+          }
+        } catch {
+          // try next candidate
+        }
+      }
+      setListNote('No availability list endpoint — showing windows saved this session.');
+      setLoadingList(false);
+    }
+    loadList();
+  }, []);
+
+  const removeRule = async (index: number) => {
+    const rule = rules[index];
+    if (rule?.id) {
+      // Best-effort: no documented DELETE endpoint; drop locally regardless.
+      try {
+        await api.delete(`/appointments/availability/${rule.id}`);
+      } catch {
+        // local-only removal
+      }
+    }
+    setRules((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -42,6 +97,14 @@ export default function AvailabilityPage() {
     setSaving(false);
     if (res.success) {
       setMessage('Availability saved. Patients will see matching open slots immediately.');
+      const saved = (res.data as Rule | undefined) || {
+        dayOfWeek,
+        startTime,
+        endTime,
+        slotDurationMinutes,
+        isActive,
+      };
+      setRules((prev) => [saved as Rule, ...prev]);
     } else {
       setError(res.error?.message || 'Availability could not be saved.');
     }
@@ -145,6 +208,38 @@ export default function AvailabilityPage() {
             {saving ? 'Saving availability...' : 'Save availability'}
           </button>
         </form>
+
+        <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-bold text-slate-900">Saved windows</h2>
+          {listNote && <p className="text-[11px] font-semibold text-slate-400">{listNote}</p>}
+          {loadingList ? (
+            <p className="text-xs font-semibold text-slate-400">Loading availability…</p>
+          ) : rules.length === 0 ? (
+            <p className="text-xs font-semibold text-slate-400">No windows saved yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {rules.map((rule, i) => (
+                <li
+                  key={rule.id ?? `${rule.dayOfWeek}-${rule.startTime}-${i}`}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-slate-50 px-4 py-2.5 text-xs"
+                >
+                  <span className="font-bold text-slate-800">
+                    {DAYS.find((d) => d.value === rule.dayOfWeek)?.label ?? `Day ${rule.dayOfWeek}`}{' '}
+                    · {rule.startTime}–{rule.endTime} · {rule.slotDurationMinutes} min ·{' '}
+                    {rule.isActive ? 'Active' : 'Paused'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void removeRule(i)}
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold rounded-full transition-all"
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </SidebarLayout>
   );

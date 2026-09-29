@@ -7,8 +7,9 @@ export const UserProfileSchema = registry.register(
     id: z.string().uuid(),
     email: z.string().nullable(),
     phone: z.string().nullable(),
-    role: z.string(),
-    status: z.string(),
+    // #C1: mirror UserRole / UserStatus prisma enums — no free-form strings.
+    role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+    status: z.enum(['PENDING', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED']),
     patientProfile: z
       .object({
         firstName: z.string().nullable(),
@@ -84,7 +85,7 @@ export const UpdateProfileInputSchema = registry.register(
     bloodType: z.string().optional(),
     allergies: z.array(z.string()).optional(),
     specialty: z.string().optional(),
-    consultationFee: z.number().optional(),
+    consultationFee: z.coerce.number().int().min(500).max(500000).finite().optional(),
     title: z.string().optional(),
     licenseNumber: z.string().optional(),
     pharmacyName: z.string().optional(),

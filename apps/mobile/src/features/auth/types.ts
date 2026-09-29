@@ -12,7 +12,8 @@ export interface MobileUser {
 }
 
 export interface SignInInput {
-  email: string;
+  email?: string;
+  phone?: string;
   password: string;
   totpCode?: string;
 }
@@ -27,6 +28,8 @@ export interface RegisterInput {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  role?: 'PATIENT' | 'CONSULTANT' | 'PHARMACIST';
+  consentVersion?: string;
 }
 
 export type RegisterResult =

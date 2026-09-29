@@ -1,8 +1,12 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
+import { requireAuth, requireActiveStatus } from '@ricton/auth-middleware';
+import { idempotency, rateLimit } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import * as walletController from '../controllers/wallet.controller';
 
 const router = Router();
+
+const withdrawRateLimit = rateLimit({ windowMs: 60 * 1000, max: 5, keyPrefix: 'withdraw' });
 
 /**
  * @openapi
@@ -19,8 +23,8 @@ const router = Router();
  */
 router.post('/webhook', walletController.paystackWebhook);
 
-// All other wallet routes require authentication
-router.use(requireAuth);
+// All other wallet routes require authentication + active status (webhook above stays public/signature-based)
+router.use(requireAuth, requireActiveStatus);
 
 /**
  * @openapi
@@ -50,7 +54,12 @@ router.get('/me', walletController.getMyWallet);
  *       200:
  *         description: Virtual account created or retrieved
  */
-router.post('/virtual-account', walletController.createVirtualAccount);
+router.post(
+  '/virtual-account',
+  requireActiveStatus,
+  idempotency(prisma),
+  walletController.createVirtualAccount
+);
 
 /**
  * @openapi
@@ -77,7 +86,7 @@ router.post('/virtual-account', walletController.createVirtualAccount);
  *       200:
  *         description: Payment URL for wallet top-up
  */
-router.post('/topup', walletController.topupWallet);
+router.post('/topup', requireActiveStatus, idempotency(prisma), walletController.topupWallet);
 
 /**
  * @openapi
@@ -110,7 +119,13 @@ router.post('/topup', walletController.topupWallet);
  *       200:
  *         description: Transfer initiated (debited, provider reference returned)
  */
-router.post('/withdraw', walletController.withdrawToBank);
+router.post(
+  '/withdraw',
+  requireActiveStatus,
+  withdrawRateLimit,
+  idempotency(prisma),
+  walletController.withdrawToBank
+);
 
 /**
  * @openapi

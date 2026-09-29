@@ -1,5 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { prisma, PaymentStatus, PaymentProvider, PaymentType, Prisma } from '@ricton/db';
+import crypto from 'crypto';
+import {
+  prisma,
+  PaymentStatus,
+  PaymentProvider,
+  PaymentType,
+  AppointmentStatus,
+  Prisma,
+} from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
@@ -19,6 +27,29 @@ import { assertPaystackPaymentMatches } from '../payment-reconciliation';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 const PAYSTACK_API_URL = 'https://api.paystack.co';
+
+// #31 Single source of truth for subscription price (NGN). Client amounts are
+// never trusted: SUBSCRIPTION resolves server-side to this const and the
+// shared 500–500000 resolvedAmount guard clamps it below.
+const SUBSCRIPTION_PRICE_NGN = 5000;
+
+// #34 Best-effort duplicate webhook delivery guard (module-level, in-memory).
+// Paystack retries deliveries; the SUCCESS-status guard below is the durable
+// idempotency, but a repeated event.id should short-circuit to 200 without
+// re-entering reconciliation. Capped at 1000 entries to bound memory; restarts
+// simply lose the cache (safe: DB guards still hold).
+const processedWebhookEventIds = new Set<string>();
+function isDuplicateWebhookEvent(eventId: unknown): boolean {
+  if (eventId === undefined || eventId === null || eventId === '') return false;
+  const key = String(eventId);
+  if (processedWebhookEventIds.has(key)) return true;
+  processedWebhookEventIds.add(key);
+  if (processedWebhookEventIds.size > 1000) {
+    const oldest = processedWebhookEventIds.values().next().value;
+    if (oldest !== undefined) processedWebhookEventIds.delete(oldest);
+  }
+  return false;
+}
 
 interface PaystackInitializeResponse {
   status: boolean;
@@ -58,19 +89,19 @@ const resolvePaymentAmount = async (
     if (appt.patientId !== userId) {
       throw new ForbiddenError('You are not authorized to pay for this appointment');
     }
-    if (
-      appt.payment &&
-      (appt.payment.status === PaymentStatus.SUCCESS ||
-        appt.payment.status === PaymentStatus.PENDING)
-    ) {
-      throw new ValidationError(
-        `This appointment already has an active or pending payment (Status: ${appt.payment.status})`
-      );
+    if (appt.payment?.status === PaymentStatus.SUCCESS) {
+      throw new ValidationError('This appointment has already been paid');
     }
-    if (!appt.provider.providerProfile || !appt.provider.providerProfile.consultationFee) {
+    if (
+      appt.payment?.status === PaymentStatus.PENDING &&
+      appt.payment.createdAt.getTime() > Date.now() - 30 * 60 * 1000
+    ) {
+      throw new ValidationError('A payment checkout is already active; retry after it expires');
+    }
+    if (appt.feeSnapshot == null || Number(appt.feeSnapshot) < 500) {
       throw new ValidationError('Doctor consultation fee is not configured');
     }
-    return Number(appt.provider.providerProfile.consultationFee);
+    return Number(appt.feeSnapshot);
   } else if (type === PaymentType.PHARMACY_ORDER) {
     if (!referenceId)
       throw new ValidationError('referenceId is required for PHARMACY_ORDER payments');
@@ -91,9 +122,10 @@ const resolvePaymentAmount = async (
         `This pharmacy order already has an active or pending payment (Status: ${order.payment.status})`
       );
     }
-    return Number(order.totalAmount);
+    // #31 Server-resolved total: Math.round guard + shared 500–500000 clamp below.
+    return Math.round(Number(order.totalAmount));
   } else if (type === PaymentType.SUBSCRIPTION) {
-    return 5000;
+    return SUBSCRIPTION_PRICE_NGN;
   } else if (type === PaymentType.WALLET_TOPUP) {
     if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
       throw new ValidationError('amount must be a positive number for WALLET_TOPUP payments');
@@ -147,10 +179,15 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     }
 
     const userPayload = req.user as JwtPayload;
-    const { amount, email, type, referenceId } = req.body;
+    const { amount, type, referenceId } = req.body;
+    const account = await prisma.user.findUnique({
+      where: { id: userPayload.userId },
+      select: { email: true },
+    });
+    const email = account?.email;
 
     if (!email || !type) {
-      throw new ValidationError('Email and type are required');
+      throw new ValidationError('A verified account email and payment type are required');
     }
 
     if (!Object.values(PaymentType).includes(type)) {
@@ -166,6 +203,11 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       referenceId
     );
 
+    if (!Number.isInteger(resolvedAmount) || resolvedAmount < 500 || resolvedAmount > 500000) {
+      throw new ValidationError(
+        'Payment amount must be a valid NGN amount between ₦500 and ₦500,000'
+      );
+    }
     // Paystack expects amount in kobo
     const amountInKobo = Math.round(resolvedAmount * 100);
 
@@ -175,50 +217,76 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     // and may lag in prod). Paystack appends ?trxref=&reference= itself.
     const callbackUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payments/verify`;
 
-    // paystackBreaker resolves with the parsed JSON body (it throws on non-2xx).
-    const data = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email,
-        amount: amountInKobo,
-        currency: 'NGN',
-        callback_url: callbackUrl,
-        metadata: {
-          custom_fields: [
-            {
-              display_name: 'Payment Type',
-              variable_name: 'payment_type',
-              value: type,
-            },
-            {
-              display_name: 'User ID',
-              variable_name: 'user_id',
-              value: userPayload.userId,
-            },
-          ],
-        },
-      }),
-    })) as PaystackInitializeResponse;
-    if (!data.status) {
-      throw new AppError(
-        `Paystack initialization failed: ${data.message || 'Unknown error'}`,
-        400,
-        'PAYSTACK_ERROR'
-      );
-    }
-
-    // Create a pending payment record and link it to the target resource atomically
+    // #27 DB-before-Paystack: create the PENDING row FIRST with a provisional
+    // reference so a DB failure can never orphan a paid Paystack checkout URL
+    // (verify looks up by providerReference, so a provisional ref never verifies).
+    // Route-level idempotency replays the response, so retries can't double-create.
+    const provisionalReference = `tmp_${crypto.randomUUID()}`;
     const payment = await createPendingPayment(
       userPayload.userId,
       resolvedAmount,
       type as PaymentType,
-      data.data.reference,
+      provisionalReference,
       referenceId
     );
+
+    // paystackBreaker resolves with the parsed JSON body (it throws on non-2xx).
+    let data: PaystackInitializeResponse;
+    try {
+      data = (await paystackBreaker.fire(`${PAYSTACK_API_URL}/transaction/initialize`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          amount: amountInKobo,
+          currency: 'NGN',
+          callback_url: callbackUrl,
+          metadata: {
+            custom_fields: [
+              {
+                display_name: 'Payment Type',
+                variable_name: 'payment_type',
+                value: type,
+              },
+              {
+                display_name: 'User ID',
+                variable_name: 'user_id',
+                value: userPayload.userId,
+              },
+            ],
+          },
+        }),
+      })) as PaystackInitializeResponse;
+      if (!data.status) {
+        throw new AppError(
+          `Paystack initialization failed: ${data.message || 'Unknown error'}`,
+          400,
+          'PAYSTACK_ERROR'
+        );
+      }
+    } catch (error) {
+      // Paystack failed after the row was created: mark FAILED best-effort so
+      // the checkout slot can be retried/swept, then propagate the error.
+      try {
+        await prisma.payment.updateMany({
+          where: { id: payment.id, providerReference: provisionalReference },
+          data: { status: PaymentStatus.FAILED },
+        });
+      } catch {
+        // best-effort: the stale-pending sweeper will expire the row.
+      }
+      throw error;
+    }
+
+    // Swap the provisional reference for the real Paystack reference.
+    // Guarded by id + provisional ref so only this row is touched.
+    await prisma.payment.updateMany({
+      where: { id: payment.id, providerReference: provisionalReference },
+      data: { providerReference: data.data.reference },
+    });
 
     res.status(200).json(
       successResponse({
@@ -226,6 +294,10 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
         access_code: data.data.access_code,
         reference: data.data.reference,
         paymentId: payment.id,
+        // #33 Display-vs-charged: echo the server-resolved charged figure so
+        // the UI displays what Paystack will actually charge (NGN).
+        amount: resolvedAmount,
+        currency: 'NGN',
       })
     );
   } catch (error: unknown) {
@@ -288,6 +360,9 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       paymentStatus = PaymentStatus.FAILED;
     }
 
+    if (payment.status === PaymentStatus.SUCCESS && paymentStatus !== PaymentStatus.SUCCESS) {
+      paymentStatus = PaymentStatus.SUCCESS;
+    }
     const updatedPayment = await prisma.payment.update({
       where: { providerReference: reference },
       data: {
@@ -297,6 +372,13 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
       },
     });
 
+    if (paymentStatus === PaymentStatus.SUCCESS && payment.type === PaymentType.APPOINTMENT) {
+      await prisma.appointment.updateMany({
+        where: { paymentId: payment.id, status: AppointmentStatus.PENDING },
+        data: { status: AppointmentStatus.CONFIRMED },
+      });
+    }
+
     let currentBalance: number | undefined;
     if (paymentStatus === PaymentStatus.SUCCESS && payment.type === PaymentType.WALLET_TOPUP) {
       let wallet = await prisma.wallet.findUnique({ where: { userId: payment.userId } });
@@ -304,6 +386,20 @@ export const verifyPayment = async (req: Request, res: Response, next: NextFunct
         wallet = await prisma.wallet.create({
           data: { userId: payment.userId, balance: 0, currency: 'NGN' },
         });
+        const appt = await prisma.appointment.findUnique({ where: { paymentId: payment.id } });
+        if (appt) {
+          await prisma.providerEarning.upsert({
+            where: {
+              appointmentId_providerId: { appointmentId: appt.id, providerId: appt.providerId },
+            },
+            create: {
+              appointmentId: appt.id,
+              providerId: appt.providerId,
+              amount: Number(payment.amount) * 0.8,
+            },
+            update: {},
+          });
+        }
       }
       const existingTx = await prisma.walletTransaction.findFirst({
         where: { walletId: wallet.id, referenceId: reference },
@@ -360,15 +456,34 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
     const event = parseWebhookBody<{ event: string; data: any }>(req.body);
 
+    // #34 Duplicate delivery short-circuit: same event.id returns 200.
+    if (isDuplicateWebhookEvent((event as { id?: unknown }).id)) {
+      console.warn('[payment] ignoring duplicate webhook delivery (event.id already seen)');
+      return res.sendStatus(200);
+    }
+
     if (event.event === 'charge.success') {
       const reference = event.data.reference;
+
+      // #29 Explicit currency gate before any credit: only NGN is ever
+      // credited. assertPaystackPaymentMatches reconciles amount
+      // (Math.round(Number(payment.amount) * 100) vs event.data.amount) and
+      // stored currency below; this early check logs + 200s non-NGN events
+      // without touching the ledger.
+      if (event.data.currency && String(event.data.currency).toUpperCase() !== 'NGN') {
+        console.warn(
+          `[payment] ignoring webhook with non-NGN currency ${event.data.currency} for ${reference}`
+        );
+        return res.sendStatus(200);
+      }
 
       const payment = await prisma.payment.findUnique({
         where: { providerReference: reference },
       });
 
       if (!payment) {
-        throw new NotFoundError('Payment not found');
+        console.warn(`[payment] ignoring webhook for unknown reference ${reference}`);
+        return res.sendStatus(200);
       }
 
       if (payment.status === PaymentStatus.SUCCESS) {
@@ -385,6 +500,27 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           metadata: event.data as Prisma.InputJsonValue,
         },
       });
+
+      if (payment.type === PaymentType.APPOINTMENT) {
+        await prisma.appointment.updateMany({
+          where: { paymentId: payment.id, status: AppointmentStatus.PENDING },
+          data: { status: AppointmentStatus.CONFIRMED },
+        });
+        const appt = await prisma.appointment.findUnique({ where: { paymentId: payment.id } });
+        if (appt) {
+          await prisma.providerEarning.upsert({
+            where: {
+              appointmentId_providerId: { appointmentId: appt.id, providerId: appt.providerId },
+            },
+            create: {
+              appointmentId: appt.id,
+              providerId: appt.providerId,
+              amount: Number(payment.amount) * 0.8,
+            },
+            update: {},
+          });
+        }
+      }
 
       if (payment.type === PaymentType.WALLET_TOPUP) {
         let wallet = await prisma.wallet.findUnique({ where: { userId: payment.userId } });
@@ -440,7 +576,12 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
       });
 
       if (!payment) {
-        throw new NotFoundError('Payment not found');
+        console.warn(`[payment] ignoring webhook for unknown reference ${reference}`);
+        return res.sendStatus(200);
+      }
+
+      if (payment.status === PaymentStatus.SUCCESS || payment.status === PaymentStatus.REFUNDED) {
+        return res.sendStatus(200);
       }
 
       if (payment.status === PaymentStatus.FAILED) {
@@ -470,6 +611,33 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           'X-Internal-Secret': getInternalApiSecret(),
         },
       });
+    } else if (event.event === 'refund.processed' || event.event === 'charge.dispute') {
+      // #28 Terminal refund/dispute state: mark SUCCESS→REFUNDED only (never
+      // resurrect FAILED/REFUNDED). Log + 200 keeps provider retries harmless.
+      const reference = event.data?.reference;
+      if (reference) {
+        const payment = await prisma.payment.findUnique({
+          where: { providerReference: reference },
+        });
+        if (!payment) {
+          console.warn(`[payment] ignoring ${event.event} for unknown reference ${reference}`);
+        } else if (payment.status === PaymentStatus.SUCCESS) {
+          await prisma.payment.updateMany({
+            where: { providerReference: reference, status: PaymentStatus.SUCCESS },
+            data: {
+              status: PaymentStatus.REFUNDED,
+              metadata: event.data as Prisma.InputJsonValue,
+            },
+          });
+          console.warn(`[payment] ${event.event} marked REFUNDED: ${reference}`);
+        } else {
+          console.warn(
+            `[payment] ignoring ${event.event} for ${reference} in status ${payment.status}`
+          );
+        }
+      } else {
+        console.warn(`[payment] ${event.event} without reference (ignored)`);
+      }
     }
 
     // Acknowledge receipt of webhook
@@ -482,7 +650,7 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 export const getPayments = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 50);
     const skip = Math.max(Number(req.query.offset) || 0, 0);
 
     const payments = await prisma.payment.findMany({
@@ -520,6 +688,92 @@ export const getPaymentById = async (req: Request, res: Response, next: NextFunc
     next(error);
   }
 };
+
+export const refundPayment = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    if (!['HOSPITAL_ADMIN', 'SUPER_ADMIN'].includes(userPayload.role)) {
+      throw new ForbiddenError('Only clinic administrators can issue refunds');
+    }
+    const payment = await prisma.payment.findUnique({
+      where: { id: req.params.id },
+      include: { appointment: true },
+    });
+    if (!payment || payment.type !== PaymentType.APPOINTMENT || !payment.appointment) {
+      throw new NotFoundError('Appointment payment not found');
+    }
+    if (userPayload.role === 'HOSPITAL_ADMIN' && payment.appointment.hospitalId) {
+      const admin = await prisma.user.findUnique({
+        where: { id: userPayload.userId },
+        select: { hospitalId: true },
+      });
+      if (admin?.hospitalId !== payment.appointment.hospitalId)
+        throw new ForbiddenError('Not authorized to refund this payment');
+    }
+    if (payment.status === PaymentStatus.REFUNDED)
+      return res.status(200).json(successResponse(payment));
+    if (payment.status !== PaymentStatus.SUCCESS)
+      throw new ValidationError('Only successful payments can be refunded');
+    if (!PAYSTACK_SECRET_KEY)
+      throw new AppError('Payment provider is not configured', 503, 'SERVICE_NOT_CONFIGURED');
+    const response = await fetch(`${PAYSTACK_API_URL}/refund`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        transaction: payment.providerReference,
+        amount: Math.round(Number(payment.amount) * 100),
+      }),
+    });
+    const data = (await response.json()) as { status?: boolean; message?: string; data?: unknown };
+    if (!response.ok || !data.status)
+      throw new AppError(data.message || 'Refund provider request failed', 502, 'REFUND_FAILED');
+    const updated = await prisma.payment.updateMany({
+      where: { id: payment.id, status: PaymentStatus.SUCCESS },
+      data: {
+        status: PaymentStatus.REFUNDED,
+        metadata: { refund: data.data as Prisma.InputJsonValue },
+      },
+    });
+    return res
+      .status(200)
+      .json(successResponse({ refunded: updated.count === 1, paymentId: payment.id }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Best-effort sweeper for stuck PENDING checkouts.
+ * PENDING payments older than 30min are marked FAILED with
+ * metadata {expired:true} so appointment checkout slots can be retried.
+ * Returns the number of payments expired.
+ */
+export async function sweepStalePendingPayments(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - 30 * 60 * 1000);
+  const stale = await prisma.payment.findMany({
+    where: { status: PaymentStatus.PENDING, createdAt: { lt: cutoff } },
+    select: { id: true },
+  });
+  if (stale.length === 0) return 0;
+  const ids = stale.map((p) => p.id);
+  const result = await prisma.payment.updateMany({
+    where: { id: { in: ids }, status: PaymentStatus.PENDING },
+    data: { status: PaymentStatus.FAILED, metadata: { expired: true } },
+  });
+  // Release linked appointment checkout slots best-effort.
+  try {
+    await prisma.appointment.updateMany({
+      where: { paymentId: { in: ids } },
+      data: { paymentId: null },
+    });
+  } catch (err) {
+    console.warn('[payment] sweepStalePendingPayments unlink failed (best-effort)', err);
+  }
+  return result.count;
+}
 
 export const getBanks = async (_req: Request, res: Response, next: NextFunction) => {
   try {

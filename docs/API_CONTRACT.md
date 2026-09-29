@@ -711,7 +711,7 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "cancellationReason": "No longer needed"
+  "reason": "No longer needed"
 }
 ```
 
@@ -728,6 +728,10 @@ Authorization: Bearer <token>
   }
 }
 ```
+
+**Notes:**
+
+- Request field is `reason` (min 3 chars, required); it is persisted on the model as `cancellationReason`.
 
 ---
 
@@ -870,7 +874,7 @@ Authorization: Bearer <token>
 ### Get Room Token
 
 ```http
-GET /api/telemedicine/rooms/:id/token
+POST /api/telemedicine/rooms/:id/token
 Authorization: Bearer <token>
 ```
 
@@ -1117,7 +1121,7 @@ Authorization: Bearer <token>
       "quantity": 2
     }
   ],
-  "deliveryType": "HOME_DELIVERY",
+  "deliveryType": "DELIVERY",
   "deliveryAddress": "123 Health Street, Lagos"
 }
 ```
@@ -1133,7 +1137,7 @@ Authorization: Bearer <token>
     "pharmacyId": "e1f2a3b4-0000-0000-0000-000000000000",
     "status": "PENDING",
     "totalAmount": 5000.0,
-    "deliveryType": "HOME_DELIVERY",
+    "deliveryType": "DELIVERY",
     "deliveryAddress": "123 Health Street, Lagos",
     "items": [
       {

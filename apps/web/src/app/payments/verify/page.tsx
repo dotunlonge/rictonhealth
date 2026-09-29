@@ -14,6 +14,21 @@ interface VerifyData {
   type?: string;
   providerReference?: string;
   reference?: string;
+  paidAt?: string;
+  createdAt?: string;
+  appointmentId?: string;
+}
+
+function formatNGN(amount: number, currency?: string): string {
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: currency ?? 'NGN',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${Number(amount).toLocaleString()} ${currency ?? 'NGN'}`;
+  }
 }
 
 const MAX_ATTEMPTS = 10;
@@ -158,18 +173,62 @@ function VerifyContent() {
 
         <h1 className="text-xl sm:text-2xl font-black tracking-tight">{heading}</h1>
         {subheading ? <p className="text-sm font-medium text-slate-500">{subheading}</p> : null}
+        {state === 'verifying' ? (
+          <p className="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 rounded-xl px-3 py-2">
+            Do not close — reconciling with Paystack. Amounts are in NGN (Paystack uses kobo
+            internally: ₦1 = 100 kobo).
+          </p>
+        ) : null}
 
         {reference ? (
           <p className="text-xs font-mono text-slate-400 break-all">Reference: {reference}</p>
         ) : null}
         {state === 'success' && detail?.amount !== undefined ? (
-          <p className="text-sm font-bold text-slate-700">
-            {Number(detail.amount).toLocaleString()} {detail.currency ?? 'NGN'}
-            {detail.type ? ` · ${detail.type.replace(/_/g, ' ')}` : ''}
-          </p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left text-sm space-y-1">
+            <p className="font-bold text-slate-900">Receipt</p>
+            <p className="text-slate-600">
+              Reference: <span className="font-mono">{detail.reference ?? reference}</span>
+            </p>
+            <p className="text-slate-600">
+              Amount: <span className="font-bold text-slate-900">{formatNGN(Number(detail.amount), detail.currency)}</span>
+              {detail.type ? ` · ${detail.type.replace(/_/g, ' ')}` : ''}
+            </p>
+            <p className="text-slate-600">
+              Date: {detail.paidAt ?? detail.createdAt ? new Date(detail.paidAt ?? detail.createdAt ?? '').toLocaleString('en-NG') : new Date().toLocaleString('en-NG')}
+            </p>
+            {detail.appointmentId ? (
+              <Link href="/appointments" className="text-sky-600 font-semibold hover:underline">
+                View appointment
+              </Link>
+            ) : null}
+            <div>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="mt-2 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl"
+              >
+                Print receipt
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <div className="flex flex-col gap-3 pt-2">
+          {state === 'verifying' ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (timer.current) clearTimeout(timer.current);
+                setState('pending');
+                setMessage(
+                  'Verification cancelled. If you were charged, use Check Again with your reference to reconcile.'
+                );
+              }}
+              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded-xl text-sm transition-colors"
+            >
+              Cancel verification (Back)
+            </button>
+          ) : null}
           {state === 'pending' || state === 'failed' ? (
             <button
               type="button"

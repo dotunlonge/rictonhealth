@@ -41,10 +41,10 @@ export function assertAppointmentJoinWindow(appointment: {
   status: AppointmentStatus;
 }) {
   if (
-    appointment.status === AppointmentStatus.CANCELLED ||
-    appointment.status === AppointmentStatus.COMPLETED
+    appointment.status !== AppointmentStatus.CONFIRMED &&
+    appointment.status !== AppointmentStatus.IN_PROGRESS
   ) {
-    throw new ForbiddenError('This appointment is no longer eligible for a video session');
+    throw new AppError('Appointment must be confirmed before joining', 402, 'PAYMENT_REQUIRED');
   }
   const earlyMinutes = Number(process.env.TELEMEDICINE_JOIN_EARLY_MINUTES || 15);
   const lateMinutes = Number(process.env.TELEMEDICINE_JOIN_LATE_MINUTES || 30);
@@ -200,7 +200,7 @@ async function completeLiveKitRoom(roomName: string | null): Promise<void> {
 export const listRooms = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
-    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const take = Math.min(Math.max(Number(req.query.limit) || 20, 1), 20);
     const skip = Math.max(Number(req.query.offset) || 0, 0);
 
     const whereClause: any = {};
@@ -221,8 +221,9 @@ export const listRooms = async (req: Request, res: Response, next: NextFunction)
         provider: {
           select: {
             id: true,
-            email: true,
-            providerProfile: true,
+            providerProfile: {
+              select: { firstName: true, lastName: true, specialty: true },
+            },
           },
         },
         appointment: {
@@ -230,13 +231,6 @@ export const listRooms = async (req: Request, res: Response, next: NextFunction)
             id: true,
             type: true,
             scheduledAt: true,
-            patient: {
-              select: {
-                id: true,
-                email: true,
-                patientProfile: true,
-              },
-            },
           },
         },
         participants: true,
@@ -284,6 +278,15 @@ export const createRoom = async (req: Request, res: Response, next: NextFunction
 
       patientId = appt.patientId;
       hostProviderId = appt.providerId;
+
+      // #23 Verified gate: appointment rooms require a verified provider.
+      const apptProviderVerification = await prisma.providerProfile.findUnique({
+        where: { userId: appt.providerId },
+        select: { isVerified: true },
+      });
+      if (!apptProviderVerification?.isVerified) {
+        throw new ForbiddenError('Provider verification required');
+      }
     }
 
     // Ad-hoc (appointment-less) rooms may only be opened by clinical hosts.
@@ -350,7 +353,12 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
       include: {
         participants: true,
         appointment: {
-          select: { scheduledAt: true, durationMinutes: true, status: true },
+          select: {
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+            payment: { select: { status: true } },
+          },
         },
       },
     });
@@ -374,7 +382,24 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
       const admitted = await tryAdmitByRoomCode(room, userPayload);
       if (!admitted) throw err;
     }
-    if (room.appointment) assertAppointmentJoinWindow(room.appointment);
+    if (room.appointment) {
+      // #23 Verified gate: appointment room tokens require a verified provider.
+      const tokenProviderVerification = await prisma.providerProfile.findUnique({
+        where: { userId: room.providerId },
+        select: { isVerified: true },
+      });
+      if (!tokenProviderVerification?.isVerified) {
+        throw new ForbiddenError('Provider verification required');
+      }
+      if (room.appointment.payment?.status !== 'SUCCESS') {
+        throw new AppError(
+          'Payment is required before joining this appointment',
+          402,
+          'PAYMENT_REQUIRED'
+        );
+      }
+      assertAppointmentJoinWindow(room.appointment);
+    }
 
     // Fail closed without provider configuration — never issue simulated tokens.
     if (!isLiveKitConfigured()) {
@@ -390,7 +415,8 @@ export const getRoomToken = async (req: Request, res: Response, next: NextFuncti
 
     const accessToken = new AccessToken(apiKey, apiSecret, {
       identity: userPayload.userId,
-      ttl: '1h',
+      // 15m cap bounds a leaked token's window; clients refresh via getRoomToken.
+      ttl: '15m',
     });
     accessToken.addGrant({ roomJoin: true, room: livekitRoomName });
     const tokenStr = await accessToken.toJwt();
@@ -486,7 +512,12 @@ export const joinRoom = async (req: Request, res: Response, next: NextFunction) 
       include: {
         participants: { select: { userId: true } },
         appointment: {
-          select: { scheduledAt: true, durationMinutes: true, status: true },
+          select: {
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+            payment: { select: { status: true } },
+          },
         },
       },
     });
@@ -500,7 +531,16 @@ export const joinRoom = async (req: Request, res: Response, next: NextFunction) 
       const admitted = await tryAdmitByRoomCode(room, userPayload);
       if (!admitted) throw err;
     }
-    if (room.appointment) assertAppointmentJoinWindow(room.appointment);
+    if (room.appointment) {
+      if (room.appointment.payment?.status !== 'SUCCESS') {
+        throw new AppError(
+          'Payment is required before joining this appointment',
+          402,
+          'PAYMENT_REQUIRED'
+        );
+      }
+      assertAppointmentJoinWindow(room.appointment);
+    }
 
     const joinedAt = new Date();
     await prisma.$transaction([
@@ -618,7 +658,7 @@ export const leaveRoom = async (req: Request, res: Response, next: NextFunction)
     });
 
     // Best-effort provider removal: without it the leaver's media ghost
-    // lingers until the 1h token TTL. Local departure is already committed
+    // lingers until the 15m token TTL. Local departure is already committed
     // above, so provider failure never fails the leave itself.
     if (room.externalRoomId && !room.externalRoomId.startsWith('ricton-')) {
       try {
@@ -652,11 +692,8 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
             user: {
               select: {
                 id: true,
-                email: true,
                 role: true,
                 status: true,
-                patientProfile: true,
-                providerProfile: true,
               },
             },
           },
@@ -689,3 +726,35 @@ export const getParticipants = async (req: Request, res: Response, next: NextFun
     next(error);
   }
 };
+
+/**
+ * Best-effort hourly sweep for stale video rooms.
+ * CREATED rooms older than 2h (never joined) and ACTIVE rooms older than 3h
+ * are marked ENDED so abandoned sessions cannot linger.
+ */
+export async function sweepStaleRooms(now = new Date()) {
+  const createdCutoff = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+  const activeCutoff = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  try {
+    const [created, active] = await Promise.all([
+      prisma.telemedicineRoom.updateMany({
+        where: {
+          status: TelemedicineRoomStatus.CREATED,
+          createdAt: { lt: createdCutoff },
+        },
+        data: { status: TelemedicineRoomStatus.ENDED, endedAt: now },
+      }),
+      prisma.telemedicineRoom.updateMany({
+        where: {
+          status: TelemedicineRoomStatus.ACTIVE,
+          createdAt: { lt: activeCutoff },
+        },
+        data: { status: TelemedicineRoomStatus.ENDED, endedAt: now },
+      }),
+    ]);
+    return { created: created.count, active: active.count };
+  } catch (err) {
+    console.warn('[telemedicine] sweepStaleRooms failed (best-effort)', err);
+    return { created: 0, active: 0 };
+  }
+}

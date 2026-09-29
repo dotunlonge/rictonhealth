@@ -5,6 +5,13 @@ import { seedDoctors } from '../src/seed-doctors-helper';
 const prisma = new PrismaClient();
 
 async function main() {
+  // #98: destructive seed (deleteMany) requires explicit opt-in in production.
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== 'yes' && process.env.NODE_ENV === 'production') {
+    console.error(
+      'ERROR: Refusing destructive seed in production without ALLOW_DESTRUCTIVE_SEED=yes'
+    );
+    process.exit(1);
+  }
   if (process.env.NODE_ENV === 'production') {
     console.error('ERROR: Refusing to run seed script in production environment!');
     process.exit(1);

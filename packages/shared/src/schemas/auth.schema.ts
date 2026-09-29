@@ -35,6 +35,11 @@ export const RegisterInputSchema = registry.register(
       role: z.enum(['PATIENT', 'CONSULTANT', 'PHARMACIST']),
       firstName: z.string().optional(),
       lastName: z.string().optional(),
+      // #L2 Age gate: optional DOB, but never a future date.
+      dateOfBirth: z
+        .string()
+        .optional()
+        .refine((v) => !v || new Date(v) <= new Date(), 'Invalid DOB'),
       consentVersion: z.string().min(1, 'consentVersion is required'),
     })
     .refine(hasAtLeastOneIdentifier, registrationIdentifierRefinement)

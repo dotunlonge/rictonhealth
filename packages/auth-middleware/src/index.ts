@@ -141,12 +141,49 @@ export const requireAuth = async (req: Request, _res: Response, next: NextFuncti
 };
 
 export const requireRole = (...roles: UserRole[]) => {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  // #43 stale-role hardening: JWT role is trusted for at most 15m (access-token
+  // lifetime), but requireRole rechecks the authoritative role on every guarded
+  // route. Cache-aside on redis `user:role:{id}` (60s TTL); DB is authoritative.
+  // Best-effort: Redis/DB outage falls back to the verified token role so a
+  // cache/DB blip does not lock users out (revocation still enforced above).
+  return async (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new UnauthorizedError('Authentication required'));
     }
 
-    if (!roles.includes(req.user.role)) {
+    let effectiveRole: UserRole = req.user.role;
+    try {
+      let freshRole: string | null = null;
+      try {
+        freshRole = await redis.get(`user:role:${req.user.userId}`);
+      } catch {
+        freshRole = null;
+      }
+      if (!freshRole) {
+        const user = await prisma.user.findUnique({
+          where: { id: req.user.userId },
+          select: { role: true },
+        });
+        if (!user) {
+          return next(new UnauthorizedError('User no longer exists'));
+        }
+        freshRole = user.role;
+        try {
+          await redis.set(`user:role:${req.user.userId}`, freshRole, 'EX', 60);
+        } catch {
+          // Best-effort cache write.
+        }
+      }
+      effectiveRole = freshRole as UserRole;
+      if (freshRole !== req.user.role) {
+        return next(new ForbiddenError('Role changed. Please log in again.'));
+      }
+    } catch {
+      // DB unreachable after cache miss — fall back to the verified token role.
+      effectiveRole = req.user.role;
+    }
+
+    if (!roles.includes(effectiveRole)) {
       return next(new ForbiddenError('You do not have permission to perform this action'));
     }
 

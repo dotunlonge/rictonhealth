@@ -1,5 +1,10 @@
 _format_version: '3.0'
 
+# #92 default-deny intent: every private /api/* service must carry a `jwt`
+# plugin (key_claim iss, verify exp) unless it has an explicit public-route
+# carve-out documented inline (auth login/refresh, telemedicine provider
+# callbacks). Add new services WITH jwt by default; public exceptions get a
+# route-level plugin override + comment, never a bare service.
 consumers:
   - username: ricton-client
     jwt_secrets:
@@ -8,6 +13,11 @@ consumers:
         algorithm: HS256
 
 plugins:
+  # #95 Redis DB index separation: single shared Redis instance.
+  # App sessions/cache/pubsub use DB 0 (REDIS_URL without /N suffix).
+  # Kong rate-limiting counters use DB 1 (redis_database: 1) so FLUSHDB /
+  # key churn on one side never evicts the other. ElastiCache (redis.tf)
+  # is a single replication group — no new infra.
   - name: rate-limiting
     config:
       minute: 60
@@ -15,6 +25,9 @@ plugins:
       redis_host: redis
       redis_port: 6379
       redis_password: ${REDIS_PASSWORD}
+      redis_database: 1
+      # fault_tolerant omitted (= true, fail-open): a Redis blip degrades to
+      # unthrottled rather than 500ing all traffic at the edge.
 services:
   - name: auth-service
     url: http://auth-service:3001
@@ -28,6 +41,9 @@ services:
           redis_host: redis
           redis_port: 6379
           redis_password: ${REDIS_PASSWORD}
+          redis_database: 1 # #95: Kong counters on DB 1; app uses DB 0.
+          # fault_tolerant: false (fail-closed) is intentional here: the
+          # login path must not go unthrottled during a Redis outage.
           fault_tolerant: false
     routes:
       - name: auth-routes
@@ -59,6 +75,18 @@ services:
 
   - name: payment-service
     url: http://payment-service:3007
+    # #A2 timeouts: bound upstream waits so slow payment provider calls
+    # fail fast instead of holding Kong workers.
+    connect_timeout: 5000
+    write_timeout: 10000
+    read_timeout: 10000
+    retries: 2
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
     routes:
       - name: payment-routes
         paths:
@@ -67,6 +95,17 @@ services:
 
   - name: wallet-service
     url: http://wallet-service:3008
+    # #A2 timeouts: same bounds as payment (ledger calls must fail fast).
+    connect_timeout: 5000
+    write_timeout: 10000
+    read_timeout: 10000
+    retries: 2
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
     routes:
       - name: wallet-routes
         paths:
@@ -75,6 +114,11 @@ services:
 
   - name: appointment-service
     url: http://appointment-service:3005
+    # #A2 timeouts: scheduling path bound so slot contention fails fast.
+    connect_timeout: 5000
+    write_timeout: 10000
+    read_timeout: 10000
+    retries: 2
     plugins:
       - name: jwt
         config:
@@ -89,6 +133,12 @@ services:
 
   - name: prescription-service
     url: http://prescription-service:3004
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
     routes:
       - name: prescription-routes
         paths:
@@ -118,6 +168,12 @@ services:
 
   - name: pharmacy-service
     url: http://pharmacy-service:3014
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
     routes:
       - name: pharmacy-routes
         paths:

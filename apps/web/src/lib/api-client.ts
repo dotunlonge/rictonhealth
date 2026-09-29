@@ -236,6 +236,9 @@ class ApiClient {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      // Lightweight version signal (full /v1 path alias deferred as too big;
+      // gateway/server should echo this as an X-API-Version response header).
+      'X-API-Version': 'v1',
       ...((init.headers as Record<string, string>) || {}),
     };
     if (accessToken) {
@@ -256,6 +259,15 @@ class ApiClient {
     const fullUrl = getEndpointUrl(endpoint);
 
     const doFetch = async (): Promise<ApiResponse<T>> => {
+      // F2 envelope contract: every API response is { success, data?, error? }.
+      // 402 (PAYMENT_REQUIRED e.g. premium-gated booking) and 429 (rate
+      // limited, incl. Kong edge throttles) arrive as envelopes too — callers
+      // branch on res.success === false + res.error.code / HTTP status text.
+      // A 2xx with success !== true is a contract violation => BAD_RESPONSE.
+      const isEnvelope = (v: unknown): v is ApiResponse<T> =>
+        typeof v === 'object' &&
+        v !== null &&
+        typeof (v as { success?: unknown }).success === 'boolean';
       let response: Response;
       try {
         response = await fetch(fullUrl, { ...init, headers, signal: controller.signal });
@@ -303,13 +315,15 @@ class ApiClient {
         };
       }
 
-      if (data === undefined) {
+      if (!isEnvelope(data)) {
+        // F2: 2xx without a valid envelope (success !== true/false, e.g.
+        // upstream HTML or Kong error page) is a contract violation.
         return {
           success: false,
           error: { code: 'BAD_RESPONSE', message: 'Server returned a non-JSON response' },
         };
       }
-      return data as ApiResponse<T>;
+      return data;
     };
 
     return doFetch();

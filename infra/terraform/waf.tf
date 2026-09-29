@@ -57,7 +57,8 @@ resource "aws_wafv2_web_acl" "edge" {
 }
 
 resource "aws_wafv2_web_acl_association" "edge" {
-  count        = var.alb_arn == "" ? 0 : 1
+  # #94 WAF must always be attached in front of the ALB — no conditional
+  # count. Pass a real alb_arn in every environment.
   resource_arn = var.alb_arn
   web_acl_arn  = aws_wafv2_web_acl.edge.arn
 }

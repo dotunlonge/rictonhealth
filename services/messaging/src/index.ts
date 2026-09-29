@@ -28,7 +28,9 @@ import messagingRoutes from './routes/messaging.routes';
 initSentry('messaging-service');
 
 const app = express();
-const PORT = process.env.MESSAGING_PORT || 3012;
+// Canonical: PORT_MESSAGING (repo PORT_* convention). MESSAGING_PORT is accepted
+// as a legacy fallback so existing prod envs keep working.
+const PORT = process.env.PORT_MESSAGING || process.env.MESSAGING_PORT || 3012;
 
 app.set('trust proxy', true);
 app.use(helmet());

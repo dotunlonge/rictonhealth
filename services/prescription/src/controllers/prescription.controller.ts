@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { prisma, UserRole, UserStatus, PrescriptionStatus, ensurePharmacySeeded } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
@@ -18,6 +19,16 @@ export const createPrescription = async (req: Request, res: Response, next: Next
       throw new ForbiddenError('Only medical consultants can author prescriptions');
     }
 
+    const author = await prisma.providerProfile.findUnique({
+      where: { userId: userPayload.userId },
+      select: { isVerified: true },
+    });
+    if (!author?.isVerified) {
+      throw new ForbiddenError(
+        'Your medical license must be verified before authoring prescriptions'
+      );
+    }
+
     const { patientId, appointmentId, notes, items } = req.body;
 
     if (!patientId || !items || !Array.isArray(items) || items.length === 0) {
@@ -27,7 +38,7 @@ export const createPrescription = async (req: Request, res: Response, next: Next
     // Verify patient exists
     const patient = await prisma.user.findUnique({
       where: { id: patientId },
-      select: { id: true, role: true },
+      select: { id: true, role: true, patientProfile: { select: { allergies: true } } },
     });
     if (!patient || patient.role !== UserRole.PATIENT) {
       throw new NotFoundError('Patient user not found');
@@ -38,12 +49,14 @@ export const createPrescription = async (req: Request, res: Response, next: Next
     if (appointmentId) {
       const appointment = await prisma.appointment.findUnique({
         where: { id: appointmentId },
-        select: { id: true, patientId: true, providerId: true },
+        select: { id: true, patientId: true, providerId: true, status: true, scheduledAt: true },
       });
       if (
         !appointment ||
         appointment.patientId !== patientId ||
-        appointment.providerId !== userPayload.userId
+        appointment.providerId !== userPayload.userId ||
+        !['CONFIRMED', 'IN_PROGRESS', 'COMPLETED'].includes(appointment.status) ||
+        appointment.scheduledAt < new Date(Date.now() - 180 * 24 * 60 * 60 * 1000)
       ) {
         throw new ForbiddenError('Appointment does not establish a provider-patient relationship');
       }
@@ -90,11 +103,43 @@ export const createPrescription = async (req: Request, res: Response, next: Next
               'Each prescription item requires drugName, dosage, quantity, frequency, and duration'
             );
           }
+          const quantity = Number(item.quantity);
+          if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
+            throw new ValidationError(
+              'Prescription quantity must be an integer between 1 and 1000'
+            );
+          }
+          // #50 Structured dosage: must include amount + unit (e.g. "500mg", "2 tablets").
+          if (
+            !/^\d+(\.\d+)?\s*(mg|g|ml|mcg|IU|tablets?|capsules?)/i.test(String(item.dosage).trim())
+          ) {
+            throw new ValidationError('Dosage must include amount + unit (e.g. 500mg, 2 tablets)');
+          }
+          // #50 Controlled-substance guard: hard block on large quantities.
+          const CONTROLLED = ['tramadol', 'codeine', 'morphine', 'oxycodone', 'fentanyl'];
+          if (
+            CONTROLLED.some((c) => String(item.drugName).toLowerCase().includes(c)) &&
+            quantity > 30
+          ) {
+            throw new ValidationError(
+              `Controlled substance ${item.drugName} limited to 30 units per prescription`
+            );
+          }
+          const allergies = Array.isArray(patient.patientProfile?.allergies)
+            ? (patient.patientProfile.allergies as string[])
+            : [];
+          if (
+            allergies.some((allergy) => item.drugName.toLowerCase().includes(allergy.toLowerCase()))
+          ) {
+            throw new ValidationError(
+              `Medication conflicts with the patient's recorded allergy: ${item.drugName}`
+            );
+          }
           return {
             prescriptionId: p.id,
             drugName: item.drugName,
             dosage: item.dosage,
-            quantity: Number(item.quantity),
+            quantity,
             frequency: item.frequency,
             duration: item.duration,
             instructions: item.instructions || '',
@@ -162,22 +207,11 @@ export const signPrescription = async (req: Request, res: Response, next: NextFu
       throw new ValidationError('Only DRAFT prescriptions can be signed');
     }
 
-    // Verify and atomically delete OTP code in Redis to prevent reuse under concurrency
+    // #51 Verify OTP then atomically consume it (Lua compare-del, fallback to del).
     const key = provider?.user?.email || provider?.user?.phone || userPayload.userId;
     const redisKey = `otp:${key}`;
 
-    const pipeline = redis.pipeline();
-    pipeline.get(redisKey);
-    pipeline.del(redisKey);
-    const pipelineResults = await pipeline.exec();
-
-    const rawOtp =
-      pipelineResults &&
-      pipelineResults[0] &&
-      pipelineResults[0][1] !== null &&
-      pipelineResults[0][1] !== undefined
-        ? pipelineResults[0][1]
-        : null;
+    const rawOtp: unknown = await redis.get(redisKey);
 
     if (rawOtp && rawOtp !== 'null') {
       const parsedData = typeof rawOtp === 'string' ? JSON.parse(rawOtp) : rawOtp;
@@ -185,22 +219,84 @@ export const signPrescription = async (req: Request, res: Response, next: NextFu
         throw new UnauthorizedError('Invalid signature verification OTP');
       }
     } else {
-      // In development sandbox / local / test, allow fallback signature if not found in Redis
-      if (process.env.NODE_ENV === 'production') {
-        throw new UnauthorizedError(
-          'Signature verification OTP has expired. Please send a new OTP.'
+      throw new UnauthorizedError('Signature verification OTP has expired. Please send a new OTP.');
+    }
+
+    // Atomic single-use consume: delete only if value unchanged since read.
+    try {
+      const redisAny = redis as unknown as {
+        eval?: (...args: unknown[]) => Promise<unknown>;
+      };
+      if (typeof redisAny.eval === 'function') {
+        await redisAny.eval(
+          "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end",
+          1,
+          redisKey,
+          String(rawOtp)
         );
+      } else {
+        await redis.del(redisKey);
+      }
+    } catch {
+      try {
+        await redis.del(redisKey);
+      } catch {
+        // best-effort consume; sign flow already verified the OTP
       }
     }
 
-    const signed = await prisma.prescription.update({
-      where: { id },
-      data: {
-        status: PrescriptionStatus.SIGNED,
-        signedAt: new Date(),
-      },
-      include: { items: true },
-    });
+    const signedAt = new Date();
+    // #L4 Rx snapshot: license + signature hash. Best-effort so signing still
+    // works when the migration columns are not yet applied (falls back clean).
+    const prescriberLicense = provider.licenseNumber || null;
+    const signatureHash = crypto
+      .createHash('sha256')
+      .update(`${id}:${userPayload.userId}:${signedAt.toISOString()}`)
+      .digest('hex');
+    let signed;
+    try {
+      signed = await (prisma.prescription.update as any)({
+        where: { id },
+        data: {
+          status: PrescriptionStatus.SIGNED,
+          signedAt,
+          prescriberLicense,
+          signatureHash,
+        },
+        include: { items: true },
+      });
+    } catch (e) {
+      if (
+        e instanceof Error &&
+        /prescriberLicense|signatureHash|Unknown argument|P2022/i.test(e.message)
+      ) {
+        signed = await prisma.prescription.update({
+          where: { id },
+          data: {
+            status: PrescriptionStatus.SIGNED,
+            signedAt: new Date(),
+          },
+          include: { items: true },
+        });
+      } else {
+        throw e;
+      }
+    }
+
+    // #53 Audit trail for prescription signing (best-effort).
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: userPayload.userId,
+          action: 'PRESCRIPTION_SIGNED',
+          resourceType: 'PRESCRIPTION',
+          resourceId: id,
+          metadata: { patientId: prescription.patientId } as any,
+        },
+      });
+    } catch {
+      // do not fail sign flow on audit failure
+    }
 
     res.status(200).json(successResponse(signed));
   } catch (error) {
@@ -311,6 +407,11 @@ export const dispensePrescription = async (req: Request, res: Response, next: Ne
       throw new ForbiddenError('Only registered pharmacists can dispense prescriptions');
     }
 
+    // #P5/#145 Prefer POST /pharmacy/prescriptions/fulfill (atomic order+stock).
+    // Kept backward-compatible for existing clients; deprecation header guides migration.
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Link', '</api/pharmacy/prescriptions/fulfill>; rel="successor"');
+
     const { id } = req.params;
 
     const prescription = await prisma.prescription.findUnique({
@@ -357,7 +458,7 @@ export const listPrescriptions = async (req: Request, res: Response, next: NextF
   try {
     const userPayload = req.user as JwtPayload;
     const { role, userId } = userPayload;
-    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 50);
     const skip = Math.max(Number(req.query.offset) || 0, 0);
 
     let whereClause: Record<string, unknown> | null = null;

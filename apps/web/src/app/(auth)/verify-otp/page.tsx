@@ -15,6 +15,13 @@ function VerifyOtpContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
   useEffect(() => {
     if (user?.role) {
@@ -38,6 +45,19 @@ function VerifyOtpContent() {
       </div>
     );
   }
+
+  const handleResend = async () => {
+    if (cooldown > 0 || !email) return;
+    setErrorMsg('');
+    setSuccessMsg('');
+    const res = await api.post('/auth/otp/send', { email });
+    if (res.success) {
+      setSuccessMsg('Code resent. Check your inbox.');
+      setCooldown(60);
+    } else {
+      setErrorMsg(res.error?.message || 'Could not resend code.');
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,7 +152,7 @@ function VerifyOtpContent() {
                   required
                   maxLength={6}
                   value={code}
-                  onChange={(e) => setCode(e.target.value)}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                   placeholder="123456"
                   className="appearance-none block w-full px-4 py-4 border border-slate-300 rounded-2xl shadow-sm tracking-widest text-center text-2xl font-mono focus:outline-none focus:ring-2 focus:ring-[#1c7bcf]/20 focus:border-[#1c7bcf] bg-white text-slate-900"
                 />
@@ -146,6 +166,16 @@ function VerifyOtpContent() {
                 className="w-full h-14 flex items-center justify-center rounded-2xl shadow-md text-base font-extrabold text-white bg-[#1c7bcf] hover:bg-[#1565ad] transition-all disabled:opacity-50 active:scale-[0.99]"
               >
                 {isLoading ? 'Verifying...' : 'Verify Code'}
+              </button>
+            </div>
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={cooldown > 0}
+                className="text-sm font-bold text-[#1c7bcf] hover:underline disabled:opacity-50 disabled:no-underline"
+              >
+                {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
               </button>
             </div>
           </form>

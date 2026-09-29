@@ -114,7 +114,14 @@ export async function runOutboxRelayOnce(now = new Date()): Promise<{
 
 export const outboxQueue = new Queue('outbox', {
   connection: bullmqConnection,
-  defaultJobOptions: { removeOnComplete: 50, removeOnFail: 20, attempts: 1 },
+  // #59/#60 DLQ: relay sweep must retry transient provider/redis failures
+  // with backoff instead of failing once (attempts:1 stranded OTP rows).
+  defaultJobOptions: {
+    removeOnComplete: 50,
+    removeOnFail: 20,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 2000 },
+  },
 });
 
 export function startOutboxWorker() {

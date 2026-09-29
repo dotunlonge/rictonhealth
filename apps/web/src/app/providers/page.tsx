@@ -190,7 +190,7 @@ export default function ProvidersPage() {
                   {canBook && (
                     <button
                       type="button"
-                      onClick={() => router.push('/appointments')}
+                      onClick={() => router.push(`/appointments?providerId=${doc.id}`)}
                       className="flex-1 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-2xl text-xs transition-all shadow-xs text-center"
                     >
                       Book Slot

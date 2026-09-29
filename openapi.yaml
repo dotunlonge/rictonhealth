@@ -1434,6 +1434,11 @@ components:
           type: string
         status:
           type: string
+          enum:
+            - PENDING
+            - SUCCESS
+            - FAILED
+            - REFUNDED
       required:
         - id
         - reference
@@ -2784,11 +2789,11 @@ components:
             consultationFee:
               type: number
               nullable: true
+          # C4: specialty/consultationFee are nullable => optional (not in
+          # required). firstName/lastName kept required (non-null in practice).
           required:
             - firstName
             - lastName
-            - specialty
-            - consultationFee
         pharmacyProfile:
           type: object
           nullable: true

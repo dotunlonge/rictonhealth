@@ -6,7 +6,8 @@ export type AppointmentNotificationType =
   | 'APPOINTMENT_CONFIRMED'
   | 'APPOINTMENT_CANCELLED'
   | 'APPOINTMENT_RESCHEDULED'
-  | 'APPOINTMENT_REMINDER';
+  | 'APPOINTMENT_REMINDER'
+  | 'APPOINTMENT_NO_SHOW';
 
 export interface AppointmentNudgeInput {
   userId: string;
@@ -21,12 +22,12 @@ function formatSlot(when: Date): string {
   return new Intl.DateTimeFormat('en-NG', {
     dateStyle: 'medium',
     timeStyle: 'short',
-    timeZone: 'UTC',
+    timeZone: 'Africa/Lagos',
   }).format(when);
 }
 
 export function slotLabel(scheduledAt: Date | string): string {
-  return formatSlot(new Date(scheduledAt));
+  return `${formatSlot(new Date(scheduledAt))} (WAT)`;
 }
 
 async function channelPrefs(userId: string): Promise<{ email: boolean; sms: boolean }> {

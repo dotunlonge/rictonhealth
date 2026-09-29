@@ -1,10 +1,10 @@
 import { openURL } from 'expo-linking';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { PatientHeader } from '@/components/PatientHeader';
 import { PrimaryButton, Screen, StateNotice, TextField } from '@/components/ui';
-import { MIN_TOPUP_NGN, walletService } from '@/features/wallet/wallet-service';
+import { MAX_TOPUP_NGN, MIN_TOPUP_NGN, walletService } from '@/features/wallet/wallet-service';
 import { spacing, typography } from '@/theme/tokens';
 import { colors } from '@/theme/tokens';
 
@@ -19,11 +19,18 @@ export default function TopUpScreen() {
 
   const launch = async () => {
     const value = Number(amount.replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(value) || value < MIN_TOPUP_NGN) {
+    if (!Number.isFinite(value) || value < MIN_TOPUP_NGN || value > MAX_TOPUP_NGN) {
       setAmountError(true);
       return;
     }
     setAmountError(false);
+    Alert.alert('Confirm top-up', `Top up ₦${value.toLocaleString('en-NG')}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', onPress: () => void doLaunch(value) },
+    ]);
+  };
+
+  const doLaunch = async (value: number) => {
     setLaunching(true);
     setError(null);
     try {
@@ -65,7 +72,7 @@ export default function TopUpScreen() {
         subtitle="Paystack checkout opens in your browser. We never see card details."
       />
       <TextField
-        label={`Amount in NGN (min ${MIN_TOPUP_NGN})`}
+        label={`Amount in NGN (min ${MIN_TOPUP_NGN}, max ${MAX_TOPUP_NGN})`}
         accessibilityLabel="Top-up amount in naira"
         keyboardType="number-pad"
         onChangeText={setAmount}
@@ -75,7 +82,7 @@ export default function TopUpScreen() {
       />
       {amountError ? (
         <Text testID="wallet.amount-error" style={styles.error}>
-          Enter at least {MIN_TOPUP_NGN} NGN.
+          Enter between {MIN_TOPUP_NGN} and {MAX_TOPUP_NGN} NGN.
         </Text>
       ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}

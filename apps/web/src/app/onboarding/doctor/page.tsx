@@ -69,6 +69,7 @@ export default function DoctorOnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [verifyingAccount, setVerifyingAccount] = useState(false);
+  const [pendingVerification, setPendingVerification] = useState(false);
 
   const [formData, setFormData] = useState({
     // Step 1
@@ -81,6 +82,7 @@ export default function DoctorOnboardingPage() {
     specialty: 'Cardiology',
     subSpecialty: 'Interventional Cardiology',
     yearsExperience: '12',
+    consultationFee: '5000',
     // Step 3
     licenseNumber: '',
     licenseExpiry: '',
@@ -112,6 +114,7 @@ export default function DoctorOnboardingPage() {
       specialty: 'Cardiology',
       subSpecialty: 'Interventional Cardiology',
       yearsExperience: '14',
+      consultationFee: '5000',
       licenseNumber: 'MDCN-78192-CAR',
       licenseExpiry: '2028-12-31',
       degree: 'MBBS, FWACP (Cardiology)',
@@ -138,6 +141,11 @@ export default function DoctorOnboardingPage() {
     } else if (currentStep === 2) {
       if (!formData.specialty || !formData.yearsExperience) {
         setFormError('Specialty and Years of Experience are required.');
+        return false;
+      }
+      const fee = Number(formData.consultationFee);
+      if (!Number.isFinite(fee) || fee < 500 || fee > 500000) {
+        setFormError('Consultation fee must be between ₦500 and ₦500,000.');
         return false;
       }
     } else if (currentStep === 3) {
@@ -190,6 +198,7 @@ export default function DoctorOnboardingPage() {
       firstName: formData.firstName,
       lastName: formData.lastName,
       specialty: formData.specialty,
+      consultationFee: Number(formData.consultationFee),
       title: 'Dr.',
       licenseNumber: formData.licenseNumber,
       bankName: formData.bankName,
@@ -199,7 +208,17 @@ export default function DoctorOnboardingPage() {
     setSubmitting(false);
 
     if (res.success && res.data) {
-      router.push('/dashboard');
+      // #125 Verified gate: unverified doctors see a pending screen instead
+      // of landing on the dashboard. License edits reset isVerified=false
+      // server-side, so a fresh submit is (almost) always pending.
+      const profile = (res.data as any)?.providerProfile;
+      const isVerified =
+        (res.data as any)?.isVerified ?? profile?.isVerified ?? true;
+      if (isVerified === false) {
+        setPendingVerification(true);
+      } else {
+        router.push('/dashboard');
+      }
     } else {
       setFormError(
         res.error?.message ||
@@ -207,6 +226,28 @@ export default function DoctorOnboardingPage() {
       );
     }
   };
+
+  // #125 Pending screen: shown when the saved profile is not yet verified.
+  if (pendingVerification) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
+        <div className="bg-white rounded-3xl p-10 shadow-sm border border-slate-200/80 max-w-md w-full text-center space-y-4">
+          <div className="text-5xl">⏳</div>
+          <h1 className="text-xl font-black text-slate-900">Verification pending</h1>
+          <p className="text-sm text-slate-500 font-medium">
+            Verification pending — we will notify you once your MDCN license is
+            approved. You can safely close this page.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block px-6 py-2.5 rounded-full text-xs font-bold bg-[#1877F2] text-white hover:bg-[#1565C0] transition-all"
+          >
+            Back to Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans antialiased relative">
@@ -421,6 +462,24 @@ export default function DoctorOnboardingPage() {
                       className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Consultation Fee (₦) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={500}
+                    max={500000}
+                    value={formData.consultationFee}
+                    onChange={(e) => updateForm('consultationFee', e.target.value)}
+                    placeholder="e.g. 5000"
+                    className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
+                  />
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                    What patients pay per consultation (₦500 – ₦500,000).
+                  </p>
                 </div>
               </div>
             )}

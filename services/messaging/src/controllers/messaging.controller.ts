@@ -12,13 +12,12 @@ export const listConversations = async (req: Request, res: Response, next: NextF
   try {
     const userPayload = req.user as JwtPayload;
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     const skip = (page - 1) * limit;
 
+    // #40/#65 PII trim: list/detail selects expose id + role only (no email/phone).
     const userSelect = {
       id: true,
-      email: true,
-      phone: true,
       role: true,
       patientProfile: true,
       providerProfile: true,
@@ -122,13 +121,12 @@ export const getConversationMessages = async (req: Request, res: Response, next:
     const userPayload = req.user as JwtPayload;
     const { id } = req.params;
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 50);
     const skip = (page - 1) * limit;
 
+    // #40/#65 PII trim: list/detail selects expose id + role only (no email/phone).
     const userSelect = {
       id: true,
-      email: true,
-      phone: true,
       role: true,
       patientProfile: true,
       providerProfile: true,
@@ -207,10 +205,9 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
     const { id } = req.params;
     const validatedData = SendMessageSchema.parse(req.body);
 
+    // #40/#65 PII trim: list/detail selects expose id + role only (no email/phone).
     const userSelect = {
       id: true,
-      email: true,
-      phone: true,
       role: true,
       patientProfile: true,
       providerProfile: true,
@@ -375,16 +372,64 @@ export const createConversation = async (req: Request, res: Response, next: Next
     const userPayload = req.user as JwtPayload;
     const validatedData = CreateConversationSchema.parse(req.body);
 
+    // #40/#65 PII trim: list/detail selects expose id + role only (no email/phone).
     const userSelect = {
       id: true,
-      email: true,
-      phone: true,
       role: true,
       patientProfile: true,
       providerProfile: true,
     };
 
     const allParticipantIds = [...new Set([userPayload.userId, ...validatedData.participantIds])];
+
+    // #40/#65 Open DM gate: only allow care-team threads (shared appointment or same hospital).
+    try {
+      if (validatedData.participantIds.length > 0) {
+        const [me, others] = await Promise.all([
+          prisma.user.findUnique({
+            where: { id: userPayload.userId },
+            select: { id: true, hospitalId: true },
+          }),
+          prisma.user.findMany({
+            where: { id: { in: validatedData.participantIds } },
+            select: { id: true, hospitalId: true },
+          }),
+        ]);
+        let allowed = false;
+        if (me && others.length === validatedData.participantIds.length) {
+          if (
+            me.hospitalId &&
+            others.every((o) => o.hospitalId && o.hospitalId === me.hospitalId)
+          ) {
+            allowed = true;
+          }
+          if (!allowed) {
+            const shared = await prisma.appointment.findFirst({
+              where: {
+                OR: [
+                  {
+                    patientId: userPayload.userId,
+                    providerId: { in: validatedData.participantIds },
+                  },
+                  {
+                    providerId: userPayload.userId,
+                    patientId: { in: validatedData.participantIds },
+                  },
+                ],
+              },
+              select: { id: true },
+            });
+            if (shared) allowed = true;
+          }
+        }
+        if (!allowed) {
+          throw new ForbiddenError('Messaging is limited to care-team threads');
+        }
+      }
+    } catch (e) {
+      if (e instanceof ForbiddenError) throw e;
+      // best-effort: do not block thread creation on lookup failure
+    }
 
     const conversation = await prisma.chatThread.create({
       data: {

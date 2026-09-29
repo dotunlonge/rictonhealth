@@ -23,6 +23,8 @@ const router = Router();
 // so suites stay fast while tests can lift the bypass to verify 429s.
 const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'auth' });
 const otpRateLimit = rateLimit({ windowMs: 60 * 1000, max: 3, keyPrefix: 'otp' });
+// #46 2FA throttle: brute-force gate on TOTP verify/setup paths.
+const authRate = rateLimit({ windowMs: 60 * 1000, max: 10, keyPrefix: '2fa' });
 
 /**
  * @openapi
@@ -168,10 +170,10 @@ router.post(
 
 // 2FA Endpoints
 router.get('/2fa/status', requireAuth, authController.get2FAStatus);
-router.post('/2fa/setup', requireAuth, authController.enable2FA);
-router.post('/2fa/enable', requireAuth, authController.enable2FA);
-router.post('/2fa/verify', requireAuth, authController.verify2FA);
-router.post('/2fa/disable', requireAuth, authController.disable2FA);
+router.post('/2fa/setup', requireAuth, authRate, authController.enable2FA);
+router.post('/2fa/enable', requireAuth, authRate, authController.enable2FA);
+router.post('/2fa/verify', authRate, requireAuth, authController.verify2FA);
+router.post('/2fa/disable', requireAuth, authRate, authController.disable2FA);
 
 // Password Change
 router.post(

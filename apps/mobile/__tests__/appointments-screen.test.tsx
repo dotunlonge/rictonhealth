@@ -65,6 +65,10 @@ function appointment(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  const reset = (global as Record<string, unknown>).__resetAsyncStorageMock as
+    | (() => void)
+    | undefined;
+  reset?.();
 });
 
 describe('appointments payment', () => {

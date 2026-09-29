@@ -101,4 +101,11 @@ htmlcov/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
+
+# Mobile signing / credentials — never commit (#90)
+*.jks
+*.keystore
+*.p8
+*.mobileprovision
+*.provisionprofile
 ```

@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { PatientHeader } from '@/components/PatientHeader';
 import { PrimaryButton, Screen, StateNotice, TextField } from '@/components/ui';
+import { useSession } from '@/features/auth/session-provider';
 import { messagingService } from '@/features/messaging/messaging-service';
 import { colors, radii, spacing, typography } from '@/theme/tokens';
 
@@ -19,9 +20,13 @@ function newIdempotencyKey(): string {
 
 export default function ThreadScreen() {
   const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const { user } = useSession();
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [draft, setDraft] = useState('');
   const [pendingBody, setPendingBody] = useState<string | null>(null);
+  // Stable idempotency key created once per send and reused on retry, so a
+  // retry never mints a fresh key (which would duplicate the message).
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -44,20 +49,24 @@ export default function ThreadScreen() {
     void load();
   }, [load]);
 
-  const send = async (body: string) => {
+  const send = async (body: string, reuseKey?: string) => {
     if (!body.trim()) return;
+    // Create the temp/idempotency key once per send; retries reuse it.
+    const idempotencyKey = reuseKey ?? newIdempotencyKey();
     setSending(true);
     setError(null);
     try {
       await messagingService.sendMessage(
         { conversationId: String(conversationId), body: body.trim() },
-        { idempotencyKey: newIdempotencyKey() }
+        { idempotencyKey }
       );
       setDraft('');
       setPendingBody(null);
+      setPendingKey(null);
       await load();
     } catch (caught) {
       setPendingBody(body);
+      setPendingKey(idempotencyKey);
       setError(caught instanceof Error ? caught.message : 'Message could not be sent.');
     } finally {
       setSending(false);
@@ -85,11 +94,24 @@ export default function ThreadScreen() {
         />
       ) : (
         <View style={styles.list}>
-          {(messages ?? []).map((message) => (
-            <View key={message.id} style={styles.bubble} testID={`messages.msg-${message.id}`}>
-              <Text style={styles.body}>{message.body}</Text>
-            </View>
-          ))}
+          {(messages ?? []).length === 0 ? (
+            <Text testID="messages.empty-thread" style={styles.emptyText}>
+              No messages yet — say hello to start the conversation.
+            </Text>
+          ) : (
+            (messages ?? []).map((message) => {
+              const mine = user?.id ? message.senderId === user.id : false;
+              return (
+                <View
+                  key={message.id}
+                  style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}
+                  testID={`messages.msg-${message.id}`}
+                >
+                  <Text style={mine ? styles.bodyMine : styles.body}>{message.body}</Text>
+                </View>
+              );
+            })
+          )}
         </View>
       )}
       {error && messages !== null ? (
@@ -97,7 +119,7 @@ export default function ThreadScreen() {
           <Text style={styles.error}>{error}</Text>
           <PrimaryButton
             label="Retry send"
-            onPress={() => pendingBody && void send(pendingBody)}
+            onPress={() => pendingBody && void send(pendingBody, pendingKey ?? undefined)}
             testID="messages.retry"
           />
         </View>
@@ -125,14 +147,19 @@ const styles = StyleSheet.create({
   loading: { paddingVertical: spacing[10], alignItems: 'center', gap: spacing[3] },
   loadingText: { ...typography.body, color: colors.slate600 },
   list: { gap: spacing[2] },
+  emptyText: { ...typography.body, color: colors.slate600, textAlign: 'center' },
   bubble: {
     borderRadius: radii.md,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.slate200,
     padding: spacing[3],
+    maxWidth: '80%',
   },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.blue600, borderColor: colors.blue600 },
+  bubbleTheirs: { alignSelf: 'flex-start' },
   body: { ...typography.body, color: colors.slate900 },
+  bodyMine: { ...typography.body, color: colors.white },
   stack: { gap: spacing[2] },
   error: { ...typography.caption, color: colors.rose700 },
 });

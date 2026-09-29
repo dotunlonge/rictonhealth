@@ -66,7 +66,9 @@ export default function PrescriptionsScreen() {
                     <Text style={styles.prescriber}>{prescriberName(prescription)}</Text>
                   </View>
                 </View>
-                <View style={styles.status}>
+                <View
+                  style={[styles.status, prescription.status !== 'SIGNED' && styles.statusPending]}
+                >
                   <Text style={styles.statusText}>{prescription.status}</Text>
                 </View>
               </View>
@@ -87,6 +89,14 @@ export default function PrescriptionsScreen() {
               {prescription.items.length > 3 ? (
                 <Text style={styles.more}>+{prescription.items.length - 3} more medicines</Text>
               ) : null}
+              <Link href={`../prescriptions/${prescription.id}`} asChild>
+                <Pressable
+                  accessibilityRole="button"
+                  testID={`prescriptions.detail-${prescription.id}`}
+                >
+                  <Text style={styles.detailLink}>View details →</Text>
+                </Pressable>
+              </Link>
               {prescription.signedAt ? (
                 <Link href={`../pharmacy/checkout?prescriptionId=${prescription.id}`} asChild>
                   <Pressable
@@ -144,6 +154,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing[3],
     paddingVertical: spacing[1],
   },
+  statusPending: {
+    backgroundColor: colors.amber100,
+  },
   statusText: {
     ...typography.caption,
     color: colors.emerald700,
@@ -156,6 +169,7 @@ const styles = StyleSheet.create({
   drug: { ...typography.label, color: colors.slate900 },
   instructions: { ...typography.caption, color: colors.slate600 },
   more: { ...typography.caption, color: colors.blue700, marginLeft: spacing[8] },
+  detailLink: { ...typography.bodyStrong, color: colors.blue700, marginLeft: spacing[8] },
   orderButton: {
     minHeight: 48,
     borderRadius: radii.md,

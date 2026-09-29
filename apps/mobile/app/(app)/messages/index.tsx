@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PatientHeader } from '@/components/PatientHeader';
-import { Screen, StateNotice } from '@/components/ui';
+import { PrimaryButton, Screen, StateNotice } from '@/components/ui';
 import { messagingService } from '@/features/messaging/messaging-service';
 import { cardShadow, colors, radii, spacing, typography } from '@/theme/tokens';
 
@@ -55,6 +55,12 @@ export default function InboxScreen() {
   return (
     <Screen testID="messages.inbox.screen" style={styles.content}>
       <PatientHeader eyebrow="MESSAGES" title="Inbox" subtitle="Secure chat with your care team." />
+      {/* Parity: new conversations start from booking (pick a clinician) until a dedicated compose screen exists. */}
+      <PrimaryButton
+        label="New Message"
+        onPress={() => router.push('/booking' as const)}
+        testID="messages.new"
+      />
       {conversations === null && !error ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.blue600} />

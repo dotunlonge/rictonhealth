@@ -127,6 +127,11 @@ export const SEED_DOCTORS: SeedDoctorData[] = [
 ];
 
 export async function seedDoctors(prisma: PrismaClient): Promise<number> {
+  // #96: never auto-seed demo doctors in production (would overwrite/seed PII-adjacent fixtures).
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[Auto-Bootstrap] Skipping seedDoctors in production.');
+    return 0;
+  }
   let seededCount = 0;
 
   for (const doc of SEED_DOCTORS) {
@@ -219,6 +224,10 @@ export async function seedDoctors(prisma: PrismaClient): Promise<number> {
  * If either is missing, automatically populates all 7 doctors and weekly availability.
  */
 export async function ensureDoctorsSeeded(prisma: PrismaClient): Promise<boolean> {
+  // #96: fail-closed in production — no self-healing bootstrap outside dev/test.
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
   try {
     const [doctorCount, availabilityCount] = await Promise.all([
       prisma.providerProfile.count({ where: { isVerified: true } }),

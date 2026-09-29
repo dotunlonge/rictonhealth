@@ -11,12 +11,16 @@ export const AppointmentSchema = registry.register(
     scheduledAt: z.string(),
     durationMinutes: z.number(),
     type: z.enum(['IN_PERSON', 'VIDEO']),
-    status: z.string(),
+    // #C1: mirror AppointmentStatus prisma enum — no free-form strings.
+    status: z.enum(['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
     notes: z.string().nullable(),
     cancellationReason: z.string().nullable(),
     reason: z.string().nullable(),
     reminderSentAt: z.string().nullable(),
-    cancelledBy: z.string().nullable(),
+    // #C1: mirror UserRole prisma enum (cancelledBy is UserRole? in schema).
+    cancelledBy: z
+      .enum(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'])
+      .nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -39,7 +43,7 @@ export const BookAppointmentInputSchema = registry.register(
     type: z.enum(['IN_PERSON', 'VIDEO']),
     notes: z.string().optional(),
     reason: z.string().optional(),
-    durationMinutes: z.number().int().positive().optional(),
+    durationMinutes: z.number().int().positive().max(480).optional(),
   })
 );
 
@@ -74,7 +78,7 @@ export const CreateAppointmentSchema = registry.register(
     scheduledAt: z.string().datetime(),
     type: z.enum(['IN_PERSON', 'VIDEO']),
     reason: z.string().optional(),
-    durationMinutes: z.number().int().positive().optional(),
+    durationMinutes: z.number().int().positive().max(480).optional(),
     hospitalId: z.string().uuid().optional(),
   })
 );
@@ -84,6 +88,9 @@ export const UpdateAppointmentStatusSchema = registry.register(
   z.object({
     status: z.enum(['PENDING', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
     cancellationReason: z.string().optional(),
+    waivedReason: z.string().max(500).optional(),
+    // #C2 Follow-up: optional due date, persisted only when completing a visit.
+    followUpAt: z.string().datetime().optional(),
   })
 );
 
@@ -91,7 +98,7 @@ export const RescheduleAppointmentSchema = registry.register(
   'RescheduleAppointment',
   z.object({
     scheduledAt: z.string().datetime(),
-    durationMinutes: z.number().int().positive().optional(),
+    durationMinutes: z.number().int().positive().max(480).optional(),
   })
 );
 
@@ -104,6 +111,7 @@ export const GetAvailabilityQuerySchema = registry.register(
     // because validateQuery only sees req.query.
     providerId: z.string().uuid().optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    timezone: z.string().optional(),
   })
 );
 

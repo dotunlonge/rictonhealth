@@ -14,8 +14,17 @@ import {
   Upload,
 } from 'lucide-react';
 
-type Tab = 'profile' | 'payouts' | 'security';
+type Tab = 'profile' | 'payouts' | 'security' | 'history';
 type Bank = { name: string; code: string };
+type Session = {
+  id: string;
+  deviceOs?: string | null;
+  userAgent?: string | null;
+  deviceIp?: string | null;
+  deviceId?: string | null;
+  createdAt?: string;
+  lastUsedAt?: string;
+};
 
 export default function SettingsPage() {
   const { user, setUser, fetchUser } = useAppStore();
@@ -47,6 +56,95 @@ export default function SettingsPage() {
   });
   const [passMsg, setPassMsg] = useState('');
   const [changingPass, setChangingPass] = useState(false);
+
+  // Sessions
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsMsg, setSessionsMsg] = useState('');
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  // Medical history
+  const [allergies, setAllergies] = useState('');
+  const [conditions, setConditions] = useState('');
+  const [emergencyName, setEmergencyName] = useState('');
+  const [emergencyRelationship, setEmergencyRelationship] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [historyMsg, setHistoryMsg] = useState('');
+  const [savingHistory, setSavingHistory] = useState(false);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    setSessionsMsg('');
+    const res = await api.get<{ sessions: Session[] }>('/auth/sessions');
+    setSessionsLoading(false);
+    if (res.success) {
+      const list = Array.isArray(res.data)
+        ? res.data
+        : Array.isArray(res.data?.sessions)
+          ? res.data.sessions
+          : [];
+      setSessions(list);
+    } else {
+      setSessionsMsg(res.error?.message || 'Sessions could not be loaded.');
+    }
+  };
+
+  const revokeSession = async (sessionId: string) => {    if (!confirm('Revoke this login session?')) return;
+    setRevokingId(sessionId);
+    const res = await api.delete(`/auth/sessions/${sessionId}`);
+    setRevokingId(null);
+    if (res.success) {
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      setSessionsMsg('Session revoked.');
+    } else {
+      setSessionsMsg(res.error?.message || 'Session could not be revoked.');
+    }
+  };
+
+  const saveHistory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingHistory(true);    setHistoryMsg('');
+    const allergyList = allergies
+      .split(/[\n,]+/)
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const conditionList = conditions
+      .split(/[\n,]+/)
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .map((condition) => ({ condition }));
+    const profileRes = await api.put('/users/me', {
+      allergies: allergyList,
+      ...(emergencyName.trim() || emergencyPhone.trim()
+        ? {
+            emergencyContact: {
+              name: emergencyName.trim(),
+              relationship: emergencyRelationship.trim() || 'Other',
+              phone: emergencyPhone.trim(),
+            },
+          }
+        : {}),
+    });
+    if (!profileRes.success) {
+      setSavingHistory(false);
+      setHistoryMsg(profileRes.error?.message || 'Medical history could not be saved.');
+      return;
+    }
+    if (conditionList.length > 0) {
+      const histRes = await api.put('/users/me/medical-history', {
+        medicalHistory: conditionList,
+      });
+      if (!histRes.success) {
+        setSavingHistory(false);
+        setHistoryMsg(
+          `Allergies saved; conditions failed: ${histRes.error?.message || 'unknown error'}`
+        );
+        return;
+      }
+    }
+    setSavingHistory(false);
+    setHistoryMsg('Medical history updated successfully!');
+  };
 
   useEffect(() => {
     async function load() {
@@ -88,7 +186,32 @@ export default function SettingsPage() {
           accountNumber: bDetails.accountNumber || '',
           accountName: bDetails.accountName || '',
           settlementFrequency: bDetails.settlementFrequency || 'INSTANT',
+          consultationFee: String(
+            (u.providerProfile as { consultationFee?: unknown } | undefined)
+              ?.consultationFee ?? (u as { consultationFee?: unknown }).consultationFee ?? ''
+          ),
         });
+
+        const patientProfile = (u as { patientProfile?: Record<string, unknown> }).patientProfile;
+        const existingAllergies = patientProfile?.allergies;
+        setAllergies(
+          Array.isArray(existingAllergies) ? (existingAllergies as string[]).join(', ') : ''
+        );
+        const existingHistory = patientProfile?.medicalHistory;
+        setConditions(
+          Array.isArray(existingHistory)
+            ? (existingHistory as Array<{ condition?: string }>)
+                .map((h) => h.condition)
+                .filter(Boolean)
+                .join(', ')
+            : ''
+        );
+        const ec = patientProfile?.emergencyContact as
+          | { name?: string; relationship?: string; phone?: string }
+          | undefined;
+        setEmergencyName(ec?.name || '');
+        setEmergencyRelationship(ec?.relationship || '');
+        setEmergencyPhone(ec?.phone || '');
       }
       setLoading(false);
     }
@@ -167,6 +290,7 @@ export default function SettingsPage() {
 
   const tabs: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'profile', label: 'My Profile', icon: User },
+    { id: 'history', label: 'Medical History', icon: Upload },
     { id: 'payouts', label: 'Payment & Wallet Details', icon: CreditCard },
     { id: 'security', label: 'Security & Privacy', icon: Shield },
   ];
@@ -314,6 +438,171 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
+
+            {user?.role === 'CONSULTANT' && (
+              <div className="space-y-1 pt-4 border-t border-slate-100">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
+                  Consultation Fee
+                </h3>
+                <div className="flex items-center justify-between py-4 gap-4">
+                  <div className="w-40 text-xs font-bold text-slate-600 shrink-0">
+                    Fee per visit (₦)
+                  </div>
+                  <div className="flex-1 max-w-sm">
+                    {editField === 'consultationFee' ? (
+                      <input
+                        type="number"
+                        min={500}
+                        max={500000}
+                        value={formData.consultationFee || ''}
+                        onChange={(e) =>
+                          setFormData({ ...formData, consultationFee: e.target.value })
+                        }
+                        placeholder="e.g. 5000"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                      />
+                    ) : (
+                      <span className="text-xs font-bold text-slate-900">
+                        {formData.consultationFee
+                          ? `₦${Number(formData.consultationFee).toLocaleString('en-NG')}`
+                          : 'Not specified'}
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    {editField === 'consultationFee' ? (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const fee = Number(formData.consultationFee);
+                          if (!Number.isFinite(fee) || fee < 500 || fee > 500000) {
+                            setMessage('Consultation fee must be between ₦500 and ₦500,000.');
+                            return;
+                          }
+                          setSaving(true);
+                          setMessage('');
+                          const res = await api.put('/users/me', { consultationFee: fee });
+                          setSaving(false);
+                          if (res.success && res.data) {
+                            setUser(res.data);
+                            setMessage('Settings updated successfully!');
+                            setEditField(null);
+                          } else {
+                            setMessage(res.error?.message || 'Failed to update field.');
+                          }
+                        }}
+                        disabled={saving}
+                        className="px-4 py-1.5 bg-[#1877F2] text-white text-xs font-bold rounded-full hover:bg-[#1565C0] shadow-xs"
+                      >
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditField('consultationFee')}
+                        className="text-xs text-[#1877F2] font-bold hover:underline"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'history' && (
+          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200/80 space-y-6">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">Medical History</h2>
+              <p className="text-xs text-slate-500 font-semibold mt-1">
+                Allergies, conditions, and emergency contact — your care team reviews everything
+                you add here.
+              </p>
+            </div>
+            <form onSubmit={saveHistory} className="space-y-5 pt-4 border-t border-slate-100">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Allergies (comma-separated)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Penicillin, Peanuts"
+                  value={allergies}
+                  onChange={(e) => setAllergies(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Conditions (one per line or comma-separated)
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Hypertension, Asthma"
+                  value={conditions}
+                  onChange={(e) => setConditions(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Emergency contact name
+                  </label>
+                  <input
+                    type="text"
+                    value={emergencyName}
+                    onChange={(e) => setEmergencyName(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Relationship
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Spouse, Parent…"
+                    value={emergencyRelationship}
+                    onChange={(e) => setEmergencyRelationship(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Emergency phone
+                  </label>
+                  <input
+                    type="tel"
+                    value={emergencyPhone}
+                    onChange={(e) => setEmergencyPhone(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                  />
+                </div>
+              </div>
+              {historyMsg && (
+                <p
+                  className={`text-xs font-bold p-3 rounded-xl border ${
+                    historyMsg.includes('successfully')
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                  }`}
+                >
+                  {historyMsg}
+                </p>
+              )}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingHistory}
+                  className="px-6 py-3 bg-[#1877F2] hover:bg-[#1565C0] text-white text-xs font-bold rounded-full shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
+                >
+                  {savingHistory ? 'Saving…' : 'Save medical history'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
@@ -643,8 +932,8 @@ export default function SettingsPage() {
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Active Login Sessions</h2>
                   <p className="text-xs text-slate-500 font-semibold mt-1">
-                    Manage active logged-in browser and device sessions across your healthcare
-                    account.
+                    Live sessions from GET /auth/sessions — revoke any device you don&apos;t
+                    recognize.
                   </p>
                 </div>
 
@@ -660,23 +949,56 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200/60">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#1877F2] flex items-center justify-center font-bold text-sm">
-                    💻
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900">
-                      Current Active Session (This Browser)
-                    </h4>
-                    <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
-                      macOS / Chrome Browser • Active Now
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-full">
-                  ACTIVE
-                </span>
+              <div className="pt-4 border-t border-slate-100 space-y-3">
+                <button
+                  type="button"
+                  onClick={loadSessions}
+                  disabled={sessionsLoading}
+                  className="text-xs text-[#1877F2] font-bold hover:underline disabled:opacity-50"
+                >
+                  {sessionsLoading ? 'Loading sessions…' : 'Refresh sessions'}
+                </button>
+                {sessionsMsg && (
+                  <p className="text-xs font-bold text-slate-600">{sessionsMsg}</p>
+                )}
+                {sessions.length === 0 && !sessionsLoading && !sessionsMsg ? (
+                  <p className="text-xs font-semibold text-slate-400">
+                    No other sessions loaded yet — refresh to list them.
+                  </p>
+                ) : (
+                  sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="flex items-center justify-between gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/60"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-100 text-[#1877F2] flex items-center justify-center font-bold text-sm">
+                          💻
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">
+                            {session.deviceOs || 'Unknown device'}
+                          </h4>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5 break-all">
+                            {[session.userAgent, session.deviceIp].filter(Boolean).join(' · ') ||
+                              'No device details'}
+                            {session.lastUsedAt
+                              ? ` · Last used ${new Date(session.lastUsedAt).toLocaleString()}`
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void revokeSession(session.id)}
+                        disabled={revokingId === session.id}
+                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold rounded-full transition-all disabled:opacity-50 shrink-0"
+                      >
+                        {revokingId === session.id ? 'Revoking…' : 'Revoke'}
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

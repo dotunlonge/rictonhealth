@@ -8,7 +8,8 @@ export const PaymentResponseSchema = registry.register(
     reference: z.string(),
     amount: z.number(),
     currency: z.string(),
-    status: z.string(),
+    // Mirror PaymentStatus prisma enum — no free-form strings.
+    status: z.enum(['PENDING', 'SUCCESS', 'FAILED', 'REFUNDED']),
   })
 );
 

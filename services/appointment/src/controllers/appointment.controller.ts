@@ -27,6 +27,141 @@ export function isSlotConflictError(error: unknown): boolean {
   if (code === 'P2010' && /conflict|exclusion|overlap/i.test(message)) return true;
   return false;
 }
+// #C1 Leave: normalize a YYYY-MM-DD (or datetime) input to a UTC-midnight
+// Date for the ProviderLeave @db.Date column so upsert + lookup agree.
+export function leaveDay(input: string | Date): Date {
+  const d = input instanceof Date ? new Date(input.getTime()) : new Date(input);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+// #C1 Leave: true when the provider has a leave row covering `at`.
+export async function isProviderOnLeave(providerId: string, at: Date): Promise<boolean> {
+  const leave = await prisma.providerLeave.findFirst({
+    where: { providerId, date: leaveDay(at) },
+    select: { id: true },
+  });
+  return !!leave;
+}
+
+async function assertSameHospital(adminUserId: string, providerId: string): Promise<void> {
+  const [adminUser, providerProfile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: adminUserId }, select: { hospitalId: true } }),
+    prisma.providerProfile.findFirst({
+      where: { OR: [{ id: providerId }, { userId: providerId }] },
+      select: { hospitalId: true, userId: true },
+    }),
+  ]);
+  if (
+    !adminUser?.hospitalId ||
+    !providerProfile?.hospitalId ||
+    adminUser.hospitalId !== providerProfile.hospitalId
+  ) {
+    throw new ForbiddenError('You can only manage providers in your hospital');
+  }
+}
+
+// #C1 Leave: POST /leave — CONSULTANT own, HOSPITAL_ADMIN/SUPER_ADMIN any (upsert).
+export const upsertLeave = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const {
+      providerId: bodyProviderId,
+      date,
+      reason,
+    } = req.body as {
+      providerId?: string;
+      date?: string;
+      reason?: string;
+    };
+
+    const providerId =
+      userPayload.role === UserRole.CONSULTANT ? userPayload.userId : bodyProviderId;
+    if (!providerId) {
+      throw new ValidationError('providerId is required');
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      throw new ValidationError('date is required (YYYY-MM-DD)');
+    }
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      await assertSameHospital(userPayload.userId, providerId);
+    }
+
+    const leave = await prisma.providerLeave.upsert({
+      where: { providerId_date: { providerId, date: leaveDay(date) } },
+      create: { providerId, date: leaveDay(date), reason: reason?.trim() || null },
+      update: { reason: reason?.trim() || null },
+    });
+
+    res.status(200).json(successResponse(leave));
+  } catch (error) {
+    next(error);
+  }
+};
+
+// #C1 Leave: GET /leave?providerId=&from=&to= — list leave rows.
+export const listLeaves = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const {
+      providerId: queryProviderId,
+      from,
+      to,
+    } = req.query as {
+      providerId?: string;
+      from?: string;
+      to?: string;
+    };
+
+    // CONSULTANT sees only their own leave; staff may filter by provider.
+    const providerId =
+      userPayload.role === UserRole.CONSULTANT ? userPayload.userId : queryProviderId || undefined;
+
+    const where: { providerId?: string; date?: { gte?: Date; lte?: Date } } = {};
+    if (providerId) where.providerId = providerId;
+    if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = leaveDay(from);
+      if (to) where.date.lte = leaveDay(to);
+    }
+
+    const leaves = await prisma.providerLeave.findMany({
+      where,
+      orderBy: { date: 'asc' },
+      take: 100,
+    });
+
+    res.status(200).json(successResponse(leaves));
+  } catch (error) {
+    next(error);
+  }
+};
+
+// #C1 Leave: DELETE /leave/:id — CONSULTANT own, HOSPITAL_ADMIN/SUPER_ADMIN any.
+export const deleteLeave = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { id } = req.params;
+
+    const leave = await prisma.providerLeave.findUnique({ where: { id } });
+    if (!leave) {
+      throw new NotFoundError('Leave not found');
+    }
+    if (userPayload.role === UserRole.CONSULTANT && leave.providerId !== userPayload.userId) {
+      throw new ForbiddenError('You can only manage your own leave');
+    }
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      await assertSameHospital(userPayload.userId, leave.providerId);
+    }
+
+    await prisma.providerLeave.delete({ where: { id } });
+
+    res.status(200).json(successResponse({ message: 'Leave deleted successfully' }));
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const setAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userPayload = req.user as JwtPayload;
@@ -118,6 +253,19 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
       throw new ValidationError('providerId and date are required');
     }
 
+    // Timezone: accept optional `timezone` query (default Africa/Lagos),
+    // validate as IANA via Intl. Used for day-of-week evaluation where
+    // possible, UTC fallback otherwise.
+    const requestedTimezone = (req.query.timezone as string) || 'Africa/Lagos';
+    let timezone = 'Africa/Lagos';
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: requestedTimezone });
+      timezone = requestedTimezone;
+    } catch {
+      console.warn(`[appointment] invalid timezone "${requestedTimezone}"; falling back to UTC`);
+      timezone = 'UTC';
+    }
+
     // Resolve providerId whether caller sent User.id or ProviderProfile.id
     let providerId = rawProviderId;
     const profileMatch = await prisma.providerProfile.findFirst({
@@ -131,8 +279,34 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
     }
 
     const targetDate = new Date(date as string);
+    // #C1 Leave: a provider on leave offers no slots for the day.
+    if (await isProviderOnLeave(providerId, targetDate)) {
+      return res.status(200).json(successResponse([]));
+    }
     // Convert JavaScript day (0=Sunday..6=Saturday) to schema day (0=Monday..6=Sunday)
-    const dayOfWeek = (targetDate.getUTCDay() + 6) % 7; // UTC: availability windows are stored/evaluated in UTC
+    // Evaluate the day in the requested timezone when possible, UTC fallback.
+    let dayOfWeek = (targetDate.getUTCDay() + 6) % 7; // UTC: availability windows are stored/evaluated in UTC
+    try {
+      const weekday = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        weekday: 'short',
+      }).format(targetDate);
+      const weekdayMap: Record<string, number> = {
+        Mon: 0,
+        Tue: 1,
+        Wed: 2,
+        Thu: 3,
+        Fri: 4,
+        Sat: 5,
+        Sun: 6,
+      };
+      if (weekday in weekdayMap) {
+        dayOfWeek = weekdayMap[weekday];
+      }
+    } catch {
+      // UTC fallback already set above
+    }
+    console.info(`[appointment] getAvailability timezone=${timezone} dayOfWeek=${dayOfWeek}`);
 
     // Get provider's availability for this day
     let availability = await prisma.providerAvailability.findFirst({
@@ -246,10 +420,18 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
 
     let currentMinutes = startHour * 60 + startMin;
     const endMinutes = endHour * 60 + endMin;
+    const nowWithBuffer = new Date(Date.now() + 15 * 60000);
 
     while (currentMinutes + slotDuration <= endMinutes) {
       const slotStart = new Date(targetDate);
       slotStart.setUTCHours(Math.floor(currentMinutes / 60), currentMinutes % 60, 0, 0);
+
+      // Past slots offered then rejected (#10): never offer slots within
+      // the 15-minute booking buffer.
+      if (slotStart <= nowWithBuffer) {
+        currentMinutes += slotDuration;
+        continue;
+      }
 
       const slotEnd = new Date(slotStart);
       slotEnd.setUTCMinutes(slotEnd.getUTCMinutes() + slotDuration);
@@ -301,12 +483,35 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       resolvedProviderId = profileMatch.userId;
     }
 
+    // #23 Verified gate: only verified providers are bookable.
+    const providerVerification = await prisma.providerProfile.findUnique({
+      where: { userId: resolvedProviderId },
+      select: { isVerified: true },
+    });
+    if (!providerVerification?.isVerified) {
+      throw new ValidationError('Provider is not yet verified');
+    }
+
+    if (resolvedProviderId === userPayload.userId) {
+      throw new ValidationError('You cannot book an appointment with yourself');
+    }
+
     const scheduledDate = new Date(scheduledAt);
+
+    // #C1 Leave: never book a provider on leave.
+    if (await isProviderOnLeave(resolvedProviderId, scheduledDate)) {
+      throw new ValidationError('Provider is on leave on this date');
+    }
 
     // Validate that scheduledAt is not in the past
     const now = new Date();
     if (scheduledDate < now) {
       throw new ValidationError('Cannot book appointments in the past');
+    }
+
+    // #63 Booking buffer: reject bookings < 15min ahead (slots list already hides them).
+    if (scheduledDate.getTime() < Date.now() + 15 * 60000) {
+      throw new ValidationError('Book at least 15 minutes ahead');
     }
 
     // Validate seconds and milliseconds are zero for proper slot alignment
@@ -382,8 +587,8 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     const [endHour, endMin] = availability.endTime.split(':').map(Number);
     const slotDuration = durationMinutes || availability.slotDurationMinutes;
 
-    if (slotDuration <= 0) {
-      throw new ValidationError('Slot duration must be positive');
+    if (slotDuration !== availability.slotDurationMinutes) {
+      throw new ValidationError('Appointment duration must match the provider slot duration');
     }
 
     // Calculate requested time in minutes
@@ -427,6 +632,9 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
         throw new ValidationError('Provider does not belong to the specified hospital');
       }
     }
+    if (type === AppointmentType.IN_PERSON && !finalHospitalId) {
+      throw new ValidationError('An in-person appointment requires a clinic venue');
+    }
 
     const lockKey = `lock:appointment:${resolvedProviderId}:${slotStart.getTime()}`;
     // Best-effort exact-slot lock: serializes the common case (same grid
@@ -461,17 +669,19 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       try {
         appointment = await prisma.$transaction(
           async (tx) => {
-            const dayStart = new Date(slotStart.getTime());
-            dayStart.setUTCHours(0, 0, 0, 0);
-            const dayEnd = new Date(slotStart.getTime());
-            dayEnd.setUTCHours(23, 59, 59, 999); // UTC
+            // #64 Overnight spill: interval query (not day-bounded) so cross-day
+            // overlaps are not missed. #63 BUFFER_MINUTES=5: expand existing
+            // appointments by 5min each side to block back-to-back `==` edges.
+            const BUFFER_MINUTES = 5;
+            const rangeStart = new Date(slotStart.getTime() - 12 * 60 * 60000);
+            const rangeEnd = new Date(slotEnd.getTime() + 12 * 60 * 60000);
 
             const conflictingAppointments = await tx.appointment.findMany({
               where: {
                 providerId: resolvedProviderId,
                 scheduledAt: {
-                  gte: dayStart,
-                  lte: dayEnd,
+                  gte: rangeStart,
+                  lte: rangeEnd,
                 },
                 status: {
                   in: [
@@ -486,7 +696,10 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
             const hasConflict = conflictingAppointments.some((apt) => {
               const aptStart = new Date(apt.scheduledAt);
               const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
-              return slotStart < aptEnd && slotEnd > aptStart;
+              // #63 BUFFER_MINUTES=5: back-to-back `==` counts as overlap.
+              const bufferedStart = new Date(aptStart.getTime() - BUFFER_MINUTES * 60000);
+              const bufferedEnd = new Date(aptEnd.getTime() + BUFFER_MINUTES * 60000);
+              return slotStart < bufferedEnd && slotEnd > bufferedStart;
             });
 
             if (hasConflict) {
@@ -503,6 +716,13 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
                 type,
                 reason,
                 status: AppointmentStatus.PENDING,
+                feeSnapshot:
+                  (
+                    await tx.providerProfile.findUnique({
+                      where: { userId: resolvedProviderId },
+                      select: { consultationFee: true },
+                    })
+                  )?.consultationFee ?? null,
               },
               include: {
                 patient: {
@@ -648,7 +868,7 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
     const [appointments, total] = await Promise.all([
       prisma.appointment.findMany({
         where,
-        take: Number(limit),
+        take: Math.min(Number(limit) || 20, 50),
         skip: Number(offset),
         orderBy: { scheduledAt: 'desc' },
         include: {
@@ -684,7 +904,7 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
         appointments,
         meta: {
           total,
-          limit: Number(limit),
+          limit: Math.min(Number(limit) || 20, 50),
           offset: Number(offset),
           hasMore: Number(offset) + appointments.length < total,
         },
@@ -746,6 +966,12 @@ export const getAppointmentById = async (req: Request, res: Response, next: Next
       if (!adminUser?.hospital || adminUser.hospital.id !== appointment.hospitalId) {
         throw new ForbiddenError('You are not authorized to view this appointment');
       }
+    } else if (
+      userPayload.role !== UserRole.PATIENT &&
+      userPayload.role !== UserRole.CONSULTANT &&
+      userPayload.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenError('You are not authorized to view this appointment');
     }
 
     res.status(200).json(successResponse(appointment));
@@ -758,7 +984,20 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
   try {
     const userPayload = req.user as JwtPayload;
     const { id } = req.params;
-    const { status, cancellationReason } = req.body;
+    const { status, cancellationReason, waivedReason } = req.body;
+    const telemedicineConsent = (req.body as { telemedicineConsent?: boolean }).telemedicineConsent;
+    // #C2 Follow-up: optional due date, persisted only on COMPLETED.
+    const followUpRaw = (req.body as { followUpAt?: string }).followUpAt;
+    let followUpAt: Date | undefined;
+    if (followUpRaw !== undefined) {
+      followUpAt = new Date(followUpRaw);
+      if (Number.isNaN(followUpAt.getTime())) {
+        throw new ValidationError('followUpAt must be a valid datetime');
+      }
+      if (status !== AppointmentStatus.COMPLETED) {
+        throw new ValidationError('followUpAt can only be set when completing a visit');
+      }
+    }
 
     if (!status || !Object.values(AppointmentStatus).includes(status)) {
       throw new ValidationError(
@@ -768,7 +1007,11 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
 
     const appointment = await prisma.appointment.findUnique({
       where: { id },
-      include: { telemedicineRoom: true },
+      include: {
+        telemedicineRoom: true,
+        payment: true,
+        provider: { select: { providerProfile: { select: { consultationFee: true } } } },
+      },
     });
 
     if (!appointment) {
@@ -802,6 +1045,26 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
       throw new ValidationError(`Cannot move appointment from ${appointment.status} to ${status}`);
     }
 
+    if (status === AppointmentStatus.CONFIRMED) {
+      // #39 Verified gate: an unverified provider's visits cannot confirm.
+      // Best-effort lookup — fail closed when the profile is missing/unverified.
+      const confirmVerification = await prisma.providerProfile.findUnique({
+        where: { userId: appointment.providerId },
+        select: { isVerified: true },
+      });
+      if (!confirmVerification?.isVerified) {
+        throw new ForbiddenError('Provider is not yet verified');
+      }
+      const fee = appointment.feeSnapshot ?? appointment.provider.providerProfile?.consultationFee;
+      const isFree = fee == null || Number(fee) === 0;
+      const isPaid = appointment.payment?.status === 'SUCCESS';
+      if (!isFree && !isPaid && !waivedReason?.trim()) {
+        throw new ValidationError(
+          'Payment must succeed before confirmation, or staff must provide a waiver reason'
+        );
+      }
+    }
+
     // Check authorization
     if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to update this appointment');
@@ -814,18 +1077,76 @@ export const updateAppointmentStatus = async (req: Request, res: Response, next:
       throw new ForbiddenError('You are not authorized to update this appointment');
     }
 
+    // #56 Visit consent: VIDEO visits require per-visit consent before starting.
+    if (
+      status === AppointmentStatus.IN_PROGRESS &&
+      appointment.type === AppointmentType.VIDEO &&
+      !telemedicineConsent &&
+      !appointment.telemedicineConsentAt
+    ) {
+      throw new ValidationError('Telemedicine consent required');
+    }
+
     const updatedAppointment = await prisma.appointment.update({
       where: { id },
       data: {
         status,
         cancellationReason: status === AppointmentStatus.CANCELLED ? cancellationReason : undefined,
+        waivedReason:
+          status === AppointmentStatus.CONFIRMED && waivedReason ? waivedReason.trim() : undefined,
         cancelledBy: status === AppointmentStatus.CANCELLED ? userPayload.role : undefined,
+        // #56 Visit consent: stamp per-visit telemedicine consent when a VIDEO visit starts.
+        ...(status === AppointmentStatus.IN_PROGRESS &&
+        appointment.type === AppointmentType.VIDEO &&
+        telemedicineConsent
+          ? { telemedicineConsentAt: new Date() }
+          : {}),
+        // #C2 Follow-up: persist the recall due date on completion.
+        ...(status === AppointmentStatus.COMPLETED && followUpAt ? { followUpAt } : {}),
       },
       include: {
         patient: { select: { id: true, email: true, phone: true, patientProfile: true } },
         provider: { select: { id: true, email: true, phone: true, providerProfile: true } },
       },
     });
+
+    // Audit every status change (best-effort; never blocks the response).
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: userPayload.userId,
+          action: 'APPOINTMENT_STATUS_CHANGE',
+          resourceType: 'Appointment',
+          resourceId: id,
+          metadata: { from: appointment.status, to: status } as never,
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+    } catch (err) {
+      console.warn(`[appointment] audit log failed for status change ${id}`, err);
+    }
+
+    // Rewards earn on COMPLETED (best-effort; @@unique guard ignores replays).
+    if (status === AppointmentStatus.COMPLETED) {
+      try {
+        await prisma.rewardTransaction.create({
+          data: {
+            userId: updatedAppointment.patientId,
+            type: 'EARN',
+            points: 50,
+            source: 'APPOINTMENT',
+            description: 'Completed appointment',
+            referenceId: updatedAppointment.id,
+          },
+        });
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code;
+        if (code !== 'P2002') {
+          console.warn(`[appointment] reward earn failed for ${id}`, err);
+        }
+      }
+    }
 
     // If cancelled, end any active telemedicine room
     if (status === AppointmentStatus.CANCELLED && appointment.telemedicineRoom) {
@@ -885,9 +1206,13 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     const { id } = req.params;
     const { reason } = req.body;
 
+    if (!reason || typeof reason !== 'string' || reason.trim().length < 3) {
+      throw new ValidationError('A cancellation reason is required');
+    }
+
     const appointment = await prisma.appointment.findUnique({
       where: { id },
-      include: { telemedicineRoom: true },
+      include: { telemedicineRoom: true, payment: true },
     });
 
     if (!appointment) {
@@ -900,6 +1225,17 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     }
     if (userPayload.role === UserRole.CONSULTANT && appointment.providerId !== userPayload.userId) {
       throw new ForbiddenError('You are not authorized to cancel this appointment');
+    }
+    if (userPayload.role === UserRole.HOSPITAL_ADMIN || userPayload.role === UserRole.SUPER_ADMIN) {
+      if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+        const admin = await prisma.user.findUnique({
+          where: { id: userPayload.userId },
+          select: { hospitalId: true },
+        });
+        if (!admin?.hospitalId || admin.hospitalId !== appointment.hospitalId) {
+          throw new ForbiddenError('You are not authorized to cancel this appointment');
+        }
+      }
     }
 
     // Prevent cancellation of terminal status appointments
@@ -917,7 +1253,7 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
       where: { id },
       data: {
         status: AppointmentStatus.CANCELLED,
-        cancellationReason: reason,
+        cancellationReason: reason.trim(),
         cancelledBy: userPayload.role,
       },
       include: {
@@ -925,6 +1261,31 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
         provider: { select: { id: true, email: true, phone: true, providerProfile: true } },
       },
     });
+
+    // Late-cancel: within 4h of scheduledAt counts as late.
+    const isLateCancel =
+      new Date(appointment.scheduledAt).getTime() - Date.now() < 4 * 60 * 60 * 1000;
+
+    // Audit every cancellation (best-effort).
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: userPayload.userId,
+          action: 'APPOINTMENT_STATUS_CHANGE',
+          resourceType: 'Appointment',
+          resourceId: id,
+          metadata: {
+            from: appointment.status,
+            to: AppointmentStatus.CANCELLED,
+            isLateCancel,
+          } as never,
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+    } catch (err) {
+      console.warn(`[appointment] audit log failed for cancel ${id}`, err);
+    }
 
     // If cancelled, end any active telemedicine room
     if (appointment.telemedicineRoom) {
@@ -943,8 +1304,8 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
       type: 'APPOINTMENT_CANCELLED' as const,
       title: 'Appointment cancelled',
       body: cancelledByPatient
-        ? `The patient cancelled their visit on ${slotLabel(updatedAppointment.scheduledAt)}.${reason ? ` Reason: ${reason}` : ''}`
-        : `Your visit on ${slotLabel(updatedAppointment.scheduledAt)} was cancelled by the clinic.${reason ? ` Reason: ${reason}` : ''}`,
+        ? `The patient cancelled their visit on ${slotLabel(updatedAppointment.scheduledAt)}.${reason ? ` Reason: ${reason}` : ''}${isLateCancel ? ' (late cancellation)' : ''}`
+        : `Your visit on ${slotLabel(updatedAppointment.scheduledAt)} was cancelled by the clinic.${reason ? ` Reason: ${reason}` : ''}${isLateCancel ? ' (late cancellation)' : ''}`,
       email: cancelledByPatient
         ? updatedAppointment.provider?.email
         : updatedAppointment.patient?.email,
@@ -955,13 +1316,13 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     try {
       await createAppointmentNotification({
         ...cancelNudge,
-        metadata: { appointmentId: updatedAppointment.id },
+        metadata: { appointmentId: updatedAppointment.id, isLateCancel } as never,
       });
     } catch (err) {
       console.warn(`[appointment] IN_APP pre-response failed for ${cancelNudge.userId}`, err);
     }
 
-    res.status(200).json(successResponse(updatedAppointment));
+    res.status(200).json(successResponse(updatedAppointment, { isLateCancel } as never));
 
     await sendAppointmentNudges(cancelNudge);
   } catch (error) {
@@ -1074,16 +1435,18 @@ export const rescheduleAppointment = async (req: Request, res: Response, next: N
       try {
         updated = await prisma.$transaction(
           async (tx) => {
-            const dayStart = new Date(slotStart.getTime());
-            dayStart.setUTCHours(0, 0, 0, 0);
-            const dayEnd = new Date(slotStart.getTime());
-            dayEnd.setUTCHours(23, 59, 59, 999);
+            // #64 Overnight spill: interval query (not day-bounded) so cross-day
+            // overlaps are not missed. #63 BUFFER_MINUTES=5: expand existing
+            // appointments by 5min each side to block back-to-back `==` edges.
+            const BUFFER_MINUTES = 5;
+            const rangeStart = new Date(slotStart.getTime() - 12 * 60 * 60000);
+            const rangeEnd = new Date(slotEnd.getTime() + 12 * 60 * 60000);
 
             const conflictingAppointments = await tx.appointment.findMany({
               where: {
                 providerId: appointment.providerId,
                 id: { not: appointment.id },
-                scheduledAt: { gte: dayStart, lte: dayEnd },
+                scheduledAt: { gte: rangeStart, lte: rangeEnd },
                 status: {
                   in: [
                     AppointmentStatus.PENDING,
@@ -1096,14 +1459,17 @@ export const rescheduleAppointment = async (req: Request, res: Response, next: N
             const hasConflict = conflictingAppointments.some((apt) => {
               const aptStart = new Date(apt.scheduledAt);
               const aptEnd = new Date(aptStart.getTime() + apt.durationMinutes * 60000);
-              return slotStart < aptEnd && slotEnd > aptStart;
+              // #63 BUFFER_MINUTES=5: back-to-back `==` counts as overlap.
+              const bufferedStart = new Date(aptStart.getTime() - BUFFER_MINUTES * 60000);
+              const bufferedEnd = new Date(aptEnd.getTime() + BUFFER_MINUTES * 60000);
+              return slotStart < bufferedEnd && slotEnd > bufferedStart;
             });
             if (hasConflict) {
               throw new AppError('This time slot is already booked', 409, 'APPOINTMENT_CONFLICT');
             }
             return tx.appointment.update({
               where: { id: appointment.id },
-              data: { scheduledAt: slotStart, durationMinutes: slotDuration },
+              data: { scheduledAt: slotStart, durationMinutes: slotDuration, reminderSentAt: null },
               include: {
                 patient: { select: { id: true, email: true, phone: true } },
                 provider: { select: { id: true, email: true, phone: true } },
@@ -1157,3 +1523,157 @@ export const rescheduleAppointment = async (req: Request, res: Response, next: N
     next(error);
   }
 };
+
+/**
+ * #20 Reviews: POST /:id/reviews — PATIENT rates their own COMPLETED visit.
+ * One review per visit (reviews.appointmentId is UNIQUE; P2002 → 409).
+ * Rating must be an integer 1-5.
+ */
+export const createReview = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    if (userPayload.role !== UserRole.PATIENT) {
+      throw new ForbiddenError('Only patients can submit reviews');
+    }
+    const { id } = req.params;
+    const { rating, comment } = req.body as { rating?: unknown; comment?: unknown };
+
+    const ratingNum = Number(rating);
+    if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      throw new ValidationError('rating must be an integer between 1 and 5');
+    }
+    if (comment !== undefined && typeof comment !== 'string') {
+      throw new ValidationError('comment must be a string');
+    }
+
+    const appointment = await prisma.appointment.findUnique({
+      where: { id },
+      select: { id: true, patientId: true, providerId: true, status: true },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    if (appointment.patientId !== userPayload.userId) {
+      throw new ForbiddenError('You can only review your own visits');
+    }
+    if (appointment.status !== AppointmentStatus.COMPLETED) {
+      throw new ValidationError('Only completed visits can be reviewed');
+    }
+
+    try {
+      const review = await (prisma as any).review.create({
+        data: {
+          appointmentId: appointment.id,
+          patientId: appointment.patientId,
+          providerId: appointment.providerId,
+          rating: ratingNum,
+          comment: typeof comment === 'string' && comment.trim() ? comment.trim() : null,
+        },
+      });
+      res.status(201).json(successResponse(review));
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'P2002') {
+        throw new AppError('This visit has already been reviewed', 409, 'REVIEW_CONFLICT');
+      }
+      throw err;
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #20 Reviews: GET /providers/:id/reviews — public paginated review list
+ * for a provider (accepts User.id or ProviderProfile.id).
+ */
+export const getProviderReviews = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rawId = req.params.id;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+    let providerId = rawId;
+    const profileMatch = await prisma.providerProfile.findFirst({
+      where: { OR: [{ id: rawId }, { userId: rawId }] },
+      select: { userId: true },
+    });
+    if (profileMatch) {
+      providerId = profileMatch.userId;
+    }
+
+    const [reviews, total] = await Promise.all([
+      (prisma as any).review.findMany({
+        where: { providerId },
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' },
+      }),
+      (prisma as any).review.count({ where: { providerId } }),
+    ]);
+
+    res.status(200).json(successResponse({ reviews, total, limit, offset }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Auto-close past visits (#15). CONFIRMED/IN_PROGRESS whose end
+ * (scheduledAt + duration) is past `now` become NO_SHOW; PENDING past-end
+ * become CANCELLED with reason 'Auto-closed: past scheduled time'.
+ */
+export async function sweepPastAppointments(now = new Date()) {
+  const candidates = await prisma.appointment.findMany({
+    where: {
+      status: {
+        in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED, AppointmentStatus.IN_PROGRESS],
+      },
+      scheduledAt: { lt: now },
+    },
+    select: { id: true, scheduledAt: true, durationMinutes: true, status: true, patientId: true },
+  });
+  const isPastEnd = (scheduledAt: Date, durationMinutes: number) =>
+    new Date(scheduledAt).getTime() + durationMinutes * 60000 < now.getTime();
+  const noShowIds = candidates
+    .filter(
+      (a) =>
+        (a.status === AppointmentStatus.CONFIRMED || a.status === AppointmentStatus.IN_PROGRESS) &&
+        isPastEnd(a.scheduledAt, a.durationMinutes)
+    )
+    .map((a) => a.id);
+  const pendingIds = candidates
+    .filter(
+      (a) => a.status === AppointmentStatus.PENDING && isPastEnd(a.scheduledAt, a.durationMinutes)
+    )
+    .map((a) => a.id);
+  if (noShowIds.length > 0) {
+    await prisma.appointment.updateMany({
+      where: { id: { in: noShowIds } },
+      data: { status: AppointmentStatus.NO_SHOW },
+    });
+    // #60 NO_SHOW notify: sweep was silent; inform the patient (best-effort).
+    for (const a of candidates.filter((c) => noShowIds.includes(c.id))) {
+      try {
+        await createAppointmentNotification({
+          userId: a.patientId,
+          type: 'APPOINTMENT_NO_SHOW',
+          title: 'Missed appointment',
+          body: `You missed your visit on ${slotLabel(a.scheduledAt)}. Please rebook from your appointments list.`,
+          metadata: { appointmentId: a.id } as never,
+        });
+      } catch (err) {
+        console.warn(`[appointment] NO_SHOW notify failed for ${a.id}`, err);
+      }
+    }
+  }
+  if (pendingIds.length > 0) {
+    await prisma.appointment.updateMany({
+      where: { id: { in: pendingIds } },
+      data: {
+        status: AppointmentStatus.CANCELLED,
+        cancellationReason: 'Auto-closed: past scheduled time',
+      },
+    });
+  }
+  return { noShow: noShowIds.length, autoCancelled: pendingIds.length };
+}

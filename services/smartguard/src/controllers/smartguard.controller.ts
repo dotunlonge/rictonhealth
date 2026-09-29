@@ -221,7 +221,7 @@ export const mitigateThreat = async (req: Request, res: Response, next: NextFunc
 
 export const getAuditLog = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const limit = Math.min(Number(req.query.limit) || 50, 50);
     const offset = Number(req.query.offset) || 0;
     const [logs, total] = await Promise.all([
       prisma.auditLog.findMany({

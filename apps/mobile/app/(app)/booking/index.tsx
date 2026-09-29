@@ -58,8 +58,10 @@ export default function DiscoverScreen() {
     setLoading(true);
     setError(null);
     try {
+      const q = query.trim() || undefined;
       const result = (await bookingService.listProviders({
-        search: query.trim() || undefined,
+        search: q,
+        specialty: q,
         limit: 20,
         offset: 0,
       })) as { providers: RawProvider[] };
@@ -73,9 +75,10 @@ export default function DiscoverScreen() {
   }, []);
 
   useEffect(() => {
-    void load(search);
+    const t = setTimeout(() => void load(search), 300);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load]);
+  }, [search, load]);
 
   return (
     <Screen testID="booking.discover.screen" style={styles.content}>
@@ -89,7 +92,6 @@ export default function DiscoverScreen() {
         accessibilityLabel="Search providers"
         onChangeText={(text) => {
           setSearch(text);
-          void load(text);
         }}
         placeholder="Name or specialty"
         returnKeyType="search"

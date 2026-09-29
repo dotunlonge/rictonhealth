@@ -113,7 +113,9 @@ migration:
       cpu: 500m
       memory: 512Mi
 
-# These will be specific to each service
+# #99/#101 probe split: liveness = cheap /health (process alive, no deps —
+# a DB blip must not restart the pod); readiness = /ready (checks DB/redis —
+# removes the pod from service until deps recover).
 livenessProbe:
   httpGet:
     path: /health
@@ -123,7 +125,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /ready
     port: targetPort
   initialDelaySeconds: 10
   periodSeconds: 10

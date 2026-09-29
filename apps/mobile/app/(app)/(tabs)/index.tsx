@@ -85,7 +85,11 @@ export default function PatientHomeScreen() {
           Review appointments and prescriptions from one secure patient workspace.
         </Text>
         <Link href="/(app)/(tabs)/appointments" asChild>
-          <Pressable accessibilityRole="button" style={styles.heroAction}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View your appointments"
+            style={styles.heroAction}
+          >
             <Text style={styles.heroActionText}>View appointments</Text>
             <ArrowRight color={colors.navy900} size={19} />
           </Pressable>
@@ -93,6 +97,7 @@ export default function PatientHomeScreen() {
         <Link href="../booking" asChild>
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Find a doctor and book a consultation"
             style={styles.heroActionSecondary}
             testID="patient.home.findDoctor"
           >

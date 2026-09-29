@@ -80,7 +80,7 @@ async function verifyGoogleCredential(
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: audiences.length > 0 ? audiences : undefined,
+      audience: process.env.GOOGLE_CLIENT_ID || (audiences.length > 0 ? audiences : undefined),
     });
     const payload = ticket.getPayload();
     if (payload?.email && payload.sub && payload.email_verified === true) {
@@ -284,6 +284,15 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
       throw new ValidationError('consentVersion is required for NDPA compliance registration');
     }
 
+    // #L2 Age gate (best-effort): reject future/invalid DOB at registration.
+    const dobRaw = (req.body as Record<string, unknown>).dateOfBirth;
+    if (dobRaw !== undefined && dobRaw !== null && String(dobRaw).trim() !== '') {
+      const dob = new Date(String(dobRaw));
+      if (Number.isNaN(dob.getTime()) || dob > new Date()) {
+        throw new ValidationError('Invalid dateOfBirth');
+      }
+    }
+
     if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
       throw new ForbiddenError(
         'Registration is limited to PATIENT, CONSULTANT, or PHARMACIST. Contact an administrator for elevated roles.'
@@ -298,7 +307,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     if (existingUser) {
       await auditLog('REGISTER_FAILURE', null, req, { reason: 'USER_EXISTS', email, phone });
-      throw new ConflictError('User already exists with this email or phone');
+      // #44 Enumeration: generic conflict message (do not reveal which identifier exists).
+      throw new ConflictError('Unable to create account with these details');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -328,7 +338,8 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
             firstName,
             lastName,
             specialty: 'General Practice',
-            isVerified: process.env.NODE_ENV !== 'production',
+            // Real registrations require credential review in every environment.
+            isVerified: false,
           },
         });
 
@@ -354,6 +365,22 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     if (role === UserRole.CONSULTANT) {
       await invalidateCache('providers*');
+    }
+
+    // #L1 Consent history: append the registration grant best-effort.
+    try {
+      await (prisma as any).consentHistory?.create?.({
+        data: {
+          userId: user.id,
+          version: String(consentVersion),
+          ip:
+            (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+            req.socket.remoteAddress ||
+            null,
+        },
+      });
+    } catch {
+      // best-effort: must not break registration if the table/client is behind
     }
 
     auditLog('REGISTER_SUCCESS', user.id, req, { role, email, phone }).catch((err) =>
@@ -491,6 +518,18 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
     const key = email || phone;
+    // #45 OTP spam: per-recipient throttle (60s TTL), best-effort on redis failure.
+    try {
+      const throttleKey = `otp:throttle:${key}`;
+      const throttled = await redis.get(throttleKey);
+      if (throttled) {
+        throw new AppError('Please wait before requesting another code', 429, 'RATE_LIMITED');
+      }
+      await redis.set(throttleKey, '1', 'EX', 60);
+    } catch (e) {
+      if (e instanceof AppError) throw e;
+      // redis unavailable: continue without throttle rather than blocking OTP
+    }
     const channel = phone ? 'SMS' : 'EMAIL';
     // Fail fast when no delivery path exists (same honesty as before, but
     // decided before any state is written).
@@ -572,7 +611,8 @@ export const verifyOtpCode = async (req: Request, res: Response, next: NextFunct
       where: { OR: [...(email ? [{ email }] : []), ...(phone ? [{ phone }] : [])] },
     });
 
-    if (!user) throw new NotFoundError('User not found');
+    // #44 Enumeration: generic OTP failure (no 404 user-oracle).
+    if (!user) throw new UnauthorizedError('Invalid or expired OTP');
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
       throw new UnauthorizedError('Account is disabled');
@@ -680,6 +720,33 @@ export const oauthGoogle = async (req: Request, res: Response, next: NextFunctio
           providerProfile: true,
         },
       });
+
+      // #L1 Consent history (best-effort): OAuth clients may send consentVersion.
+      try {
+        const oauthConsent = (req.body as Record<string, unknown>)?.consentVersion ?? null;
+        if (oauthConsent) {
+          try {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { consentVersion: String(oauthConsent), consentAt: new Date() },
+            });
+          } catch {
+            // best-effort mirror; history row below is authoritative
+          }
+          await (prisma as any).consentHistory?.create?.({
+            data: {
+              userId: user.id,
+              version: String(oauthConsent),
+              ip:
+                (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+                req.socket.remoteAddress ||
+                null,
+            },
+          });
+        }
+      } catch {
+        // best-effort: must not break OAuth flow
+      }
     }
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
@@ -800,6 +867,33 @@ export const oauthApple = async (req: Request, res: Response, next: NextFunction
           oauthId: payload.sub,
         },
       });
+
+      // #L1 Consent history (best-effort): OAuth clients may send consentVersion.
+      try {
+        const oauthConsent = (req.body as Record<string, unknown>)?.consentVersion ?? null;
+        if (oauthConsent) {
+          try {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { consentVersion: String(oauthConsent), consentAt: new Date() },
+            });
+          } catch {
+            // best-effort mirror; history row below is authoritative
+          }
+          await (prisma as any).consentHistory?.create?.({
+            data: {
+              userId: user.id,
+              version: String(oauthConsent),
+              ip:
+                (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+                req.socket.remoteAddress ||
+                null,
+            },
+          });
+        }
+      } catch {
+        // best-effort: must not break OAuth flow
+      }
     }
 
     if (user.status === UserStatus.SUSPENDED || user.status === UserStatus.DEACTIVATED) {
@@ -934,14 +1028,9 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       throw new UnauthorizedError('Invalid or expired refresh token');
     }
 
-    // Grace period check: allow token refresh within 24h of expiry even if expired
+    // Refresh credentials have an absolute expiry; never extend their lifetime.
     const now = new Date();
-    const gracePeriodMs = 24 * 60 * 60 * 1000; // 24 hours
-    if (
-      currentToken.expiresAt < now &&
-      currentToken.expiresAt.getTime() + gracePeriodMs < now.getTime()
-    ) {
-      // Expired beyond grace period
+    if (currentToken.expiresAt <= now) {
       await auditLog(
         'REFRESH_TOKEN_EXPIRED',
         decoded.userId,
@@ -958,9 +1047,8 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
     const deviceId = req.headers['x-device-id'] as string | undefined;
     const deviceFingerprint = req.headers['x-device-fingerprint'] as string | undefined;
 
-    let riskScore = 0;
+    const riskScore = 0;
     if (deviceId && currentToken.deviceId && deviceId !== currentToken.deviceId) {
-      riskScore += 50; // Device mismatch - high risk
       await auditLog(
         'DEVICE_MISMATCH',
         decoded.userId,
@@ -971,6 +1059,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
         },
         riskScore
       );
+      throw new UnauthorizedError('Refresh token is not valid for this device');
     }
 
     if (
@@ -978,7 +1067,7 @@ export const refresh = async (req: Request, res: Response, next: NextFunction) =
       currentToken.deviceFingerprint &&
       deviceFingerprint !== currentToken.deviceFingerprint
     ) {
-      riskScore += 30; // Fingerprint mismatch
+      throw new UnauthorizedError('Refresh token device fingerprint mismatch');
     }
 
     // Atomically mark current token as inactive and create new one
@@ -1172,7 +1261,7 @@ export const logoutAll = async (req: Request, res: Response, next: NextFunction)
 export const getSessions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
-    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
+    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 50);
 
     const sessions = await prisma.refreshToken.findMany({
       where: { userId, isActive: true },
@@ -1352,6 +1441,16 @@ export const passwordReset = async (req: Request, res: Response, next: NextFunct
         tokenVersion: { increment: 1 },
       },
     });
+    await prisma.refreshToken.updateMany({
+      where: { userId: user.id, isActive: true },
+      data: {
+        isActive: false,
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokeReason: 'PASSWORD_RESET',
+      },
+    });
+    await redis.del(`refresh:${user.id}`);
 
     await redis.del(`reset:${key}`);
     await redis.del(`user:tokenVersion:${user.id}`);
@@ -1541,6 +1640,23 @@ export const enable2FA = async (req: Request, res: Response, next: NextFunction)
     const userPayload = (req as any).user;
     const user = await prisma.user.findUnique({ where: { id: userPayload.userId } });
     if (!user) throw new NotFoundError('User not found');
+
+    // #46 step-up: session alone must not persist a new second factor.
+    // Require password re-verification before issuing a TOTP secret.
+    const { password } = req.body as { password?: unknown };
+    if (typeof password !== 'string' || !password || !user.passwordHash) {
+      throw new UnauthorizedError('Password verification is required to enable 2FA');
+    }
+    const passwordOk = await bcrypt.compare(password, user.passwordHash);
+    if (!passwordOk) {
+      await auditLog('2FA_ENABLE_FAILURE', user.id, req, { reason: 'INVALID_PASSWORD' });
+      throw new UnauthorizedError('Invalid password');
+    }
+
+    // Do not re-issue the plaintext secret once 2FA is active.
+    if (user.twoFactorEnabled) {
+      throw new ConflictError('Two-factor authentication is already enabled');
+    }
 
     const secret = generateTotpSecret();
 

@@ -10,6 +10,8 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
   try {
     const userPayload = req.user as JwtPayload;
     const { isRead, limit = 20, offset = 0 } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const skip = Math.max(Number(offset) || 0, 0);
 
     const where: Prisma.NotificationWhereInput = {
       userId: userPayload.userId,
@@ -22,8 +24,8 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
     const [notifications, total] = await Promise.all([
       prisma.notification.findMany({
         where,
-        take: Number(limit),
-        skip: Number(offset),
+        take,
+        skip,
         orderBy: { createdAt: 'desc' },
       }),
       prisma.notification.count({ where }),
@@ -33,8 +35,8 @@ export const getNotifications = async (req: Request, res: Response, next: NextFu
       successResponse({
         notifications,
         total,
-        limit: Number(limit),
-        offset: Number(offset),
+        limit: take,
+        offset: skip,
       })
     );
   } catch (error) {

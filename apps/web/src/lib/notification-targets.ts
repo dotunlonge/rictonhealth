@@ -6,9 +6,11 @@
 
 export const NOTIFICATION_TARGETS = [
   '/appointments',
+  '/pharmacy',
   '/prescriptions',
   '/wallet',
   '/settings',
+  '/notifications',
   '/inbox',
   '/telemedicine',
 ] as const;
@@ -19,7 +21,8 @@ export function getNotificationTarget(type: string): NotificationTarget | null {
   const t = type?.toUpperCase() || '';
   if (t.includes('APPOINTMENT') || t.includes('CONSULTATION') || t.includes('TELEMEDICINE'))
     return '/appointments';
-  if (t.includes('PRESCRIPTION') || t.includes('PHARMACY')) return '/prescriptions';
+  if (t.includes('PHARMACY')) return '/pharmacy';
+  if (t.includes('PRESCRIPTION')) return '/prescriptions';
   if (
     t.includes('BILLING') ||
     t.includes('PAYMENT') ||
@@ -29,5 +32,6 @@ export function getNotificationTarget(type: string): NotificationTarget | null {
     return '/wallet';
   if (t.includes('SECURITY') || t.includes('PASSWORD') || t.includes('2FA')) return '/settings';
   if (t.includes('MESSAGE') || t.includes('CONVERSATION')) return '/inbox';
-  return null;
+  // Fallback to the notifications inbox for unknown types (never a dead row).
+  return '/notifications';
 }

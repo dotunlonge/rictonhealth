@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
+import { requireAuth, requireActiveStatus } from '@ricton/auth-middleware';
 import { idempotency, rateLimit } from '@ricton/shared';
 import { prisma } from '@ricton/db';
 import {
@@ -14,7 +14,7 @@ const router = Router();
 
 const messagingRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'messaging' });
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveStatus);
 router.use(messagingRateLimit);
 
 // Conversations & Threads list

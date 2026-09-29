@@ -4,9 +4,26 @@ import * as adminController from '../controllers/admin.controller';
 
 const router = Router();
 
-// All admin routes require authentication, SUPER_ADMIN role, AND active status
+// All admin routes require authentication AND active status
 // (a PENDING privileged token must never be accepted here).
 router.use(requireAuth);
+
+// #127/#149 Staffing: hospital doctors attach/detach. HOSPITAL_ADMIN is
+// scoped to their own hospital inside the controller; SUPER_ADMIN is global.
+router.post(
+  '/hospitals/doctors',
+  requireRole('HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  requireActiveStatus,
+  adminController.attachDoctor
+);
+router.delete(
+  '/hospitals/doctors/:id',
+  requireRole('HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  requireActiveStatus,
+  adminController.detachDoctor
+);
+
+// Everything below remains SUPER_ADMIN-only.
 router.use(requireRole('SUPER_ADMIN'));
 router.use(requireActiveStatus);
 
@@ -24,6 +41,9 @@ router.post('/providers/:id/verify', adminController.verifyProvider);
 // Hospital Management
 router.get('/hospitals', adminController.listHospitals);
 router.post('/hospitals', adminController.createHospital);
+// #150/#151 Quarantine queue (must precede /hospitals/:id or "pending" matches :id)
+router.get('/hospitals/pending', adminController.getPendingHospitals);
+router.post('/hospitals/:id/verify', adminController.verifyHospital);
 router.get('/hospitals/:id', adminController.getHospitalById);
 router.put('/hospitals/:id', adminController.updateHospital);
 

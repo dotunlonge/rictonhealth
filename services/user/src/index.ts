@@ -12,7 +12,7 @@ ddTrace.init({
   service: 'user-service',
   env: process.env.NODE_ENV || 'development',
 });
-import { prisma, ensureDoctorsSeeded } from '@ricton/db';
+import { prisma } from '@ricton/db';
 import {
   HTTP_STATUS,
   errorResponse,
@@ -83,9 +83,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`User service listening on port ${PORT}`);
-  ensureDoctorsSeeded(prisma).catch((err) => {
-    logger.warn({ err }, 'Background doctor auto-bootstrap warning');
-  });
+  // No runtime auto-seeding: demo doctors are seeded explicitly via
+  // `prisma db seed` in dev only. Boot must never fabricate providers.
 });
 
 server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;

@@ -55,11 +55,36 @@ router.post(
   appointmentController.createAppointment
 );
 
+// #C1 Leave: provider unavailability days (must precede /:id)
+router.post(
+  '/leave',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  appointmentController.upsertLeave
+);
+router.get('/leave', appointmentController.listLeaves);
+router.delete(
+  '/leave/:id',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  appointmentController.deleteLeave
+);
+
 // List appointments
 router.get('/', validateQuery(GetAppointmentsQuerySchema), appointmentController.getAppointments);
 
+// #20 Reviews: provider review list (must precede /:id or "providers" matches :id)
+router.get('/providers/:id/reviews', appointmentController.getProviderReviews);
+
 // Get appointment by ID
 router.get('/:id', appointmentController.getAppointmentById);
+
+// #20 Reviews: patient rates their own COMPLETED visit (one per visit)
+router.post(
+  '/:id/reviews',
+  requireRole('PATIENT'),
+  requireActiveStatus,
+  appointmentRateLimit,
+  appointmentController.createReview
+);
 
 // Update appointment status
 router.patch(
@@ -72,14 +97,16 @@ router.patch(
 // Cancel appointment
 router.patch(
   '/:id/cancel',
-  requireRole('PATIENT', 'CONSULTANT'),
+  requireRole('PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  idempotency(prisma),
   appointmentController.cancelAppointment
 );
 
 // Reschedule appointment (same provider, new slot; never double-books)
 router.patch(
   '/:id/reschedule',
-  requireRole('PATIENT', 'CONSULTANT'),
+  requireRole('PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  idempotency(prisma),
   validateRequest(RescheduleAppointmentSchema),
   appointmentController.rescheduleAppointment
 );

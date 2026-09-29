@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
@@ -454,6 +455,23 @@ export default function PrescriptionsPage() {
                           >
                             Fulfill from inventory
                           </button>
+                        )}
+                      {prescription.status === 'SENT_TO_PHARMACY' &&
+                        (user?.role === 'PATIENT' || !user?.role) && (
+                          <div className="space-y-2">
+                            <Link
+                              href={`/pharmacy?rx=${encodeURIComponent(prescription.id)}`}
+                              className="block rounded-lg bg-[#1877F2] px-3 py-2 text-center font-bold text-white hover:bg-[#1565C0]"
+                            >
+                              Order from pharmacy →
+                            </Link>
+                            <Link
+                              href="/pharmacy"
+                              className="block text-center text-[11px] font-bold text-[#1877F2] hover:underline"
+                            >
+                              Track order
+                            </Link>
+                          </div>
                         )}
                     </td>
                   </tr>

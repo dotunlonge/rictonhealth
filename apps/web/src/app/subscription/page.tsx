@@ -1,15 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { api } from '@/lib/api-client';
+import SidebarLayout from '@/components/layout/SidebarLayout';
 import {
   getSubscriptionCheckoutUrl,
   mapSubscriptionPlan,
   unwrapSubscriptionHistory,
 } from '@/lib/api-contract-mappers';
-
-const HEX_BG = `url("data:image/svg+xml,%3Csvg width='60' height='103.92' viewBox='0 0 60 103.92' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 103.92L0 86.6V51.96l30-17.32 30 17.32v34.64l-30 17.32zM30 86.6l20-11.55V51.96L30 40.41 10 51.96v23.09L30 86.6z' fill='%23FFFFFF' fill-opacity='1' fill-rule='evenodd'/%3E%3C/svg%3E")`;
 
 type Plan = {
   id: string;
@@ -115,36 +113,8 @@ export default function SubscriptionPage() {
   const isPremium = mySubscription?.plan === 'PREMIUM' && mySubscription?.status === 'ACTIVE';
 
   return (
-    <div className="min-h-screen flex font-sans">
-      {/* Sidebar */}
-      <aside className="w-40 bg-[#1877F2] text-white flex flex-col fixed h-full z-20 shadow-xl">
-        <div className="p-4 flex items-center gap-2">
-          <div className="w-7 h-7 bg-white/20 rounded-full flex items-center justify-center text-base">🩺</div>
-          <span className="text-lg font-bold">Ricton</span>
-        </div>
-        <nav className="flex-1 px-2 mt-4 space-y-1 overflow-y-auto">
-          {[
-            { label: 'Home', href: '/dashboard', icon: '🏠' },
-            { label: 'Settings', href: '/settings', icon: '⚙️' },
-            { label: 'Subscription', href: '/subscription', icon: '💎' },
-            { label: 'Earnings', href: '/wallet', icon: '💳' },
-          ].map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className="flex flex-col items-center justify-center py-2.5 px-1 rounded-xl hover:bg-white/10 opacity-80 hover:opacity-100 transition-all text-center"
-            >
-              <span className="text-xl mb-0.5">{item.icon}</span>
-              <span className="text-[10px] leading-tight">{item.label}</span>
-            </Link>
-          ))}
-        </nav>
-      </aside>
-
-      <main className="ml-40 flex-1 bg-gradient-to-br from-[#DAE8FE] to-[#EEF4FD] relative min-h-screen overflow-hidden">
-        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none" style={{ backgroundImage: HEX_BG, backgroundSize: '110px 190px' }} />
-
-        <div className="relative z-10 px-10 py-10 pb-20 max-w-5xl mx-auto">
+    <SidebarLayout>
+      <div className="px-10 py-10 pb-20 max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <h1 className="text-4xl font-bold text-slate-900 mb-3">Plans & Pricing</h1>
             <p className="text-slate-600 max-w-xl mx-auto">
@@ -287,7 +257,6 @@ export default function SubscriptionPage() {
             </div>
           )}
         </div>
-      </main>
-    </div>
+    </SidebarLayout>
   );
 }

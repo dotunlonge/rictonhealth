@@ -31,7 +31,7 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
 
     const { page: pageStr, limit: limitStr, role, status, search } = queryResult.data;
     const page = parseInt(pageStr, 10);
-    const limit = parseInt(limitStr, 10);
+    const limit = Math.min(parseInt(limitStr, 10) || 20, 50);
     const skip = (page - 1) * limit;
 
     const whereClause: Record<string, unknown> = {};
@@ -88,6 +88,15 @@ export const listUsers = async (req: Request, res: Response, next: NextFunction)
   } catch (error) {
     next(error);
   }
+};
+
+// #47 PII: never persist raw contact identifiers in audit metadata.
+const redactAuditMetadata = (metadata: Record<string, unknown>): any => {
+  const redacted: Record<string, unknown> = { ...metadata };
+  for (const key of ['email', 'phone', 'providerEmail']) {
+    if (key in redacted) redacted[key] = '[redacted]';
+  }
+  return redacted;
 };
 
 const sanitizeAdminUser = (user: Record<string, unknown>) => {
@@ -330,8 +339,44 @@ export const verifyUser = async (req: Request, res: Response, next: NextFunction
 export const getPendingProviders = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = parseInt(req.query.page as string, 10) || 1;
-    const limit = parseInt(req.query.limit as string, 10) || 20;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
     const skip = (page - 1) * limit;
+    // #124 Backend: ?role=PHARMACIST lists unverified pharmacies;
+    // default (or CONSULTANT) lists unverified doctors.
+    const roleParam = String(req.query.role || 'CONSULTANT').toUpperCase();
+
+    if (roleParam === 'PHARMACIST') {
+      const [pharmacies, total] = await Promise.all([
+        prisma.pharmacyProfile.findMany({
+          where: { isVerified: false },
+          skip,
+          take: limit,
+          include: { user: { select: { id: true, email: true, phone: true, status: true } } },
+        }),
+        prisma.pharmacyProfile.count({ where: { isVerified: false } }),
+      ]);
+      const formatted = pharmacies.map((p) => ({
+        id: p.id,
+        userId: p.userId,
+        pharmacyName: p.pharmacyName,
+        licenseNumber: p.licenseNumber || 'N/A',
+        submittedAt: new Date().toISOString(),
+        status: (p.user as any)?.status || null,
+        documents: Array.isArray(p.documents)
+          ? (p.documents as unknown as Array<Record<string, unknown>>).map((d) => ({
+              type: (d.type as string) || 'LICENSE',
+              url: (d.url as string) || '',
+              status: (d.status as string) || 'PENDING',
+            }))
+          : [],
+      }));
+      return res.status(200).json(
+        successResponse({
+          providers: formatted,
+          meta: { total, page, limit, role: 'PHARMACIST' },
+        })
+      );
+    }
 
     const [providers, total] = await Promise.all([
       prisma.providerProfile.findMany({
@@ -415,7 +460,7 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
           action: verified ? 'PROVIDER_VERIFIED' : 'PROVIDER_REJECTED',
           resourceType: 'ProviderProfile',
           resourceId: id,
-          metadata: { notes, providerEmail: provider.user.email },
+          metadata: redactAuditMetadata({ notes, providerEmail: provider.user.email }),
           ipAddress: req.ip || '',
           userAgent: req.headers['user-agent'] || '',
         },
@@ -434,7 +479,7 @@ export const verifyProvider = async (req: Request, res: Response, next: NextFunc
 
 export const listHospitals = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
+    const take = Math.min(Math.max(Number(req.query.limit) || 100, 1), 50);
     const skip = Math.max(Number(req.query.offset) || 0, 0);
     const hospitals = await prisma.hospital.findMany({
       orderBy: { createdAt: 'desc' },
@@ -576,6 +621,256 @@ export const updateHospital = async (req: Request, res: Response, next: NextFunc
   }
 };
 
+/**
+ * #150/#151 Hospital quarantine: list hospitals awaiting SUPER_ADMIN
+ * verification (inactive or onboarding-incomplete).
+ */
+export const getPendingHospitals = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 50);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
+    const [hospitals, total] = await Promise.all([
+      prisma.hospital.findMany({
+        where: { OR: [{ isActive: false }, { onboardingComplete: false }] },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+        include: {
+          users: {
+            where: { role: UserRole.HOSPITAL_ADMIN },
+            select: { id: true, email: true, phone: true, status: true, createdAt: true },
+          },
+        },
+      }),
+      prisma.hospital.count({
+        where: { OR: [{ isActive: false }, { onboardingComplete: false }] },
+      }),
+    ]);
+
+    res
+      .status(200)
+      .json(successResponse({ hospitals, meta: { total, limit: take, offset: skip } }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #150/#151 Hospital quarantine: SUPER_ADMIN verifies (or rejects) a
+ * hospital. Verified → isActive true + linked PENDING HOSPITAL_ADMIN users
+ * go ACTIVE. Rejected → stays inactive. Both paths write an audit log.
+ */
+export const verifyHospital = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { verified, notes } = (req.body || {}) as { verified?: unknown; notes?: unknown };
+    if (typeof verified !== 'boolean') {
+      throw new ValidationError('verified (boolean) is required');
+    }
+    if (notes !== undefined && typeof notes !== 'string') {
+      throw new ValidationError('notes must be a string');
+    }
+
+    const hospital = await prisma.hospital.findUnique({ where: { id } });
+    if (!hospital) {
+      throw new NotFoundError('Hospital not found');
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.hospital.update({
+        where: { id },
+        data: verified ? { isActive: true, onboardingComplete: true } : { isActive: false },
+      });
+      if (verified) {
+        await tx.user.updateMany({
+          where: { hospitalId: id, role: UserRole.HOSPITAL_ADMIN, status: UserStatus.PENDING },
+          data: { status: UserStatus.ACTIVE },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          actorId: req.user?.userId || null,
+          action: verified ? 'HOSPITAL_VERIFIED' : 'HOSPITAL_REJECTED',
+          resourceType: 'Hospital',
+          resourceId: id,
+          metadata: { notes: notes || null } as never,
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+      return next;
+    });
+
+    res.status(200).json(
+      successResponse({
+        message: verified ? 'Hospital verified successfully' : 'Hospital verification rejected',
+        hospital: updated,
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #127/#149 Staffing: attach a provider (CONSULTANT) to a hospital.
+ * Sets both providerProfile.hospitalId and user.hospitalId.
+ * SUPER_ADMIN: target hospitalId required in body.
+ * HOSPITAL_ADMIN: bound to own hospital (body hospitalId, if given, must match).
+ */
+export const attachDoctor = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actorRole = req.user?.role;
+    const {
+      providerId,
+      userId,
+      hospitalId: bodyHospitalId,
+    } = (req.body || {}) as {
+      providerId?: string;
+      userId?: string;
+      hospitalId?: string;
+    };
+    const lookupId = providerId || userId;
+    if (!lookupId) {
+      throw new ValidationError('providerId (or userId) is required');
+    }
+
+    let targetHospitalId: string | undefined = bodyHospitalId;
+    if (actorRole === 'HOSPITAL_ADMIN') {
+      const admin = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { hospitalId: true },
+      });
+      if (!admin?.hospitalId) {
+        throw new ValidationError('Hospital admin is not assigned to a hospital');
+      }
+      if (targetHospitalId && targetHospitalId !== admin.hospitalId) {
+        throw new ValidationError('You can only attach doctors to your own hospital');
+      }
+      targetHospitalId = admin.hospitalId;
+    }
+    if (!targetHospitalId) {
+      throw new ValidationError('hospitalId is required');
+    }
+
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: targetHospitalId },
+      select: { id: true },
+    });
+    if (!hospital) {
+      throw new NotFoundError('Hospital not found');
+    }
+
+    const providerUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ id: lookupId }, { providerProfile: { id: lookupId } }],
+      },
+      select: {
+        id: true,
+        role: true,
+        hospitalId: true,
+        providerProfile: { select: { id: true, hospitalId: true } },
+      },
+    });
+    if (!providerUser || providerUser.role !== 'CONSULTANT' || !providerUser.providerProfile) {
+      throw new NotFoundError('Provider not found');
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.providerProfile.update({
+        where: { id: providerUser.providerProfile!.id },
+        data: { hospitalId: targetHospitalId },
+      });
+      const user = await tx.user.update({
+        where: { id: providerUser.id },
+        data: { hospitalId: targetHospitalId },
+        select: { id: true, hospitalId: true, providerProfile: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: req.user?.userId || null,
+          action: 'HOSPITAL_DOCTOR_ATTACHED',
+          resourceType: 'User',
+          resourceId: providerUser.id,
+          metadata: { hospitalId: targetHospitalId },
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+      return user;
+    });
+
+    res.status(200).json(successResponse(updated));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #127/#149 Staffing: detach a provider from their hospital (nulls both links).
+ * HOSPITAL_ADMIN may only detach providers in their own hospital.
+ */
+export const detachDoctor = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const actorRole = req.user?.role;
+    const { id } = req.params;
+
+    const providerUser = await prisma.user.findFirst({
+      where: {
+        OR: [{ id }, { providerProfile: { id } }],
+      },
+      select: {
+        id: true,
+        role: true,
+        hospitalId: true,
+        providerProfile: { select: { id: true, hospitalId: true } },
+      },
+    });
+    if (!providerUser || providerUser.role !== 'CONSULTANT' || !providerUser.providerProfile) {
+      throw new NotFoundError('Provider not found');
+    }
+
+    if (actorRole === 'HOSPITAL_ADMIN') {
+      const admin = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { hospitalId: true },
+      });
+      const providerHospitalId = providerUser.hospitalId || providerUser.providerProfile.hospitalId;
+      if (!admin?.hospitalId || providerHospitalId !== admin.hospitalId) {
+        throw new ValidationError('You can only detach doctors from your own hospital');
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.providerProfile.update({
+        where: { id: providerUser.providerProfile!.id },
+        data: { hospitalId: null },
+      });
+      const user = await tx.user.update({
+        where: { id: providerUser.id },
+        data: { hospitalId: null },
+        select: { id: true, hospitalId: true, providerProfile: true },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: req.user?.userId || null,
+          action: 'HOSPITAL_DOCTOR_DETACHED',
+          resourceType: 'User',
+          resourceId: providerUser.id,
+          metadata: {},
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+      return user;
+    });
+
+    res.status(200).json(successResponse(updated));
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAuditLogs = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const queryResult = AdminAuditLogQuerySchema.safeParse(req.query);
@@ -588,7 +883,7 @@ export const getAuditLogs = async (req: Request, res: Response, next: NextFuncti
 
     const { page: pageStr, limit: limitStr, userId, action, startDate, endDate } = queryResult.data;
     const page = parseInt(pageStr, 10);
-    const limit = parseInt(limitStr, 10);
+    const limit = Math.min(parseInt(limitStr, 10) || 50, 50);
     const skip = (page - 1) * limit;
 
     const whereClause: Record<string, unknown> = {};

@@ -213,7 +213,7 @@ export const getProviderPerformance = async (req: Request, res: Response, next: 
     const { createdAt } = parseAnalyticsTimeWindow(req.query);
     const { hospitalId } = await resolveScope(req);
     const requestedLimit = Number(req.query.limit) || 50;
-    const limit = Math.min(Math.max(requestedLimit, 1), 200);
+    const limit = Math.min(Math.max(requestedLimit, 1), 50);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
 
     const providerWhere = {

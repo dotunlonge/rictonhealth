@@ -17,6 +17,9 @@ interface VoucherGift {
 export default function RewardsPage() {
   const { rewardsPoints } = useAppStore();
   const [balance, setBalance] = useState<number>(rewardsPoints || 0);
+  const [tier, setTier] = useState<string>('BRONZE');
+  const [nextTierPoints, setNextTierPoints] = useState<number | null>(null);
+  const [pointsToNextTier, setPointsToNextTier] = useState<number>(0);
   const [redeemedMsg, setRedeemedMsg] = useState<string | null>(null);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
 
@@ -25,12 +28,17 @@ export default function RewardsPage() {
   useEffect(() => {
     async function loadRewards() {
       const [balRes, catRes] = await Promise.all([
-        api.get<{ balance: number }>('/rewards/balance'),
+        api.get<{ balance: number; tier: string; nextTierPoints?: number; pointsToNextTier?: number }>('/rewards/balance'),
         api.get<{ items: any[] }>('/rewards/catalog'),
       ]);
-      // Backend envelope: { balance } and { items: [{ id, name, pointsCost, ... }] }.
+      // Backend envelope: { balance, tier, nextTierPoints, pointsToNextTier }.
       if (balRes.success && balRes.data?.balance !== undefined) {
         setBalance(Number(balRes.data.balance) || 0);
+        if (balRes.data.tier) setTier(String(balRes.data.tier));
+        setNextTierPoints(
+          balRes.data.nextTierPoints !== undefined ? Number(balRes.data.nextTierPoints) : null
+        );
+        setPointsToNextTier(Number(balRes.data.pointsToNextTier) || 0);
       }
       if (catRes.success && Array.isArray(catRes.data?.items) && catRes.data.items.length > 0) {
         setVouchers(
@@ -69,9 +77,14 @@ export default function RewardsPage() {
 
     if (res.success) {
       // Server-authoritative: reload the real balance instead of local arithmetic.
-      const balRes = await api.get<{ balance: number }>('/rewards/balance');
+      const balRes = await api.get<{ balance: number; tier: string; nextTierPoints?: number; pointsToNextTier?: number }>('/rewards/balance');
       if (balRes.success && balRes.data?.balance !== undefined) {
         setBalance(Number(balRes.data.balance) || 0);
+        if (balRes.data.tier) setTier(String(balRes.data.tier));
+        setNextTierPoints(
+          balRes.data.nextTierPoints !== undefined ? Number(balRes.data.nextTierPoints) : null
+        );
+        setPointsToNextTier(Number(balRes.data.pointsToNextTier) || 0);
       }
       setRedeemedMsg(`Successfully redeemed ${gift.name} Voucher! Check your email for code.`);
     } else {
@@ -100,7 +113,7 @@ export default function RewardsPage() {
         <div className="bg-gradient-to-br from-[#0A192F] to-[#1E3A8A] text-white rounded-3xl p-8 shadow-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-800">
           <div className="space-y-2 text-center md:text-left z-10">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white/10 text-cyan-300 border border-white/10">
-              <Sparkles className="w-3.5 h-3.5" /> Tier 1 Member Balance
+              <Sparkles className="w-3.5 h-3.5" /> {tier} Member Balance
             </span>
             <div className="flex items-baseline justify-center md:justify-start gap-2">
               <span className="text-6xl font-black tracking-tight">{balance}</span>
@@ -112,6 +125,25 @@ export default function RewardsPage() {
               Redeem your points for dining vouchers, pharmacy discounts, and partner healthcare
               benefits.
             </p>
+            {nextTierPoints !== null && nextTierPoints !== undefined ? (
+              <div className="max-w-md">
+                <div className="h-2 rounded-full bg-white/15 overflow-hidden">
+                  <div
+                    className="h-full bg-cyan-400 rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.max(0, (balance / nextTierPoints) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-300 mt-1">
+                  {pointsToNextTier > 0
+                    ? `${pointsToNextTier} pts to next tier (${nextTierPoints} pts)`
+                    : `Next tier at ${nextTierPoints} pts`}
+                </p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-300">Top tier reached — enjoy VIP benefits.</p>
+            )}
           </div>
 
           <div className="w-16 h-16 rounded-2xl bg-[#1877F2] text-white flex items-center justify-center shadow-lg shrink-0">

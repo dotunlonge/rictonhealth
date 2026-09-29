@@ -2,7 +2,7 @@ import { Worker, Queue } from 'bullmq';
 import { prisma } from '@ricton/db';
 import { logger } from '../logger';
 import { bullmqConnection } from '../redis';
-import { emailQueue } from './index';
+import { emailQueue, notificationQueue } from './index';
 
 /** Visits starting within this window get reminded (mobile promises reminders). */
 export const REMINDER_WINDOW_HOURS = 24;
@@ -18,7 +18,7 @@ function formatSlot(when: Date): string {
   return new Intl.DateTimeFormat('en-NG', {
     dateStyle: 'medium',
     timeStyle: 'short',
-    timeZone: 'UTC',
+    timeZone: 'Africa/Lagos',
   }).format(when);
 }
 
@@ -69,7 +69,7 @@ export async function runAppointmentReminders(now = new Date()): Promise<Reminde
           userId: appt.patientId,
           type: 'APPOINTMENT_REMINDER',
           title: 'Upcoming visit reminder',
-          body: `Reminder: your visit is on ${when} (UTC). Join from your appointments list when it is time.`,
+          body: `Reminder: your visit is on ${when} (WAT). Join from your appointments list when it is time.`,
           channel: 'IN_APP',
           metadata: { appointmentId: appt.id } as never,
         },
@@ -84,11 +84,29 @@ export async function runAppointmentReminders(now = new Date()): Promise<Reminde
         await emailQueue.add('appointment-reminder', {
           to: appt.patient.email,
           subject: 'Ricton Health — upcoming visit reminder',
-          body: `Reminder: your visit is on ${when} (UTC).`,
+          body: `Reminder: your visit is on ${when} (WAT).`,
         });
       }
     } catch (err) {
       logger.warn({ err, appointmentId: appt.id }, 'Reminder email enqueue failed (non-blocking)');
+    }
+    // #59 Push: honor NotificationPreference.pushEnabled; best-effort enqueue via
+    // notification queue (IN_APP row above remains the durable channel).
+    try {
+      const prefs = await prisma.notificationPreference.findUnique({
+        where: { userId: appt.patientId },
+        select: { pushEnabled: true },
+      });
+      if (prefs?.pushEnabled !== false) {
+        await notificationQueue.add('push', {
+          userId: appt.patientId,
+          type: 'APPOINTMENT_REMINDER',
+          title: 'Upcoming visit reminder',
+          body: `Reminder: your visit is on ${when} (WAT).`,
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, appointmentId: appt.id }, 'Reminder push enqueue failed (non-blocking)');
     }
     result.reminded += 1;
   }

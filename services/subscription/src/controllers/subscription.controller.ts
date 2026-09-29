@@ -57,13 +57,11 @@ export const getPlans = async (req: Request, res: Response, next: NextFunction) 
         currency: 'NGN',
         billingPeriod: 'monthly',
         features: [
-          'Unlimited appointment bookings',
+          'Priority appointment bookings',
           'Access to all specialists',
-          'Unlimited telemedicine consultations',
+          'Telemedicine consultations',
           'Complete health records',
           'Priority support',
-          'Discounted pharmacy orders (10%)',
-          'Family member additions (up to 4)',
           'Health analytics dashboard',
         ],
         limitations: [],
@@ -162,6 +160,17 @@ export const upgradeSubscription = async (req: Request, res: Response, next: Nex
 
     if (subscriptionCheck && subscriptionCheck.plan === SubscriptionPlan.PREMIUM) {
       throw new ValidationError('You already have an active Premium subscription');
+    }
+
+    // #32 Double-activate guard: reuse an in-flight PENDING upgrade instead of
+    // minting a duplicate (double-clicks/retries collapse to one checkout).
+    const existing = await prisma.subscription.findFirst({
+      where: { userId, status: SubscriptionStatus.PENDING },
+      orderBy: { createdAt: 'desc' },
+      include: { payment: { select: { providerReference: true, status: true } } },
+    });
+    if (existing) {
+      return res.status(200).json(successResponse(existing));
     }
 
     // Calculate pricing
@@ -326,12 +335,14 @@ export const getSubscriptionHistory = async (req: Request, res: Response, next: 
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
     const { limit = 10, offset = 0 } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 10, 1), 50);
+    const skip = Math.max(Number(offset) || 0, 0);
 
     const [subscriptions, total] = await Promise.all([
       prisma.subscription.findMany({
         where: { userId },
-        take: Number(limit),
-        skip: Number(offset),
+        take,
+        skip,
         orderBy: { createdAt: 'desc' },
         include: {
           payment: {
@@ -351,8 +362,8 @@ export const getSubscriptionHistory = async (req: Request, res: Response, next: 
       successResponse({
         subscriptions,
         total,
-        limit: Number(limit),
-        offset: Number(offset),
+        limit: take,
+        offset: skip,
       })
     );
   } catch (error) {
@@ -406,7 +417,17 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
           where: { providerReference: event.data.reference },
         });
 
-        if (payment && payment.status === 'PENDING') {
+        // #32 Only a matching PENDING Payment row owned by this user may flip
+        // PENDING→ACTIVE. No Payment row / user mismatch / non-PENDING → ignore
+        // (never create a subscription out of thin air here).
+        if (!payment || payment.status !== 'PENDING') {
+          return res.sendStatus(200);
+        }
+        if (payment.userId !== userId || payment.type !== PaymentType.SUBSCRIPTION) {
+          return res.sendStatus(200);
+        }
+
+        {
           // Update payment status
           await prisma.payment.update({
             where: { id: payment.id },
@@ -419,8 +440,8 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
 
           // Activate/update subscription (PENDING → ACTIVE only here)
           if (subscriptionId) {
-            await prisma.subscription.update({
-              where: { id: subscriptionId },
+            await prisma.subscription.updateMany({
+              where: { id: subscriptionId, userId, status: SubscriptionStatus.PENDING },
               data: {
                 status: SubscriptionStatus.ACTIVE,
                 plan: plan as SubscriptionPlan,
@@ -428,19 +449,9 @@ export const handleWebhook = async (req: Request, res: Response, next: NextFunct
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
               },
             });
-          } else {
-            // Create new subscription if ID not in metadata
-            await prisma.subscription.create({
-              data: {
-                userId,
-                plan: plan as SubscriptionPlan,
-                status: SubscriptionStatus.ACTIVE,
-                startsAt: new Date(),
-                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                autoRenew: true,
-              },
-            });
           }
+          // No else-create: without a subscriptionId there is no PENDING row to
+          // activate, so creating one here would double-activate.
         }
       }
     } else if (event.event === 'charge.failed' || event.event === 'charge.abandoned') {

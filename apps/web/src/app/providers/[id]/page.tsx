@@ -28,6 +28,7 @@ export default function DoctorDetailPage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [timeSlots, setTimeSlots] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadDoctorDetails() {
@@ -51,13 +52,25 @@ export default function DoctorDetailPage() {
     setSelectedDate(date);
     if (!date) {
       setTimeSlots([]);
+      setSlotsError(null);
       return;
     }
     setSlotsLoading(true);
-    const res = await api.get<string[]>(
-      `/appointments/slots/${encodeURIComponent(doctorId)}?date=${encodeURIComponent(date)}`
-    );
-    setTimeSlots(res.success && Array.isArray(res.data) ? res.data : []);
+    setSlotsError(null);
+    try {
+      const res = await api.get<string[]>(
+        `/appointments/slots/${encodeURIComponent(doctorId)}?date=${encodeURIComponent(date)}`
+      );
+      if (res.success && Array.isArray(res.data)) {
+        setTimeSlots(res.data);
+      } else {
+        setTimeSlots([]);
+        setSlotsError(res.error?.message || 'Failed to load slots.');
+      }
+    } catch {
+      setTimeSlots([]);
+      setSlotsError('Failed to load slots.');
+    }
     setSlotsLoading(false);
   };
 
@@ -141,7 +154,7 @@ export default function DoctorDetailPage() {
                     <MessageSquare className="w-4 h-4" /> Send Message
                   </button>
                   <button
-                    onClick={() => router.push('/appointments')}
+                    onClick={() => router.push(`/appointments?providerId=${encodeURIComponent(doctorId)}`)}
                     className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-full shadow-md transition-all"
                   >
                     Book Consultation
@@ -247,6 +260,19 @@ export default function DoctorDetailPage() {
               <div className="space-y-3">
                 {slotsLoading ? (
                   <p className="text-xs font-semibold text-slate-500">Loading live availability…</p>
+                ) : slotsError ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-rose-600">
+                      Failed to load slots — Retry
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void loadSlots(selectedDate)}
+                      className="px-3 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-xl"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 ) : timeSlots.length === 0 ? (
                   <p className="text-xs font-semibold text-slate-500">
                     {selectedDate ? 'No available slots for this date.' : 'Choose a date to load availability.'}

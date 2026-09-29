@@ -1,20 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import {
-  prisma,
-  UserRole,
-  UserStatus,
-  AppointmentStatus,
-  Prisma,
-  ensureDoctorsSeeded,
-  seedDoctors,
-} from '@ricton/db';
+import { prisma, UserRole, UserStatus, AppointmentStatus, Prisma } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
   successResponse,
   NotFoundError,
   ValidationError,
   ForbiddenError,
+  ConflictError,
   getCached,
   setCached,
   invalidateCache,
@@ -287,6 +280,17 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
           ...(data as Record<string, string>),
         },
       });
+      // #48 License mutation: credential change re-opens verification.
+      try {
+        if (updateData.licenseNumber || updateData.specialty) {
+          await prisma.providerProfile.update({
+            where: { userId },
+            data: { isVerified: false },
+          });
+        }
+      } catch {
+        // best-effort: do not break profile save if re-verification flag fails
+      }
       await invalidateCache('providers*');
     } else if (role === UserRole.PHARMACIST) {
       const data: Record<string, unknown> = {
@@ -319,11 +323,21 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
         });
         const hospitalName =
           updateData.hospitalName || currentUser?.hospital?.name || 'Hospital Facility';
-        const hospitalAddress = updateData.address
-          ? typeof updateData.address === 'string'
-            ? { address: updateData.address, city: updateData.city, state: updateData.state }
-            : updateData.address
-          : currentUser?.hospital?.address;
+        // #151 Unify address shape to { line1, city, state, ... }: accept the
+        // legacy { street } / { address } forks plus plain-string input.
+        const rawAddress = updateData.address ?? currentUser?.hospital?.address;
+        const hospitalAddress =
+          typeof rawAddress === 'string'
+            ? { line1: rawAddress, city: updateData.city, state: updateData.state }
+            : rawAddress && typeof rawAddress === 'object'
+              ? {
+                  ...(rawAddress as Record<string, unknown>),
+                  line1:
+                    (rawAddress as Record<string, unknown>).line1 ??
+                    (rawAddress as Record<string, unknown>).street ??
+                    (rawAddress as Record<string, unknown>).address,
+                }
+              : rawAddress;
         const departments = updateData.departments || currentUser?.hospital?.departments || [];
         const documents = {
           licenseFileUploaded: Boolean(
@@ -361,14 +375,19 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
               address: hospitalAddress as any,
               departments: departments as any,
               documents: documents as any,
-              onboardingComplete: true,
+              // #150/#151 Quarantine: self-registered hospitals stay inactive
+              // and unverified until a SUPER_ADMIN verifies documents via
+              // POST /admin/hospitals/:id/verify. The admin user stays PENDING.
+              isActive: false,
+              onboardingComplete: false,
             },
           });
           await prisma.user.update({
             where: { id: userId },
             data: {
               hospitalId: newHospital.id,
-              status: currentUser?.status === UserStatus.PENDING ? UserStatus.ACTIVE : undefined,
+              // #150 No hospital self-activation: new hospitals stay PENDING
+              // until a SUPER_ADMIN verifies documents and activates the account.
             },
           });
         }
@@ -407,7 +426,24 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
               }
             : null);
 
+    // #V1 Validate NUBAN + E.164 phone before persisting bank details
     if (incomingBank) {
+      const acct = (incomingBank as Record<string, unknown>).accountNumber;
+      if (acct !== undefined && acct !== null && String(acct) !== '') {
+        if (!/^[0-9]{10}$/.test(String(acct))) {
+          throw new ValidationError('Invalid account number: must be a 10-digit NUBAN');
+        }
+      }
+      const phoneToValidate = updateData.phone ?? (incomingBank as Record<string, unknown>).phone;
+      if (
+        phoneToValidate !== undefined &&
+        phoneToValidate !== null &&
+        String(phoneToValidate) !== ''
+      ) {
+        if (!/^\+?[1-9][0-9]{7,14}$/.test(String(phoneToValidate))) {
+          throw new ValidationError('Invalid phone number format');
+        }
+      }
       await prisma.user.update({
         where: { id: userId },
         data: {
@@ -493,12 +529,13 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
 export const getProviders = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { specialty, name, search, limit = 20, offset = 0 } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const skip = Math.max(Number(offset) || 0, 0);
     const searchTerm = (name || search) as string | undefined;
 
-    // Self-healing: in production/dev, auto-provision if doctors or weekly schedules are missing
-    if (process.env.NODE_ENV !== 'test') {
-      await ensureDoctorsSeeded(prisma);
-    }
+    // No runtime auto-seeding: demo doctors are dev fixtures only, seeded
+    // explicitly via `prisma db seed`. An empty directory returns empty —
+    // it must never fabricate providers, in any environment.
 
     const isProd = process.env.NODE_ENV === 'production';
     const where: Prisma.ProviderProfileWhereInput = {
@@ -529,37 +566,17 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
       return res.status(200).json(successResponse(cached));
     }
 
-    let [providers, total] = await Promise.all([
+    const [providers, total] = await Promise.all([
       prisma.providerProfile.findMany({
         where,
-        take: Number(limit),
-        skip: Number(offset),
+        take,
+        skip,
         include: { hospital: true },
       }),
       prisma.providerProfile.count({ where }),
     ]);
 
-    // Self-healing fallback: If count is 0 and no filters were passed in dev/prod, seed doctors and re-query
-    if (
-      process.env.NODE_ENV !== 'test' &&
-      total === 0 &&
-      !specialty &&
-      !searchTerm &&
-      Number(offset) === 0
-    ) {
-      await seedDoctors(prisma);
-      [providers, total] = await Promise.all([
-        prisma.providerProfile.findMany({
-          where,
-          take: Number(limit),
-          skip: Number(offset),
-          include: { hospital: true },
-        }),
-        prisma.providerProfile.count({ where }),
-      ]);
-    }
-
-    const result = { providers, total, limit: Number(limit), offset: Number(offset) };
+    const result = { providers, total, limit: take, offset: skip };
     if (result.providers.length > 0) {
       await setCached(cacheKey, result, { ttlSeconds: 300 });
     }
@@ -622,6 +639,8 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
       throw new ForbiddenError('Only clinical staff can list patient records');
     }
     const { limit = 50, offset = 0, search } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 50, 1), 50);
+    const skip = Math.max(Number(offset) || 0, 0);
 
     let adminHospitalId: string | undefined;
     if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
@@ -660,8 +679,8 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
     const [patients, total] = await Promise.all([
       prisma.user.findMany({
         where,
-        take: Number(limit),
-        skip: Number(offset),
+        take,
+        skip,
         orderBy: { createdAt: 'desc' },
         include: {
           patientProfile: true,
@@ -810,6 +829,115 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
     }
 
     res.status(200).json(successResponse(patient));
+  } catch (error: unknown) {
+    next(error);
+  }
+};
+
+/**
+ * #L1 Versioned re-consent: PUT /users/me/consent { version }.
+ * Mirrors the grant onto User.consentVersion/consentAt and appends a
+ * ConsentHistory row (best-effort — never blocks the mirror update).
+ */
+export const updateConsent = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const { version } = req.body as { version?: unknown };
+    if (typeof version !== 'string' || version.trim() === '') {
+      throw new ValidationError('version is required');
+    }
+    const clean = version.trim();
+
+    const updated = await prisma.user.update({
+      where: { id: userPayload.userId },
+      data: { consentVersion: clean, consentAt: new Date() },
+    });
+
+    try {
+      await (prisma as any).consentHistory?.create?.({
+        data: {
+          userId: userPayload.userId,
+          version: clean,
+          ip:
+            (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+            req.socket.remoteAddress ||
+            null,
+        },
+      });
+    } catch {
+      // best-effort: the User mirror above is authoritative
+    }
+
+    res
+      .status(200)
+      .json(
+        successResponse({ consentVersion: updated.consentVersion, consentAt: updated.consentAt })
+      );
+  } catch (error: unknown) {
+    next(error);
+  }
+};
+
+/**
+ * #L3 Erasure request: DELETE /users/me.
+ * Legal hold: users with SIGNED prescriptions are rejected with 409
+ * (records retained 7y). Otherwise a PENDING ErasureRequest row is filed
+ * and the account is DEACTIVATED.
+ * TODO(worker): a back-office worker must pick up PENDING rows and anonymize
+ * PII (email -> deleted_{id}@example.com, phone -> null); until then the
+ * request stays queued and the account stays deactivated.
+ */
+export const requestErasure = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const userId = userPayload.userId;
+
+    let signedCount = 0;
+    try {
+      signedCount = await prisma.prescription.count({
+        where: {
+          status: 'SIGNED' as never,
+          OR: [{ patientId: userId }, { providerId: userId }],
+        },
+      });
+    } catch {
+      signedCount = 0;
+    }
+    if (signedCount > 0) {
+      throw new ConflictError('Legal hold: prescription records retained 7y');
+    }
+
+    // Fail closed if the generated client predates the erasure_requests table:
+    // deactivating without a queue row would lose the request.
+    if (!(prisma as any).erasureRequest?.create) {
+      throw new AppError(
+        'Erasure queue unavailable (pending migration)',
+        503,
+        'SERVICE_NOT_CONFIGURED'
+      );
+    }
+
+    let erasure: unknown;
+    try {
+      erasure = await (prisma as any).erasureRequest.create({
+        data: { userId, status: 'PENDING' },
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const code = (e as { code?: unknown })?.code;
+      if (code === 'P2002' || /unique constraint|already exists/i.test(msg)) {
+        erasure = await (prisma as any).erasureRequest.findUnique({ where: { userId } });
+      } else {
+        throw e;
+      }
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: UserStatus.DEACTIVATED },
+    });
+
+    res.status(200).json(successResponse(erasure));
   } catch (error: unknown) {
     next(error);
   }

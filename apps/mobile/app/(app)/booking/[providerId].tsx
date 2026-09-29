@@ -47,6 +47,47 @@ export default function ProviderDetailScreen() {
   const [booking, setBooking] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [rescheduled, setRescheduled] = useState(false);
+  const [providerFee, setProviderFee] = useState<number | null>(null);
+
+  // Show the provider's consultation fee (NGN) so patients see the price
+  // before picking a time. Hidden when the provider has no fee set.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = (await bookingService.listProviders({ limit: 50 })) as
+          | {
+              providers?: Array<{
+                userId?: string;
+                id?: string;
+                consultationFee?: string | number | null;
+                providerProfile?: { consultationFee?: string | number | null };
+              }>;
+            }
+          | Array<{
+              userId?: string;
+              id?: string;
+              consultationFee?: string | number | null;
+              providerProfile?: { consultationFee?: string | number | null };
+            }>;
+        const arr = Array.isArray(raw) ? raw : (raw?.providers ?? []);
+        const match = arr.find(
+          (item) => item.userId === String(providerId) || item.id === String(providerId)
+        );
+        const feeRaw =
+          match?.providerProfile?.consultationFee ?? match?.consultationFee ?? null;
+        const fee = typeof feeRaw === 'string' ? Number(feeRaw) : feeRaw;
+        if (!cancelled && typeof fee === 'number' && Number.isFinite(fee) && fee > 0) {
+          setProviderFee(fee);
+        }
+      } catch {
+        // Fee stays hidden; booking still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [providerId]);
   // Stable idempotency scope: same key across retries of one selection,
   // fresh key after success or selection change (see api-contract).
   const idempotencyScope = useRef(createIdempotencyScope());
@@ -134,6 +175,11 @@ export default function ProviderDetailScreen() {
         title={rescheduling ? 'Pick a new time' : 'Available times'}
         subtitle="Times update live — taken slots disappear."
       />
+      {typeof providerFee === 'number' ? (
+        <Text testID="booking.fee" style={styles.feeText}>
+          Consultation fee: ₦{providerFee.toLocaleString('en-NG')}
+        </Text>
+      ) : null}
       <View testID="booking.day-strip" style={styles.dayStrip}>
         {days.map((day, index) => {
           const active = day.key === dayKey;
@@ -141,6 +187,7 @@ export default function ProviderDetailScreen() {
             <Pressable
               key={day.key}
               accessibilityRole="button"
+              accessibilityLabel={`Choose day ${day.label}`}
               accessibilityState={{ selected: active }}
               onPress={() => setDayKey(day.key)}
               style={[styles.day, active && styles.slotActive]}
@@ -159,6 +206,7 @@ export default function ProviderDetailScreen() {
               <Pressable
                 key={type}
                 accessibilityRole="button"
+                accessibilityLabel={type === 'VIDEO' ? 'Choose video visit' : 'Choose in-person visit'}
                 accessibilityState={{ selected: active }}
                 onPress={() => setConsultType(type)}
                 style={[styles.day, active && styles.slotActive]}
@@ -192,6 +240,7 @@ export default function ProviderDetailScreen() {
               <Pressable
                 key={slot}
                 accessibilityRole="button"
+                accessibilityLabel={`Book time slot ${new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(slot))}`}
                 accessibilityState={{ selected: active }}
                 onPress={() => setSelected(slot)}
                 style={[styles.slot, active && styles.slotActive]}
@@ -273,6 +322,7 @@ const styles = StyleSheet.create({
   },
   slotActive: { borderColor: colors.blue600, backgroundColor: colors.blue50 },
   slotText: { ...typography.bodyStrong, color: colors.navy900 },
+  feeText: { ...typography.caption, color: colors.slate700 },
   slotTextActive: { color: colors.blue700 },
   error: { ...typography.caption, color: colors.rose700 },
 });

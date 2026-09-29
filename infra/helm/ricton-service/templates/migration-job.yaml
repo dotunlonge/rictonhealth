@@ -12,6 +12,11 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: 2
+  # #99/#101: keep failed pods for forensics — ttlSecondsAfterFinished stays
+  # unset (a TTL would delete failed pods before triage). Failed Jobs are
+  # pruned by the hook-delete-policy on the next release, not by TTL.
+  # activeDeadlineSeconds bounds a hung migrate so it cannot pin a release.
+  activeDeadlineSeconds: 300
   template:
     metadata:
       labels:

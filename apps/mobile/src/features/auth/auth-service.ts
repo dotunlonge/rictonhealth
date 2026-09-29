@@ -39,10 +39,15 @@ export class AuthService {
   ) {}
 
   async signIn(input: SignInInput): Promise<SignInResult> {
+    const rawIdentifier = (input.email ?? input.phone ?? '').trim();
+    const isEmail = rawIdentifier.includes('@');
+    const identifierPayload = isEmail
+      ? { email: rawIdentifier.toLowerCase() }
+      : { phone: rawIdentifier };
     const response = await this.api.post<LoginResponse>(
       rel(GATEWAY_PATHS.authLogin),
       {
-        email: input.email.trim().toLowerCase(),
+        ...identifierPayload,
         password: input.password,
         ...(input.totpCode ? { totpCode: input.totpCode } : {}),
         rememberMe: true,
@@ -53,7 +58,7 @@ export class AuthService {
     if (response.requires2FA) {
       return {
         kind: 'two-factor-required',
-        email: response.email ?? input.email.trim().toLowerCase(),
+        email: response.email ?? rawIdentifier.toLowerCase(),
       };
     }
 
@@ -166,8 +171,8 @@ export class AuthService {
         ...(input.firstName ? { firstName: input.firstName } : {}),
         ...(input.lastName ? { lastName: input.lastName } : {}),
         ...(input.phone ? { phone: input.phone } : {}),
-        role: 'PATIENT',
-        consentVersion: '1.0',
+        role: input.role ?? 'PATIENT',
+        consentVersion: input.consentVersion ?? '1.0',
       },
       { authenticated: false }
     );

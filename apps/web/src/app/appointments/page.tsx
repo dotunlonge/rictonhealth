@@ -13,13 +13,15 @@ interface AppointmentRecord {
   doctorName: string;
   scheduledAt: string;
   type: string;
-  status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED';
+  status: 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW' | 'IN_PROGRESS';
   telemedicineRoomId: string | null;
   paymentStatus: string | null;
+  waivedReason: string | null;
   providerId: string | null;
   consultationFee: number | null;
   hospitalName: string | null;
   hospitalAddress: string | null;
+  emergencyContact?: { name?: string | null; phone?: string | null; relationship?: string | null } | null;
 }
 
 function toFee(value: unknown): number | null {
@@ -37,6 +39,16 @@ function toHospitalAddress(hospital: any): { name: string | null; address: strin
     name: typeof hospital.name === 'string' ? hospital.name : null,
     address: parts.length > 0 ? (parts as string[]).join(', ') : null,
   };
+}
+
+// Join gating: video joins require a joinable status AND a settled fee
+// (paid, free/unspecified, or explicitly waived).
+function isPaid(apt: {
+  paymentStatus: string | null;
+  consultationFee: number | null;
+  waivedReason?: string | null;
+}): boolean {
+  return apt.paymentStatus === 'SUCCESS' || !apt.consultationFee || !!apt.waivedReason;
 }
 
 function AppointmentsContent() {
@@ -68,17 +80,21 @@ function AppointmentsContent() {
       status: a.status || 'CONFIRMED',
       telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
       paymentStatus: a.payment?.status || a.paymentStatus || null,
+      waivedReason: a.waivedReason || a.payment?.waivedReason || null,
       providerId: a.provider?.id || a.providerId || null,
       hospitalName: a.hospitalName || a.hospital?.name || null,
       hospitalAddress: a.hospitalAddress || toHospitalAddress(a.hospital).address || null,
       consultationFee: toFee(a.provider?.providerProfile?.consultationFee ?? a.consultationFee),
+      emergencyContact: a.patient?.patientProfile?.emergencyContact || null,
     }));
   });
   const [loading, setLoading] = useState(
     () => !(storeAppointments && storeAppointments.length > 0)
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusTab, setStatusTab] = useState<'ALL' | 'CONFIRMED' | 'PENDING' | 'CANCELLED'>('ALL');
+  const [statusTab, setStatusTab] = useState<
+    'ALL' | 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW' | 'IN_PROGRESS'
+  >('ALL');
 
   // Deep links into the Schedule Consultation modal:
   // - Doctor profile "Schedule" CTAs pass ?providerId=…&scheduledAt=…
@@ -221,6 +237,7 @@ function AppointmentsContent() {
               patientProfile.firstName || patientProfile.lastName
                 ? `${patientProfile.firstName || ''} ${patientProfile.lastName || ''}`.trim()
                 : a.patient?.email || 'Patient Record';
+            const emergencyContact = a.patient?.patientProfile?.emergencyContact || null;
             const providerProfile = a.provider?.providerProfile || {};
             const doctorName =
               providerProfile.firstName || providerProfile.lastName
@@ -231,22 +248,24 @@ function AppointmentsContent() {
               patientName,
               doctorName,
               scheduledAt: a.scheduledAt
-                ? new Date(a.scheduledAt).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
+                ? new Date(a.scheduledAt).toLocaleString('en-NG', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                    timeZone: 'Africa/Lagos',
                   })
                 : '—',
               type: a.type || 'VIDEO',
               status: a.status || 'PENDING',
               telemedicineRoomId: a.telemedicineRoomId || a.telemedicineRoom?.id || null,
               paymentStatus: a.payment?.status || null,
+              waivedReason: a.waivedReason || a.payment?.waivedReason || null,
               providerId: a.provider?.id || null,
               ...(() => {
                 const h = toHospitalAddress(a.hospital);
                 return { hospitalName: h.name, hospitalAddress: h.address };
               })(),
               consultationFee: toFee(a.provider?.providerProfile?.consultationFee),
+              emergencyContact,
             };
           })
       );
@@ -359,10 +378,10 @@ function AppointmentsContent() {
             a.id === rescheduling.id
               ? {
                   ...a,
-                  scheduledAt: new Date(moved).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
+                  scheduledAt: new Date(moved).toLocaleString('en-NG', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                    timeZone: 'Africa/Lagos',
                   }),
                 }
               : a
@@ -412,15 +431,16 @@ function AppointmentsContent() {
           ? `${user.firstName} ${user.lastName || ''}`.trim()
           : user?.email || 'Patient Record',
         doctorName,
-        scheduledAt: new Date(res.data.scheduledAt || selectedSlot).toLocaleDateString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
+        scheduledAt: new Date(res.data.scheduledAt || selectedSlot).toLocaleString('en-NG', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+          timeZone: 'Africa/Lagos',
         }),
         type: res.data.type || consultType,
         status: res.data.status || 'PENDING',
         telemedicineRoomId: res.data.telemedicineRoomId || null,
         paymentStatus: res.data.payment?.status || null,
+        waivedReason: res.data.waivedReason || null,
         providerId: providerId,
         hospitalName: null,
         hospitalAddress: null,
@@ -642,7 +662,7 @@ function AppointmentsContent() {
               />
             </div>
             <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-              {(['ALL', 'CONFIRMED', 'PENDING', 'CANCELLED'] as const).map((tab) => (
+              {(['ALL', 'CONFIRMED', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'NO_SHOW', 'CANCELLED'] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -706,6 +726,15 @@ function AppointmentsContent() {
                               >
                                 #{apt.id.slice(0, 8)}
                               </p>
+{apt.emergencyContact?.phone && (
+                                <a
+                                  href={`tel:${apt.emergencyContact.phone}`}
+                                  className="mt-0.5 block text-[10px] font-bold text-red-600 hover:underline"
+                                  title={`Emergency contact: ${apt.emergencyContact.name || 'on file'}`}
+                                >
+                                  SOS: {apt.emergencyContact.name || apt.emergencyContact.phone}
+                                </a>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -749,7 +778,8 @@ function AppointmentsContent() {
                           {isConsultant ? (
                             <div className="flex items-center justify-end gap-2 flex-wrap">
                               {apt.telemedicineRoomId &&
-                              (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                              isPaid(apt) &&
+                              (apt.status === 'CONFIRMED' || apt.status === 'IN_PROGRESS') ? (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -901,7 +931,7 @@ function AppointmentsContent() {
           </div>
 
           <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-            {(['ALL', 'CONFIRMED', 'PENDING', 'CANCELLED'] as const).map((tab) => (
+            {(['ALL', 'CONFIRMED', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'NO_SHOW', 'CANCELLED'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -973,6 +1003,15 @@ function AppointmentsContent() {
                             >
                               #{apt.id.slice(0, 8)}
                             </p>
+{apt.emergencyContact?.phone && (
+                              <a
+                                href={`tel:${apt.emergencyContact.phone}`}
+                                className="mt-0.5 block text-[10px] font-bold text-red-600 hover:underline"
+                                title={`Emergency contact: ${apt.emergencyContact.name || 'on file'}`}
+                              >
+                                SOS: {apt.emergencyContact.name || apt.emergencyContact.phone}
+                              </a>
+                              )}
                           </div>
                         </div>
                       </td>
@@ -1013,20 +1052,30 @@ function AppointmentsContent() {
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {apt.type === 'VIDEO' &&
-                          (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                          isPaid(apt) &&
+                          (apt.status === 'CONFIRMED' || apt.status === 'IN_PROGRESS') &&
+                          apt.telemedicineRoomId ? (
                             <button
                               type="button"
                               onClick={() =>
-                                router.push(
-                                  apt.telemedicineRoomId
-                                    ? `/telemedicine/${apt.telemedicineRoomId}`
-                                    : '/telemedicine'
-                                )
+                                router.push(`/telemedicine/${apt.telemedicineRoomId}`)
                               }
                               className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all whitespace-nowrap"
                             >
                               Join Call →
                             </button>
+                          ) : apt.type === 'VIDEO' &&
+                            (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
+                            <span
+                              className="px-4 py-1.5 text-slate-400 font-bold text-xs whitespace-nowrap"
+                              title={
+                                !isPaid(apt)
+                                  ? 'Complete payment to unlock joining'
+                                  : 'The video room is not ready yet'
+                              }
+                            >
+                              {!isPaid(apt) ? 'Awaiting payment' : 'Room not ready yet'}
+                            </span>
                           ) : apt.type !== 'VIDEO' &&
                             (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
                             <span
@@ -1154,8 +1203,12 @@ function AppointmentsContent() {
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Consultation Type</label>
+                  {/* Reschedule locks the visit type: the PATCH only moves
+                      scheduledAt, so the type select is disabled while rescheduling. */}
                   <select
                     value={consultType}
+                    disabled={!!rescheduling}
+                    title={rescheduling ? 'Rescheduling keeps the same visit type' : undefined}
                     onChange={(e) => setConsultType(e.target.value as 'VIDEO' | 'IN_PERSON')}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                   >

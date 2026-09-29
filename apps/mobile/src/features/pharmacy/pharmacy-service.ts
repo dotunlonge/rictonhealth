@@ -39,6 +39,16 @@ export function isTerminalOrder(status: string): boolean {
   return TERMINAL.has(status);
 }
 
+export interface OrderPaymentLaunch {
+  authorization_url: string;
+  reference: string;
+  paymentId: string;
+}
+
+export interface OrderPaymentVerification {
+  status: string;
+}
+
 export class PharmacyService {
   constructor(private readonly api: ApiClient = apiClient) {}
 
@@ -88,6 +98,26 @@ export class PharmacyService {
   /** Only PLACED orders can be cancelled (backend restocks transactionally). */
   cancelOrder(id: string): Promise<unknown> {
     return this.api.patch(`${rel(GATEWAY_PATHS.pharmacyOrders)}/${id}/cancel`, {});
+  }
+
+  /**
+   * Provider-hosted pharmacy checkout. Amount is server-resolved from the
+   * order total; the client only passes type + referenceId. Initializes a
+   * Paystack transaction and links the pending payment to the order.
+   */
+  initiateOrderPayment(input: { orderId: string; email?: string }): Promise<OrderPaymentLaunch> {
+    return this.api.post<OrderPaymentLaunch>(rel(GATEWAY_PATHS.paymentInitialize), {
+      type: 'PHARMACY_ORDER',
+      referenceId: input.orderId,
+      ...(input.email ? { email: input.email } : {}),
+    });
+  }
+
+  /** Reconcile a provider return against server state. */
+  verifyOrderPayment(reference: string): Promise<OrderPaymentVerification> {
+    return this.api.get<OrderPaymentVerification>(
+      `${rel(GATEWAY_PATHS.paymentVerify)}/${reference}`
+    );
   }
 }
 

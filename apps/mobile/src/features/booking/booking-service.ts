@@ -59,8 +59,12 @@ export class BookingService {
     return Array.isArray(data) ? { slots: data } : data;
   }
 
-  async cancelAppointment(id: string): Promise<unknown> {
-    return unwrapData(await this.api.patch(`${rel(GATEWAY_PATHS.appointments)}/${id}/cancel`, {}));
+  async cancelAppointment(id: string, reason?: string): Promise<unknown> {
+    return unwrapData(
+      await this.api.patch(`${rel(GATEWAY_PATHS.appointments)}/${id}/cancel`, {
+        ...(reason ? { reason } : {}),
+      })
+    );
   }
 
   async rescheduleAppointment(id: string, scheduledAt: string): Promise<unknown> {

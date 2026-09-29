@@ -29,6 +29,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: ricton-redis
+    # #95 single shared Redis: app uses DB 0 (REDIS_URL redis://redis:6379),
+    # Kong rate-limiting uses DB 1 (gateway/kong.yml redis_database: 1).
     command: redis-server --requirepass ${REDIS_PASSWORD:-ricton-secure-redis-2026}
     ports:
       # Host port is overridable (REDIS_HOST_PORT=6380) for machines already
@@ -60,8 +62,10 @@ services:
     ports:
       - '8000:8000'
       - '8443:8443'
-      - '8001:8001'
-      - '8444:8444'
+      # #89: Kong Admin API bound to loopback only — never 0.0.0.0 in dev.
+      # Values below intentionally keep dev defaults; prod fail-closes via ${VAR:?}.
+      - '127.0.0.1:8001:8001'
+      - '127.0.0.1:8444:8444'
     volumes:
       - ./gateway/kong.yml:/kong/declarative/kong.yml
     depends_on:
@@ -394,6 +398,7 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-ricton-secure-redis-2026}
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       NODE_ENV: ${NODE_ENV:-development}
+      # Canonical PORT_MESSAGING (code also accepts legacy MESSAGING_PORT).
       PORT_MESSAGING: 3012
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
     volumes:

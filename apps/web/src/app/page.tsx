@@ -611,7 +611,7 @@ export default function LandingPage() {
                   <span className="text-sm font-semibold text-slate-500">/ forever free</span>
                 </div>
                 <p className="text-slate-600 text-xs leading-relaxed">
-                  Everything you need to manage your family's daily healthcare journey digitally.
+                  Everything you need to manage your personal healthcare journey digitally.
                 </p>
                 <ul className="space-y-3 text-xs text-slate-700 pt-4 border-t border-slate-200">
                   <li className="flex items-center gap-2.5">
@@ -843,7 +843,7 @@ export default function LandingPage() {
                         d="M5 13l4 4L19 7"
                       />
                     </svg>
-                    <span>Automated billing & insurance reconciliation</span>
+                    <span>Automated billing & receipts (Insurance/HMO — Coming soon)</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <svg

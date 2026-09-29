@@ -24,6 +24,17 @@ interface PharmacyOrder {
   totalAmount: number | string;
   status: string;
   createdAt: string;
+  payment?: { status: string } | null;
+  paymentId?: string | null;
+}
+
+function getRxPrescriptionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return new URLSearchParams(window.location.search).get('rx');
+  } catch {
+    return null;
+  }
 }
 
 export default function PharmacyPage() {
@@ -37,7 +48,15 @@ export default function PharmacyPage() {
   const [activeTab, setActiveTab] = useState<'STORE' | 'ORDERS'>('STORE');
   const [searchQuery, setSearchQuery] = useState('');
   const [orderMsg, setOrderMsg] = useState<string | null>(null);
+  const [orderMsgError, setOrderMsgError] = useState(false);
   const [orderingId, setOrderingId] = useState<string | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [deliveryType, setDeliveryType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressCity, setAddressCity] = useState('');
+  const [addressPhone, setAddressPhone] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
+  const rxPrescriptionId = getRxPrescriptionId();
 
   useEffect(() => {
     async function loadPharmacyData() {
@@ -52,25 +71,98 @@ export default function PharmacyPage() {
     loadPharmacyData();
   }, []);
 
+  const showOrderMsg = (text: string, isError = false) => {
+    setOrderMsg(text);
+    setOrderMsgError(isError);
+    setTimeout(() => {
+      setOrderMsg(null);
+      setOrderMsgError(false);
+    }, 6000);
+  };
+
+  const startOrderPayment = async (orderId: string) => {
+    setPayingId(orderId);
+    const payRes = await api.post<{ authorization_url?: string; reference?: string }>(
+      '/payments/initialize',
+      { type: 'PHARMACY_ORDER', referenceId: orderId }
+    );
+    setPayingId(null);
+    if (payRes.success && payRes.data?.authorization_url) {
+      showOrderMsg('Order placed — redirecting to Paystack to complete payment…');
+      window.location.href = payRes.data.authorization_url;
+      return true;
+    }
+    showOrderMsg(
+      `Order ${orderId} placed (unpaid): ${payRes.error?.message || 'Could not start payment. Pay from My Orders.'}`,
+      true
+    );
+    return false;
+  };
+
+  const handlePayExistingOrder = async (orderId: string) => {
+    await startOrderPayment(orderId);
+  };
+
   const handleOrderProduct = async (product: PharmacyProduct) => {
-    if (product.requiresPrescription) {
-      setOrderMsg('Failed: Send your signed prescription to this pharmacy before fulfillment.');
+    if (product.requiresPrescription && !getRxPrescriptionId()) {
+      showOrderMsg('Failed: Send your signed prescription to this pharmacy before fulfillment.', true);
       return;
     }
     setOrderingId(product.id);
     setOrderMsg(null);
-    const res = await api.post('/pharmacy/orders', {
-      items: [{ productId: product.id, quantity: 1 }],
-    });
+    // #137 Confirm before the money-mutating POST + attach an Idempotency-Key
+    // so double-clicks / retries can't create duplicate orders.
+    if (
+      !window.confirm(
+        `Place order for ${product.name} (₦${Number(product.price).toLocaleString()})?`
+      )
+    ) {
+      setOrderingId(null);
+      return;
+    }
+    const prescriptionId = getRxPrescriptionId();
+    if (deliveryType === 'DELIVERY' && (!addressLine1.trim() || !addressCity.trim() || !addressPhone.trim())) {
+      setOrderingId(null);
+      showOrderMsg('Failed: Add street address, city, and phone for DELIVERY orders.', true);
+      return;
+    }
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const res = await api.post<PharmacyOrder>(
+      '/pharmacy/orders',
+      {
+        items: [{ productId: product.id, quantity: 1 }],
+        deliveryType,
+        ...(deliveryType === 'DELIVERY'
+          ? {
+              deliveryAddress: {
+                line1: addressLine1.trim(),
+                city: addressCity.trim(),
+                phone: addressPhone.trim(),
+              },
+            }
+          : {}),
+        ...(orderNotes.trim() ? { notes: orderNotes.trim() } : {}),
+        ...(prescriptionId ? { prescriptionId } : {}),
+      },
+      { idempotencyKey }
+    );
 
     setOrderingId(null);
-    if (res.success) {
-      setOrderMsg(`Order for ${product.name} submitted successfully!`);
-      if (res.data) setOrders((prev) => [res.data, ...prev]);
+    if (res.success && res.data) {
+      const order = res.data as PharmacyOrder & { id?: string };
+      const orderId = order.id || (res.data as unknown as { id: string }).id;
+      if (orderId) setOrders((prev) => [res.data as PharmacyOrder, ...prev]);
+      if (orderId) {
+        await startOrderPayment(orderId);
+      } else {
+        showOrderMsg(`Order for ${product.name} submitted successfully!`);
+      }
     } else {
-      setOrderMsg(`Failed: ${res.error?.message || 'Could not place order'}`);
+      showOrderMsg(`Failed: ${res.error?.message || 'Could not place order'}`, true);
     }
-    setTimeout(() => setOrderMsg(null), 4000);
   };
 
   const filteredProducts = products.filter(
@@ -138,13 +230,69 @@ export default function PharmacyPage() {
         {orderMsg && (
           <div
             className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 ${
-              orderMsg.startsWith('Failed:')
+              orderMsgError || orderMsg.startsWith('Failed:')
                 ? 'bg-rose-50 text-rose-700 border border-rose-200'
                 : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
             }`}
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>{orderMsg}</span>
+          </div>
+        )}
+
+        {/* Checkout options */}
+        {canOrder && (
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 space-y-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <label className="text-xs font-bold text-slate-600 flex items-center gap-2">
+                Fulfillment
+                <select
+                  value={deliveryType}
+                  onChange={(e) => setDeliveryType(e.target.value as 'PICKUP' | 'DELIVERY')}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                >
+                  <option value="PICKUP">PICKUP</option>
+                  <option value="DELIVERY">DELIVERY</option>
+                </select>
+              </label>
+              <input
+                type="text"
+                placeholder="Order notes (optional)"
+                value={orderNotes}
+                onChange={(e) => setOrderNotes(e.target.value)}
+                className="flex-1 min-w-52 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+              />
+              {rxPrescriptionId && (
+                <span className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-full">
+                  Prescription linked (?rx={rxPrescriptionId.slice(0, 8)}…)
+                </span>
+              )}
+            </div>
+            {deliveryType === 'DELIVERY' && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <textarea
+                  placeholder="Street address (line1)"
+                  value={addressLine1}
+                  onChange={(e) => setAddressLine1(e.target.value)}
+                  rows={2}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
+                />
+                <input
+                  type="text"
+                  placeholder="City"
+                  value={addressCity}
+                  onChange={(e) => setAddressCity(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2] h-fit"
+                />
+                <input
+                  type="tel"
+                  placeholder="Delivery phone"
+                  value={addressPhone}
+                  onChange={(e) => setAddressPhone(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1877F2] h-fit"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -257,25 +405,82 @@ export default function PharmacyPage() {
                   No previous pharmacy orders placed yet.
                 </div>
               ) : (
-                orders.map((ord) => (
-                  <div
+                orders.map((ord) => {
+                  const payStatus = ord.payment?.status;
+                  const isPaid = payStatus === 'SUCCESS';
+                  return (
+                  <details
                     key={ord.id}
-                    className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs"
+                    className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs"
                   >
-                    <div>
-                      <p className="font-bold text-slate-900">
-                        {ord.items.map((item) => item.drugName).join(', ') || `Order #${ord.id}`}
+                    <summary className="flex items-center justify-between gap-3 flex-wrap cursor-pointer list-none">
+                      <div>
+                        <p className="font-bold text-slate-900">
+                          {ord.items.map((item) => item.drugName).join(', ') || `Order #${ord.id}`}
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-semibold">
+                          {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString() : ''} ·{' '}
+                          {ord.status.replaceAll('_', ' ')} · <span className="text-[#1877F2]">Details</span>
+                        </p>
+                        <span
+                          className={`mt-1 inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            isPaid
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-black text-[#1877F2]">
+                          ₦{Number(ord.totalAmount).toLocaleString()}
+                        </span>
+                        {!isPaid && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handlePayExistingOrder(ord.id);
+                            }}
+                            disabled={payingId === ord.id}
+                            className="px-4 py-2 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs disabled:opacity-50"
+                          >
+                            {payingId === ord.id ? 'Starting payment…' : 'Pay now'}
+                          </button>
+                        )}
+                      </div>
+                    </summary>
+                    <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                      <p className="font-bold text-slate-900">Items</p>
+                      <ul className="space-y-1">
+                        {ord.items.map((item, idx) => (
+                          <li key={`${item.productId ?? item.drugName}-${idx}`} className="text-slate-600">
+                            {item.drugName} × {item.quantity}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-slate-600">
+                        Status: <span className="font-bold text-slate-900">{ord.status.replaceAll('_', ' ')}</span>
                       </p>
-                      <p className="text-[10px] text-slate-400 font-semibold">
-                        {new Date(ord.createdAt).toLocaleDateString()} ·{' '}
-                        {ord.status.replaceAll('_', ' ')}
+                      <p className="text-slate-600">
+                        Payment:{' '}
+                        <span className="font-bold text-slate-900">
+                          {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
+                        </span>
+                      </p>
+                      <p className="text-slate-600">
+                        Track: order <span className="font-mono">{ord.id.slice(0, 8)}…</span> ·{' '}
+                        {ord.status === 'DELIVERED'
+                          ? 'Delivered — complete.'
+                          : ord.status === 'CANCELLED'
+                            ? 'Cancelled — terminal.'
+                            : 'In progress — the pharmacy updates status as it fulfills.'}
                       </p>
                     </div>
-                    <span className="font-black text-[#1877F2]">
-                      ₦{Number(ord.totalAmount).toLocaleString()}
-                    </span>
-                  </div>
-                ))
+                  </details>
+                  );
+                })
               )}
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { prisma, Prisma, WalletTransactionType, WalletReferenceType } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
 import {
@@ -86,6 +87,9 @@ export async function creditWalletAtomic(opts: AtomicWalletOperationOptions) {
     async (tx) => {
       // Fast-path idempotency check; the @@unique([walletId, referenceId])
       // constraint below is the real race guard.
+      // D4: NULL referenceIds bypass the DB unique guard (Postgres NULL
+      // semantics) — callers needing idempotency MUST pass a referenceId
+      // (e.g. webhook `reference`); NULL rows are non-idempotent by design.
       if (referenceId) {
         const existing = await tx.walletTransaction.findFirst({
           where: { walletId, referenceId },
@@ -297,6 +301,8 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
     }
 
     const { type, limit = 20, offset = 0 } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 20, 1), 50);
+    const skip = Math.max(Number(offset) || 0, 0);
 
     const where: any = {
       walletId: wallet.id,
@@ -307,8 +313,8 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
       prisma.walletTransaction.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        take: Number(limit),
-        skip: Number(offset),
+        take,
+        skip,
       }),
       prisma.walletTransaction.count({ where }),
     ]);
@@ -317,8 +323,8 @@ export const getTransactions = async (req: Request, res: Response, next: NextFun
       successResponse({
         transactions,
         total,
-        limit: Number(limit),
-        offset: Number(offset),
+        limit: take,
+        offset: skip,
       })
     );
   } catch (error) {
@@ -444,8 +450,16 @@ export const withdrawToBank = async (req: Request, res: Response, next: NextFunc
     if (!amount || typeof amount !== 'number' || amount < 100) {
       throw new ValidationError('Amount must be at least 100 NGN');
     }
+    // #30 Withdraw gates: cap single payout and enforce NUBAN format so a
+    // typo'd destination can never reach the provider transfer call.
+    if (amount > 500000) {
+      throw new ValidationError('Withdrawal amount must not exceed ₦500,000 per transaction');
+    }
     if (!bankCode || typeof bankCode !== 'string' || !accountNumber) {
       throw new ValidationError('bankCode and accountNumber are required');
+    }
+    if (!/^[0-9]{10}$/.test(String(accountNumber))) {
+      throw new ValidationError('accountNumber must be a 10-digit NUBAN');
     }
 
     const wallet = await prisma.wallet.findUnique({ where: { userId } });
@@ -495,7 +509,9 @@ export const withdrawToBank = async (req: Request, res: Response, next: NextFunc
       // Display-name lookup is cosmetic; existence is already proven above.
     }
 
-    const reference = `WALLET_WITHDRAW_${userId}_${Date.now()}`;
+    // #30 Unpredictable idempotency reference: crypto UUID (not userId+Date.now,
+    // which is enumerable and lets an attacker pre-claim debit reference keys).
+    const reference = `WALLET_WITHDRAW_${crypto.randomUUID()}`;
 
     // 3. Debit first (atomic, conditional on sufficient balance).
     await debitWalletAtomic({
@@ -682,16 +698,28 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
     if (event.event === 'charge.success' && event.data.channel === 'dedicated_nuban') {
       const customerEmail = event.data.customer.email;
-      const amountInNaira = event.data.amount / 100;
+      // #26 Single atomic credit path: kobo→NGN via Math.round (no float drift),
+      // reference-keyed creditWalletAtomic (concurrent/replayed webhooks collapse).
+      const amountInNaira = Math.round(event.data.amount / 100);
 
       const user = await prisma.user.findUnique({
         where: { email: customerEmail },
         include: { wallet: true },
       });
 
-      if (user && user.wallet) {
+      // #26 Never silently drop money: create the wallet when missing instead of 200-ok.
+      let nubanWallet = user?.wallet;
+      if (!nubanWallet && user) {
+        nubanWallet = await prisma.wallet.upsert({
+          where: { userId: user.id },
+          create: { userId: user.id, balance: 0 },
+          update: {},
+        });
+      }
+
+      if (user && nubanWallet) {
         await creditWalletAtomic({
-          walletId: user.wallet.id,
+          walletId: nubanWallet.id,
           amount: amountInNaira,
           referenceType: WalletReferenceType.TOPUP,
           referenceId: event.data.reference,
@@ -708,7 +736,8 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
 
       if (purpose === 'wallet_topup') {
         const customerEmail = event.data.customer.email;
-        const amountInNaira = event.data.amount / 100;
+        // #26 Reconcile in whole NGN (Math.round) so kobo remainders can't drift balance.
+        const amountInNaira = Math.round(event.data.amount / 100);
 
         const user = await prisma.user.findUnique({
           where: { email: customerEmail },
@@ -751,7 +780,8 @@ export const paystackWebhook = async (req: Request, res: Response, next: NextFun
           if (wallet) {
             await creditWalletAtomic({
               walletId: wallet.id,
-              amount: event.data.amount / 100,
+              // #26 Reconcile provider kobo amount in whole NGN.
+              amount: Math.round(event.data.amount / 100),
               referenceType: WalletReferenceType.REFUND,
               referenceId: `${reference}:reversal`,
               description: `Withdrawal reversal (${event.event})`,

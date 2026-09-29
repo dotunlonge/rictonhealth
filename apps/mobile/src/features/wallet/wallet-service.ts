@@ -7,6 +7,7 @@ function rel(canonical: string): string {
 }
 
 export const MIN_TOPUP_NGN = 100;
+export const MAX_TOPUP_NGN = 500000;
 
 export interface TopUpLaunch {
   authorizationUrl: string;
@@ -39,6 +40,9 @@ export class WalletService {
   async launchTopUp(input: { amount: number }): Promise<TopUpLaunch> {
     if (!Number.isFinite(input.amount) || input.amount < MIN_TOPUP_NGN) {
       throw new Error(`Amount must be at least ${MIN_TOPUP_NGN} NGN.`);
+    }
+    if (input.amount > MAX_TOPUP_NGN) {
+      throw new Error(`Amount must not exceed ${MAX_TOPUP_NGN} NGN.`);
     }
     return this.api.post<TopUpLaunch>(rel(GATEWAY_PATHS.walletTopup), { amount: input.amount });
   }

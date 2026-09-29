@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '@ricton/auth-middleware';
-import { rateLimit } from '@ricton/shared';
+import { requireAuth, requireRole, requireActiveStatus } from '@ricton/auth-middleware';
+import { rateLimit, idempotency } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import * as controller from '../controllers/prescription.controller';
 
 const router = Router();
@@ -11,7 +12,7 @@ const prescriptionRateLimit = rateLimit({
   keyPrefix: 'prescription',
 });
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveStatus);
 router.use(prescriptionRateLimit);
 
 /**
@@ -138,7 +139,12 @@ router.get('/:id', controller.getPrescriptionById);
  *       403:
  *         description: Unverified license forbidden
  */
-router.post('/:id/sign', requireRole('CONSULTANT'), controller.signPrescription);
+router.post(
+  '/:id/sign',
+  requireRole('CONSULTANT'),
+  idempotency(prisma),
+  controller.signPrescription
+);
 
 /**
  * @openapi
@@ -200,6 +206,11 @@ router.patch(
  *       400:
  *         description: Bad Request
  */
-router.patch('/:id/dispense', requireRole('PHARMACIST'), controller.dispensePrescription);
+router.patch(
+  '/:id/dispense',
+  requireRole('PHARMACIST'),
+  idempotency(prisma),
+  controller.dispensePrescription
+);
 
 export default router;

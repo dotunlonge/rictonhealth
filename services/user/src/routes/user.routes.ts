@@ -41,6 +41,10 @@ router.put(
   validateRequest(MedicalHistoryInputSchema),
   userController.updateMedicalHistory
 );
+// #L1 Versioned re-consent (minimal: { version } only, validated inline).
+router.put('/me/consent', userController.updateConsent);
+// #L3 Erasure request (legal hold enforced in controller).
+router.delete('/me', userController.requestErasure);
 
 // PHI routes require clinical roles. PATIENT self-access is enforced inside the controller.
 router.get(

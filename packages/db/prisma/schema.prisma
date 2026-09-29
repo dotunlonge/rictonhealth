@@ -88,6 +88,14 @@ model User {
   mdtParticipants          MDTParticipant[]
   pharmacyProducts         Product[]
   rewardCatalogRedeemed    RewardCatalog[]           @relation("RewardRedeemedBy")
+  providerLeaves           ProviderLeave[]
+  referralsFrom            Referral[]                @relation("ReferralFrom")
+  referralsTo              Referral[]                @relation("ReferralTo")
+  referralsAsPatient       Referral[]                @relation("ReferralPatient")
+  consentHistory           ConsentHistory[]
+  erasureRequest           ErasureRequest?
+  reviewsGiven             Review[]                  @relation("ReviewPatient")
+  reviewsReceived          Review[]                  @relation("ReviewProvider")
 
   @@map("users")
 }
@@ -215,8 +223,8 @@ model ProviderAvailability {
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
 
-  @@index([providerId, dayOfWeek, isActive])
   @@unique([providerId, dayOfWeek])
+  @@index([providerId, dayOfWeek, isActive])
   @@map("provider_availability")
 }
 
@@ -235,37 +243,47 @@ enum AppointmentStatus {
 }
 
 model Appointment {
-  id                 String            @id @default(uuid()) @db.Uuid
-  patientId          String            @db.Uuid
-  patient            User              @relation("PatientAppointments", fields: [patientId], references: [id])
-  providerId         String            @db.Uuid
-  provider           User              @relation("ProviderAppointments", fields: [providerId], references: [id])
-  hospitalId         String?           @db.Uuid
-  hospital           Hospital?         @relation(fields: [hospitalId], references: [id])
-  scheduledAt        DateTime          @db.Timestamptz(6)
-  durationMinutes    Int
-  timeRange          Unsupported("tstzrange")?
-  type               AppointmentType
-  status             AppointmentStatus @default(PENDING)
-  cancellationReason String?
-  reason             String?           @db.Text
-  notes              String?
-  reminderSentAt     DateTime?         @db.Timestamptz(6)
-  cancelledBy        UserRole?
-  paymentId          String?           @unique @db.Uuid
-  payment            Payment?          @relation("AppointmentPayment", fields: [paymentId], references: [id])
-  telemedicineRoomId String?           @unique @db.Uuid
-  telemedicineRoom   TelemedicineRoom? @relation(fields: [telemedicineRoomId], references: [id])
-  createdAt          DateTime          @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime          @updatedAt @db.Timestamptz(6)
+  id                    String                    @id @default(uuid()) @db.Uuid
+  patientId             String                    @db.Uuid
+  patient               User                      @relation("PatientAppointments", fields: [patientId], references: [id])
+  providerId            String                    @db.Uuid
+  provider              User                      @relation("ProviderAppointments", fields: [providerId], references: [id])
+  hospitalId            String?                   @db.Uuid
+  hospital              Hospital?                 @relation(fields: [hospitalId], references: [id])
+  scheduledAt           DateTime                  @db.Timestamptz(6)
+  durationMinutes       Int
+  timeRange             Unsupported("tstzrange")?
+  type                  AppointmentType
+  status                AppointmentStatus         @default(PENDING)
+  cancellationReason    String?
+  waivedReason          String?
+  feeSnapshot           Decimal?                  @db.Decimal(10, 2)
+  telemedicineConsentAt DateTime?                 @db.Timestamptz(6)
+  reason                String?                   @db.Text
+  notes                 String?
+  reminderSentAt        DateTime?                 @db.Timestamptz(6)
+  cancelledBy           UserRole?
+  paymentId             String?                   @unique @db.Uuid
+  payment               Payment?                  @relation("AppointmentPayment", fields: [paymentId], references: [id])
+  telemedicineRoomId    String?                   @unique @db.Uuid
+  telemedicineRoom      TelemedicineRoom?         @relation(fields: [telemedicineRoomId], references: [id])
+  // #C2 Follow-up chain: optional link to the parent appointment + due date.
+  // Nullable so existing rows safe; app layer sets both when booking follow-up.
+  parentAppointmentId String?   @db.Uuid
+  followUpAt          DateTime? @db.Timestamptz(6)
+  createdAt             DateTime                  @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime                  @updatedAt @db.Timestamptz(6)
 
   prescriptions    Prescription[]
   providerEarnings ProviderEarning[]
+  review           Review?
 
   @@index([patientId])
   @@index([providerId, scheduledAt])
   @@index([hospitalId])
   @@index([status])
+  // #D3 composite for status-filtered schedule scans.
+  @@index([status, scheduledAt])
   @@map("appointments")
 }
 
@@ -289,6 +307,10 @@ model Prescription {
   pharmacy      User?              @relation("PharmacyPrescriptions", fields: [pharmacyId], references: [id])
   status        PrescriptionStatus @default(DRAFT)
   signedAt      DateTime?          @db.Timestamptz(6)
+  // #L4 Rx snapshot: prescriber license + signature hash captured at sign time.
+  // Nullable so existing rows safe; populated best-effort in signPrescription.
+  prescriberLicense String?
+  signatureHash     String?
   notes         String?
   createdAt     DateTime           @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime           @updatedAt @db.Timestamptz(6)
@@ -508,6 +530,15 @@ enum WalletReferenceType {
 }
 
 model WalletTransaction {
+  // NOTE (D4): @@unique([walletId, referenceId]) with nullable referenceId
+  // intentionally untouched — changing it needs a migration. Skipped per #D4.
+  // Postgres treats NULLs as distinct, so rows with NULL referenceId bypass
+  // the idempotency guard at the DB layer. App-layer guard (creditWalletAtomic
+  // / debitWalletAtomic fast-path + P2002 race catch) is authoritative for
+  // reference-keyed writes; NULL-referenceId rows are non-idempotent by
+  // design (ad-hoc adjustments). TODO: if NULL bypass ever matters, migrate
+  // referenceId to NOT NULL DEFAULT uuid() — do NOT attempt without a
+  // backfill migration.
   id            String                @id @default(uuid()) @db.Uuid
   walletId      String                @db.Uuid
   wallet        Wallet                @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -519,9 +550,9 @@ model WalletTransaction {
   referenceId   String?
   createdAt     DateTime              @default(now()) @db.Timestamptz(6)
 
+  @@unique([walletId, referenceId])
   @@index([walletId, createdAt])
   @@index([referenceId])
-  @@unique([walletId, referenceId])
   @@map("wallet_transactions")
 }
 
@@ -538,21 +569,23 @@ enum SubscriptionStatus {
 }
 
 model Subscription {
-  id        String             @id @default(uuid()) @db.Uuid
-  userId    String             @db.Uuid
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  plan      SubscriptionPlan   @default(FREE)
-  status    SubscriptionStatus @default(ACTIVE)
-  startsAt  DateTime           @db.Timestamptz(6)
-  expiresAt DateTime           @db.Timestamptz(6)
-  paymentId String?            @unique @db.Uuid
-  payment   Payment?           @relation("SubscriptionPayment", fields: [paymentId], references: [id])
-  autoRenew Boolean            @default(true)
-  renewalAttempts Int          @default(0)
-  lastRenewalAttemptAt DateTime? @db.Timestamptz(6)
-  createdAt DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime           @updatedAt @db.Timestamptz(6)
+  id                   String             @id @default(uuid()) @db.Uuid
+  userId               String             @db.Uuid
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan   @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  startsAt             DateTime           @db.Timestamptz(6)
+  expiresAt            DateTime           @db.Timestamptz(6)
+  paymentId            String?            @unique @db.Uuid
+  payment              Payment?           @relation("SubscriptionPayment", fields: [paymentId], references: [id])
+  autoRenew            Boolean            @default(true)
+  renewalAttempts      Int                @default(0)
+  lastRenewalAttemptAt DateTime?          @db.Timestamptz(6)
+  createdAt            DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(6)
 
+  // #D2 composite for per-user subscription lookups by status.
+  @@index([userId, status])
   @@map("subscriptions")
 }
 
@@ -586,15 +619,15 @@ model Notification {
 }
 
 model PushToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String
-  platform  String   @default("mobile")
-  isActive  Boolean  @default(true)
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String
+  platform   String    @default("mobile")
+  isActive   Boolean   @default(true)
   lastUsedAt DateTime? @db.Timestamptz(6)
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(6)
 
   @@unique([userId, token])
   @@index([userId, isActive])
@@ -616,16 +649,16 @@ model NotificationPreference {
 }
 
 model IdempotencyKey {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @db.Uuid
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  key        String
-  method     String
-  path       String
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key         String
+  method      String
+  path        String
   requestHash String?
-  statusCode Int      @default(0)
-  response   Json?
-  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  statusCode  Int      @default(0)
+  response    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([userId, key])
   @@index([createdAt])
@@ -672,6 +705,7 @@ model ProviderEarning {
 
   @@index([providerId])
   @@index([status])
+  @@unique([appointmentId, providerId])
   @@map("provider_earnings")
 }
 
@@ -855,6 +889,12 @@ model Product {
   category             String?
   imageUrl             String?
   requiresPrescription Boolean  @default(false)
+  // #P2 NAFDAC: optional registration number for regulated products.
+  // Verified at app layer (pharmacy controller); nullable so existing rows safe.
+  nafdacRegNo String?
+  // #P3 Controlled-drug schedule (e.g. "CONTROLLED"). Nullable; enforced in
+  // createOrder qty cap via (product as any).schedule until client regen.
+  schedule   String?
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now()) @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @db.Timestamptz(6)
@@ -911,4 +951,98 @@ model OutboxEvent {
 
   @@index([status, nextAttemptAt])
   @@map("outbox_events")
+}
+
+// -----------------------------------------------------------------------------
+// COMPLIANCE MODELS (#C1 leave, #F2 referral — nullable-safe new tables)
+// -----------------------------------------------------------------------------
+
+// #C1 Leave: provider unavailability day. Unique per provider+date.
+model ProviderLeave {
+  id         String   @id @default(uuid()) @db.Uuid
+  providerId String   @db.Uuid
+  provider   User     @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  reason     String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([providerId, date])
+  @@index([providerId])
+  @@map("provider_leaves")
+}
+
+// #F2 Referral: provider-to-provider handoff with patient consent timestamp.
+model Referral {
+  id             String    @id @default(uuid()) @db.Uuid
+  fromProviderId String    @db.Uuid
+  fromProvider   User      @relation("ReferralFrom", fields: [fromProviderId], references: [id], onDelete: Cascade)
+  toProviderId   String    @db.Uuid
+  toProvider     User      @relation("ReferralTo", fields: [toProviderId], references: [id], onDelete: Cascade)
+  patientId      String    @db.Uuid
+  patient        User      @relation("ReferralPatient", fields: [patientId], references: [id], onDelete: Cascade)
+  reason         String?   @db.Text
+  consentAt      DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([fromProviderId])
+  @@index([toProviderId])
+  @@index([patientId])
+  @@map("referrals")
+}
+
+// -----------------------------------------------------------------------------
+// COMPLIANCE MODELS (#L1 consent history, #L3 erasure queue)
+// -----------------------------------------------------------------------------
+
+// #L1 Consent history: every versioned consent grant is appended here;
+// User.consentVersion/consentAt mirror the latest grant.
+model ConsentHistory {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version     String
+  consentedAt DateTime @default(now()) @db.Timestamptz(6)
+  ip          String?
+
+  @@index([userId, consentedAt])
+  @@map("consent_history")
+}
+
+enum ErasureStatus {
+  PENDING
+  PROCESSING
+  DONE
+}
+
+// #L3 Erasure queue: DELETE /users/me files a request and deactivates the
+// account. A back-office worker performs the actual anonymization
+// (TODO: worker not yet implemented — see requestErasure in user.controller);
+// rows under prescription legal hold are rejected with 409 and never queued.
+model ErasureRequest {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @unique @db.Uuid
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    ErasureStatus @default(PENDING)
+  createdAt DateTime      @default(now()) @db.Timestamptz(6)
+
+  @@map("erasure_requests")
+}
+
+// #20 Review: one patient rating per completed visit. appointmentId unique
+// enforces one-review-per-visit at the DB layer.
+model Review {
+  id            String      @id @default(uuid()) @db.Uuid
+  appointmentId String      @unique @db.Uuid
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  patientId     String      @db.Uuid
+  patient       User        @relation("ReviewPatient", fields: [patientId], references: [id], onDelete: Cascade)
+  providerId    String      @db.Uuid
+  provider      User        @relation("ReviewProvider", fields: [providerId], references: [id], onDelete: Cascade)
+  rating        Int
+  comment       String?     @db.Text
+  createdAt     DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@index([providerId])
+  @@index([patientId])
+  @@map("reviews")
 }

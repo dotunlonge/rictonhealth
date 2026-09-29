@@ -1,4 +1,9 @@
 # Managed Redis: Multi-AZ replication group with transit encryption and AUTH.
+# #95 DB index convention (single instance, no new infra):
+#   DB 0 = app (sessions/cache/pubsub via REDIS_URL)
+#   DB 1 = Kong rate-limiting counters (gateway/kong.yml redis_database: 1).
+# ElastiCache Redis has no per-DB isolation knobs; separation is by client
+# SELECT index only — never FLUSHDB the instance, flush per-DB instead.
 resource "aws_security_group" "redis" {
   name        = "ricton-${var.environment}-redis"
   description = "Redis access from application subnets only"

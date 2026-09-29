@@ -87,7 +87,7 @@ export const getEarnings = async (req: Request, res: Response, next: NextFunctio
   try {
     const userId = req.user?.userId;
     const page = parseInt(req.query.page as string, 10) || 1;
-    const limit = parseInt(req.query.limit as string, 10) || 20;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
     const skip = (page - 1) * limit;
 
     const [transactions, total] = await Promise.all([
@@ -127,7 +127,7 @@ export const getRedemptions = async (req: Request, res: Response, next: NextFunc
   try {
     const userId = req.user?.userId;
     const page = parseInt(req.query.page as string, 10) || 1;
-    const limit = parseInt(req.query.limit as string, 10) || 20;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
     const skip = (page - 1) * limit;
 
     const [transactions, total] = await Promise.all([
@@ -322,7 +322,7 @@ export const redeemReward = async (req: Request, res: Response, next: NextFuncti
 export const getCatalog = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = parseInt(req.query.page as string, 10) || 1;
-    const limit = parseInt(req.query.limit as string, 10) || 20;
+    const limit = Math.min(parseInt(req.query.limit as string, 10) || 20, 50);
     const category = req.query.category as string;
     const skip = (page - 1) * limit;
 

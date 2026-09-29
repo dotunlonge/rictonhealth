@@ -1,5 +1,6 @@
 import pino from 'pino';
 import pinoHttp from 'pino-http';
+import { randomUUID } from 'crypto';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isTest = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
@@ -38,3 +39,16 @@ export const httpLogger = pinoHttp({
     return `${req.method} ${req.url} failed with status ${res.statusCode}: ${err.message}`;
   },
 });
+
+/**
+ * Trace id for cross-service correlation. Propagate as `X-Request-Id` so Kong
+ * (request-id plugin) and BullMQ jobs can stitch gateway → service → worker
+ * logs for a single user operation.
+ */
+export function getRequestId(): string {
+  try {
+    return randomUUID();
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+}

@@ -1,6 +1,8 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
+import { requireAuth, requireActiveStatus } from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
+import { idempotency } from '@ricton/shared';
+import { prisma } from '@ricton/db';
 import * as paymentController from '../controllers/payment.controller';
 
 const router = Router();
@@ -22,7 +24,7 @@ const paymentRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'p
  */
 router.post('/webhook', paymentController.paystackWebhook);
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveStatus);
 router.use(paymentRateLimit);
 
 router.get('/banks', paymentController.getBanks);
@@ -55,7 +57,7 @@ router.get('/bank/resolve', paymentController.resolveAccount);
  *       200:
  *         description: Payment initialized
  */
-router.post('/initialize', paymentController.initializePayment);
+router.post('/initialize', idempotency(prisma), paymentController.initializePayment);
 
 /**
  * @openapi
@@ -77,6 +79,8 @@ router.post('/initialize', paymentController.initializePayment);
  *         description: Payment verified
  */
 router.get('/verify/:reference', paymentController.verifyPayment);
+
+router.post('/:id/refund', idempotency(prisma), paymentController.refundPayment);
 
 /**
  * @openapi

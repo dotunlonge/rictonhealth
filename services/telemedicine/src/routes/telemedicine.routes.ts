@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth } from '@ricton/auth-middleware';
+import { requireAuth, requireActiveStatus } from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
 import * as controller from '../controllers/telemedicine.controller';
 
@@ -14,7 +14,7 @@ const joinRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'tele
 // auth gate. Verified against raw bytes (express.raw in index.ts).
 router.post('/callbacks/status', controller.handleStatusCallback);
 
-router.use(requireAuth);
+router.use(requireAuth, requireActiveStatus);
 
 // List telemedicine rooms/meetings
 router.get('/rooms', controller.listRooms);

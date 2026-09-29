@@ -118,9 +118,9 @@ export default function SignInScreen() {
   };
 
   const submit = async () => {
-    const normalizedEmail = email.trim();
-    if (!normalizedEmail || !password) {
-      setError('Enter your email address and password to continue.');
+    const identifier = email.trim();
+    if (!identifier || !password) {
+      setError('Enter your email/phone and password to continue.');
       return;
     }
     if (needsTwoFactor && totpCode.trim().length !== 6) {
@@ -131,8 +131,11 @@ export default function SignInScreen() {
     setSubmitting(true);
     setError(null);
     try {
+      const isEmail = identifier.includes('@');
       const result = await signIn({
-        email: normalizedEmail,
+        ...(isEmail
+          ? { email: identifier.toLowerCase() }
+          : { phone: identifier }),
         password,
         ...(needsTwoFactor ? { totpCode: totpCode.trim() } : {}),
       });
@@ -168,13 +171,13 @@ export default function SignInScreen() {
 
       <View style={styles.form}>
         <TextField
-          label="Email address"
-          accessibilityLabel="Email address"
+          label="Email or phone"
+          accessibilityLabel="Email or phone"
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
           onChangeText={setEmail}
-          placeholder="you@example.com"
+          placeholder="you@example.com or phone"
           readOnly={needsTwoFactor}
           returnKeyType="next"
           testID="auth.signIn.email"

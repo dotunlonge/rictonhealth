@@ -17,8 +17,16 @@ type PharmacyOrder = {
   id: string;
   status: string;
   totalAmount: number | string;
+  prescriptionId?: string | null;
   items?: Array<{ drugName: string }>;
 };
+
+const NEXT_ACTIONS: Array<{ label: string; status: string }> = [
+  { label: 'Confirm', status: 'CONFIRMED' },
+  { label: 'Prepare', status: 'PREPARING' },
+  { label: 'Ready', status: 'READY_FOR_PICKUP' },
+  { label: 'Deliver', status: 'DELIVERED' },
+];
 
 export default function PharmacyDashboard() {
   const [stats, setStats] = useState({
@@ -29,6 +37,8 @@ export default function PharmacyDashboard() {
   });
   const [recentOrders, setRecentOrders] = useState<PharmacyOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actingId, setActingId] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -64,6 +74,35 @@ export default function PharmacyDashboard() {
     }
     load();
   }, []);
+
+  const setOrderStatus = async (orderId: string, status: string) => {
+    if (!confirm(`${status === 'CANCELLED' ? 'Cancel' : `Move order to ${status.replaceAll('_', ' ')}`}?`)) return;
+    setActingId(orderId);
+    setActionMsg(null);
+    const res = await api.patch(`/pharmacy/orders/${orderId}/status`, { status });
+    setActingId(null);
+    if (res.success) {
+      setRecentOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
+      setActionMsg(`Order moved to ${status.replaceAll('_', ' ')}.`);
+    } else {
+      setActionMsg(res.error?.message || 'Status update failed.');
+    }
+  };
+
+  const fulfillOrder = async (orderId: string, prescriptionId: string | null | undefined) => {
+    if (!prescriptionId) {
+      setActionMsg('No prescription linked to this order — status flow only.');
+      return;
+    }
+    if (!confirm('Fulfill linked prescription (atomic order + stock)?')) return;
+    setActingId(orderId);
+    setActionMsg(null);
+    const res = await api.post('/pharmacy/prescriptions/fulfill', { prescriptionId });
+    setActingId(null);
+    setActionMsg(
+      res.success ? 'Prescription fulfilled.' : res.error?.message || 'Fulfill failed.'
+    );
+  };
 
   return (
     <SidebarLayout allowedRoles={['PHARMACIST']}>
@@ -133,6 +172,11 @@ export default function PharmacyDashboard() {
         {/* Prescription Orders */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
           <h2 className="text-base font-bold text-slate-900">Recent Prescription Orders</h2>
+          {actionMsg && (
+            <p className="p-3 bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold rounded-xl">
+              {actionMsg}
+            </p>
+          )}
           <div className="space-y-3">
             {loading ? (
               <p className="text-xs font-bold text-slate-400 py-4 text-center">Loading orders...</p>
@@ -144,19 +188,52 @@ export default function PharmacyDashboard() {
               recentOrders.map((order) => (
                 <div
                   key={order.id}
-                  className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl flex items-center justify-between text-xs"
+                  className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl space-y-3 text-xs"
                 >
-                  <div>
-                    <p className="font-bold text-slate-900">
-                      {order.items?.map((item) => item.drugName).join(', ') || `Order #${order.id}`}
-                    </p>
-                    <p className="text-[10px] font-semibold text-slate-400">
-                      {order.status.replaceAll('_', ' ')}
-                    </p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-slate-900">
+                        {order.items?.map((item) => item.drugName).join(', ') || `Order #${order.id}`}
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        {order.status.replaceAll('_', ' ')}
+                      </p>
+                    </div>
+                    <span className="font-extrabold text-[#1877F2]">
+                      ₦{Number(order.totalAmount ?? 0).toLocaleString()}
+                    </span>
                   </div>
-                  <span className="font-extrabold text-[#1877F2]">
-                    ₦{Number(order.totalAmount ?? 0).toLocaleString()}
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {NEXT_ACTIONS.map((action) => (
+                      <button
+                        key={action.status}
+                        type="button"
+                        disabled={actingId === order.id || order.status === action.status}
+                        onClick={() => void setOrderStatus(order.id, action.status)}
+                        className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#1877F2] hover:text-[#1877F2] text-slate-700 text-[11px] font-bold rounded-full transition-all disabled:opacity-50"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                    {order.prescriptionId && (
+                      <button
+                        type="button"
+                        disabled={actingId === order.id}
+                        onClick={() => void fulfillOrder(order.id, order.prescriptionId)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-full transition-all disabled:opacity-50"
+                      >
+                        Fulfill Rx
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={actingId === order.id}
+                      onClick={() => void setOrderStatus(order.id, 'CANCELLED')}
+                      className="px-3 py-1.5 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-full transition-all disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ))
             )}

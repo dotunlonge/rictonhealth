@@ -223,6 +223,34 @@ router.get('/orders/:id', pharmacyController.getOrderById);
  */
 router.patch('/orders/:id/cancel', pharmacyController.cancelOrder);
 
+/**
+ * @openapi
+ * /api/pharmacy/orders/:id/reorder:
+ *   post:
+ *     summary: Reorder a delivered order (clone items into a new PLACED order)
+ *     tags:
+ *       - Pharmacy
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       201:
+ *         description: Reorder created successfully
+ *       404:
+ *         description: Order not found
+ */
+router.post('/orders/:id/reorder', idempotency(prisma), pharmacyController.reorderOrder);
+
+// #P2 NAFDAC verification (SUPER_ADMIN only). Registered before the
+// PHARMACIST gate below so admins can reach it.
+router.patch('/products/:id/verify', requireRole('SUPER_ADMIN'), pharmacyController.verifyProduct);
+
 // Pharmacist-only endpoints
 router.use(requireRole('PHARMACIST'));
 

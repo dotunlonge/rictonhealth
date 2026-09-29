@@ -31,6 +31,7 @@ import {
   redis,
 } from '@ricton/shared';
 import paymentRoutes from './routes/payment.routes';
+import { schedulePayoutSweep, startPayoutWorker } from './payout';
 
 initSentry('payment-service');
 
@@ -87,6 +88,16 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
   logger.info(`Payment service listening on port ${PORT}`);
+  // Daily provider payout sweep (PENDING→AVAILABLE promote + best-effort
+  // Paystack transfers). Best-effort: never crash boot if Redis is down.
+  try {
+    startPayoutWorker();
+    schedulePayoutSweep().catch((err) =>
+      logger.warn({ err }, 'Failed to schedule payout sweep (best-effort)')
+    );
+  } catch (err) {
+    logger.warn({ err }, 'Payout worker not started (best-effort)');
+  }
 });
 
 server.timeout = process.env.SERVER_TIMEOUT ? parseInt(process.env.SERVER_TIMEOUT, 10) : 30000;
