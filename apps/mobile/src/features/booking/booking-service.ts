@@ -108,6 +108,16 @@ export class BookingService {
     return unwrapData(await this.api.get(`${rel(GATEWAY_PATHS.paymentVerify)}/${reference}`));
   }
 
+  /** Settle a consultation from the patient's stored wallet balance. */
+  async payAppointmentFromWallet(appointmentId: string): Promise<{ balance: number }> {
+    return unwrapData(
+      await this.api.post(
+        `${rel(GATEWAY_PATHS.paymentWalletAppointment)}/${appointmentId}/wallet`,
+        {}
+      )
+    );
+  }
+
   async createAppointment(
     input: CreateAppointmentInput,
     options: { idempotencyKey: string }

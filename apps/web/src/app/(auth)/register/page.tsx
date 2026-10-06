@@ -63,13 +63,22 @@ const ROLE_OPTIONS = [
       </svg>
     ),
   },
+  {
+    key: 'HOSPITAL_ADMIN',
+    label: 'Hospital',
+    icon: (
+      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21h18M5 21V5a2 2 0 012-2h6v18M13 9h4a2 2 0 012 2v10M8 7h2m-2 4h2m-2 4h2m7-2h.01M17 17h.01" />
+      </svg>
+    ),
+  },
 ];
 
 export default function RegisterPage() {
   const router = useRouter();
   const user = useAppStore((state) => state.user);
   const setUser = useAppStore((state) => state.setUser);
-  const [role, setRole] = useState<'PATIENT' | 'CONSULTANT' | 'PHARMACIST'>('PATIENT');
+  const [role, setRole] = useState<'PATIENT' | 'CONSULTANT' | 'PHARMACIST' | 'HOSPITAL_ADMIN'>('PATIENT');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -89,6 +98,8 @@ export default function RegisterPage() {
       router.replace('/dashboard');
     } else if (r === 'PHARMACIST') {
       router.replace('/dashboard/pharmacy');
+    } else if (r === 'HOSPITAL_ADMIN') {
+      router.replace('/onboarding/hospital');
     } else {
       router.replace('/dashboard');
     }
@@ -206,6 +217,8 @@ export default function RegisterPage() {
           router.push('/onboarding/doctor');
         } else if (role === 'PHARMACIST') {
           router.push('/onboarding/pharmacy');
+        } else if (role === 'HOSPITAL_ADMIN') {
+          router.push('/onboarding/hospital');
         } else {
           router.push('/dashboard');
         }
@@ -250,7 +263,7 @@ export default function RegisterPage() {
           <AuthHeading
             id="register-heading"
             title="Create Your Account"
-            subtitle="Join the Ricton Healthcare Network as a patient, doctor, or partner."
+            subtitle="Join as a patient, clinician, pharmacist, or submit your hospital for verification."
           />
 
           {errorMsg && <AuthError message={errorMsg} />}
@@ -261,6 +274,11 @@ export default function RegisterPage() {
             value={role}
             onChange={(key) => setRole(key as typeof role)}
           />
+          {role === 'HOSPITAL_ADMIN' && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-medium leading-relaxed text-amber-900">
+              Your facility application will be reviewed by Ricton after you complete the hospital profile. You can save onboarding progress, but patient-facing operations remain unavailable until approval.
+            </p>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

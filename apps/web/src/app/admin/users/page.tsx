@@ -23,6 +23,7 @@ type User = {
   isVerified?: boolean;
   createdAt?: string;
 };
+type Hospital = { id: string; name: string; isActive: boolean };
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -53,6 +54,8 @@ export default function AdminUsersPage() {
   const [showProvision, setShowProvision] = useState(false);
   const [provEmail, setProvEmail] = useState('');
   const [provPassword, setProvPassword] = useState('');
+  const [provHospitalId, setProvHospitalId] = useState('');
+  const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [provMsg, setProvMsg] = useState<string | null>(null);
   const [provError, setProvError] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
@@ -74,6 +77,7 @@ export default function AdminUsersPage() {
       email: provEmail,
       password: provPassword,
       role: 'HOSPITAL_ADMIN',
+      hospitalId: provHospitalId,
     });
     setProvisioning(false);
     if (res.success && res.data?.id) {
@@ -81,6 +85,7 @@ export default function AdminUsersPage() {
       setProvError(false);
       setProvEmail('');
       setProvPassword('');
+      setProvHospitalId('');
       const list = await api.get('/admin/users');
       if (list.success) {
         setUsers(Array.isArray(list.data) ? list.data : list.data?.users || []);
@@ -90,6 +95,8 @@ export default function AdminUsersPage() {
       setProvError(true);
     }
   };
+
+  useEffect(() => { void api.get<{ hospitals: Hospital[] }>('/admin/hospitals').then((r) => { if (r.success) setHospitals(r.data?.hospitals || []); }); }, []);
 
   const roles = ['ALL', 'PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'PHARMACY_ADMIN', 'SUPER_ADMIN'];
 
@@ -163,6 +170,10 @@ export default function AdminUsersPage() {
                   onChange={(e) => setProvEmail(e.target.value)}
                   className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                 />
+                <select required value={provHospitalId} onChange={(e) => setProvHospitalId(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <option value="">Select active hospital…</option>
+                  {hospitals.filter((h) => h.isActive).map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                </select>
                 <input
                   required
                   type="password"

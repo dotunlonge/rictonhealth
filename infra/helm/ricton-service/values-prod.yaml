@@ -20,6 +20,7 @@ image:
   # eu-west-2 to match the data plane (see infra/terraform + .env.production).
   repository: ACCOUNT_ID.dkr.ecr.eu-west-2.amazonaws.com/ricton-service
   pullPolicy: IfNotPresent
+  # #110: never deploy :latest — deploy must --set image.tag=<git sha>.
   tag: "latest"
 
 replicaCount: 2
@@ -43,7 +44,7 @@ ingress:
   className: "nginx"
   # Must be the public API base patients and LiveKit reach. The
   # TELEMEDICINE_CALLBACK_URL provider key is https://<this host>/api/telemedicine/callbacks/status.
-  host: "api.ricton.com"
+  host: "api.rictonhealth.com"
 
 env:
   - name: NODE_ENV
@@ -75,3 +76,6 @@ secrets:
   googleClientId: "SET_VIA_DEPLOY"
   googleClientSecret: "SET_VIA_DEPLOY"
   frontendUrl: "SET_VIA_DEPLOY"
+  # #103: Sentry DSN for all services (empty = disabled); 0.1 sample in prod.
+  sentryDsn: "SET_VIA_DEPLOY"
+  sentryTracesSampleRate: "0.1"

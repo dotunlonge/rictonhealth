@@ -36,6 +36,8 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
+      // Legacy listings with no stored expiry are deliberately not public.
+      expiryDate: { gt: new Date() },
       ...(category && { category: String(category) }),
       ...(search && {
         OR: [
@@ -72,6 +74,33 @@ export const getProducts = async (req: Request, res: Response, next: NextFunctio
         offset: skip,
       })
     );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** Super-admin review queue for listings that pharmacists submitted. */
+export const getPendingProducts = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { limit = 50, offset = 0 } = req.query;
+    const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const skip = Math.max(Number(offset) || 0, 0);
+    const where: Prisma.ProductWhereInput = { isActive: false };
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        take,
+        skip,
+        orderBy: { createdAt: 'asc' },
+        include: {
+          pharmacy: {
+            select: { email: true, pharmacyProfile: { select: { pharmacyName: true } } },
+          },
+        },
+      }),
+      prisma.product.count({ where }),
+    ]);
+    res.status(200).json(successResponse({ products, total, limit: take, offset: skip }));
   } catch (error) {
     next(error);
   }
@@ -181,7 +210,17 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       if (e instanceof ForbiddenError) throw e;
     }
 
-    const { name, description, category, price, stock, imageUrl, requiresPrescription } = req.body;
+    const {
+      name,
+      description,
+      category,
+      price,
+      stock,
+      imageUrl,
+      requiresPrescription,
+      batchNumber,
+      supplierName,
+    } = req.body;
     // #P2/#P3 optional compliance fields; persisted best-effort (ignored until
     // the 20260929000001 migration + client regen land).
     const nafdacRegNo =
@@ -207,9 +246,6 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
       throw new ValidationError('Price and stock cannot be negative');
     }
 
-    // #P1 Expiry/batch: Product has no expiry column yet — validate here and
-    // reject missing/expired dates. TODO(migration): add Product.expiryDate /
-    // batchNumber columns; until then the validated date is not persisted.
     const expiryRaw = req.body.expiryDate ?? req.body.expiry;
     if (expiryRaw === undefined || expiryRaw === null || String(expiryRaw).trim() === '') {
       throw new ValidationError('expiryDate required');
@@ -218,6 +254,13 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
     if (Number.isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
       throw new ValidationError('expiryDate required');
     }
+    if (typeof batchNumber !== 'string' || batchNumber.trim().length < 2) {
+      throw new ValidationError('batchNumber is required');
+    }
+    if (typeof supplierName !== 'string' || supplierName.trim().length < 2) {
+      throw new ValidationError('supplierName is required');
+    }
+    if (!nafdacRegNo) throw new ValidationError('nafdacRegNo is required');
 
     let product;
     try {
@@ -233,6 +276,9 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
           requiresPrescription: Boolean(requiresPrescription),
           ...(nafdacRegNo ? { nafdacRegNo } : {}),
           ...(schedule ? { schedule } : {}),
+          batchNumber: batchNumber.trim(),
+          supplierName: supplierName.trim(),
+          expiryDate,
           // #P2 New listings stay inactive until SUPER_ADMIN verifies
           // (PATCH /products/:id/verify). The public catalog only serves
           // isActive products, so unverified stock cannot be ordered.
@@ -240,7 +286,10 @@ export const createProduct = async (req: Request, res: Response, next: NextFunct
         },
       });
     } catch (e) {
-      if (e instanceof Error && /nafdacRegNo|schedule|Unknown argument/i.test(e.message)) {
+      if (
+        e instanceof Error &&
+        /nafdacRegNo|schedule|batchNumber|supplierName|expiryDate|Unknown argument/i.test(e.message)
+      ) {
         product = await prisma.product.create({
           data: {
             pharmacyId: userPayload.userId,
@@ -347,8 +396,18 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
       throw new ForbiddenError('Not authorized to update this product');
     }
 
-    const { name, description, category, price, stock, imageUrl, isActive, requiresPrescription } =
-      req.body;
+    const {
+      name,
+      description,
+      category,
+      price,
+      stock,
+      imageUrl,
+      isActive,
+      requiresPrescription,
+      batchNumber,
+      supplierName,
+    } = req.body;
     // #P2/#P3 optional compliance updates (best-effort until client regen).
     const nafdacUpdate =
       typeof req.body.nafdacRegNo === 'string'
@@ -382,6 +441,27 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
     if (stock !== undefined && (!Number.isInteger(Number(stock)) || Number(stock) < 0)) {
       throw new ValidationError('Stock must be a non-negative integer');
     }
+    if (
+      batchNumber !== undefined &&
+      (typeof batchNumber !== 'string' || batchNumber.trim().length < 2)
+    ) {
+      throw new ValidationError('batchNumber must contain at least 2 characters');
+    }
+    if (
+      supplierName !== undefined &&
+      (typeof supplierName !== 'string' || supplierName.trim().length < 2)
+    ) {
+      throw new ValidationError('supplierName must contain at least 2 characters');
+    }
+    const expiryRaw = req.body.expiryDate ?? req.body.expiry;
+    const expiryUpdate: Record<string, Date> = {};
+    if (expiryRaw !== undefined) {
+      const expiryDate = new Date(expiryRaw);
+      if (Number.isNaN(expiryDate.getTime()) || expiryDate <= new Date()) {
+        throw new ValidationError('expiryDate must be in the future');
+      }
+      expiryUpdate.expiryDate = expiryDate;
+    }
 
     let updated;
     try {
@@ -400,6 +480,9 @@ export const updateProduct = async (req: Request, res: Response, next: NextFunct
           }),
           ...nafdacUpdate,
           ...scheduleUpdate,
+          ...(batchNumber !== undefined && { batchNumber: String(batchNumber).trim() || null }),
+          ...(supplierName !== undefined && { supplierName: String(supplierName).trim() || null }),
+          ...expiryUpdate,
         },
       });
     } catch (e) {
@@ -474,6 +557,21 @@ export const verifyProduct = async (req: Request, res: Response, next: NextFunct
     if (verified === true) {
       if (!regNo) {
         throw new ValidationError('nafdacRegNo is required to verify a product');
+      }
+      const traceable = existing as unknown as {
+        batchNumber?: string | null;
+        supplierName?: string | null;
+        expiryDate?: Date | null;
+      };
+      if (
+        !traceable.batchNumber ||
+        !traceable.supplierName ||
+        !traceable.expiryDate ||
+        traceable.expiryDate <= new Date()
+      ) {
+        throw new ValidationError(
+          'A future expiryDate, batchNumber, and supplierName are required to verify a product'
+        );
       }
       data.isActive = true;
     } else if (verified === false) {

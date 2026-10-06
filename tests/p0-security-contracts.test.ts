@@ -168,8 +168,9 @@ describe('G1: PHI + admin + prescription scoping', () => {
 
   it('accepts only audience-bound Google credentials for OAuth login', () => {
     const authController = read('services/auth/src/controllers/auth.controller.ts');
+    expect(authController).toMatch(/GOOGLE_CLIENT_ID, process\.env\.GOOGLE_IOS_CLIENT_ID/);
     expect(authController).toMatch(
-      /verifyIdToken\(\{[\s\S]{0,180}audience:\s*process\.env\.GOOGLE_CLIENT_ID/
+      /verifyIdToken\(\{[\s\S]{0,360}audience:\s*audiences\.length\s*>\s*0\s*\?\s*audiences/
     );
     const tokenInfo = authController.indexOf('oauth2.googleapis.com/tokeninfo');
     const audienceCheck = authController.indexOf('info.aud !== appId');

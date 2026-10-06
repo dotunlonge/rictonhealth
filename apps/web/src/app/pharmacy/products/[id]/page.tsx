@@ -13,6 +13,10 @@ type ProductForm = {
   price: string;
   stock: string;
   imageUrl: string;
+  nafdacRegNo: string;
+  batchNumber: string;
+  supplierName: string;
+  expiryDate: string;
   requiresPrescription: boolean;
 };
 
@@ -23,6 +27,10 @@ const emptyForm: ProductForm = {
   price: '',
   stock: '',
   imageUrl: '',
+  nafdacRegNo: '',
+  batchNumber: '',
+  supplierName: '',
+  expiryDate: '',
   requiresPrescription: false,
 };
 
@@ -48,6 +56,10 @@ export default function ProductEditorPage() {
         stock: number;
         imageUrl?: string | null;
         requiresPrescription: boolean;
+        nafdacRegNo?: string | null;
+        batchNumber?: string | null;
+        supplierName?: string | null;
+        expiryDate?: string | null;
       }>(`/pharmacy/inventory/${id}`);
       if (res.success && res.data) {
         setForm({
@@ -58,6 +70,10 @@ export default function ProductEditorPage() {
           stock: String(res.data.stock),
           imageUrl: res.data.imageUrl || '',
           requiresPrescription: res.data.requiresPrescription,
+          nafdacRegNo: res.data.nafdacRegNo || '',
+          batchNumber: res.data.batchNumber || '',
+          supplierName: res.data.supplierName || '',
+          expiryDate: res.data.expiryDate ? String(res.data.expiryDate).slice(0, 10) : '',
         });
       } else {
         setIsError(true);
@@ -81,6 +97,10 @@ export default function ProductEditorPage() {
       stock: Number(form.stock),
       imageUrl: form.imageUrl.trim() || undefined,
       requiresPrescription: form.requiresPrescription,
+      nafdacRegNo: form.nafdacRegNo.trim(),
+      batchNumber: form.batchNumber.trim(),
+      supplierName: form.supplierName.trim(),
+      expiryDate: form.expiryDate,
     };
     const res = isNew
       ? await api.post('/pharmacy/products', payload)
@@ -123,7 +143,7 @@ export default function ProductEditorPage() {
             {isNew ? 'Add product' : 'Edit product'}
           </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Changes are saved to your live pharmacy catalog.
+            New stock is held for compliance review before it reaches patients.
           </p>
         </div>
         {message && (
@@ -189,6 +209,22 @@ export default function ProductEditorPage() {
                 onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
                 className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal"
               />
+            </label>
+            <label className="text-xs font-bold text-slate-700">
+              NAFDAC registration no. *
+              <input required minLength={6} value={form.nafdacRegNo} onChange={(event) => setForm({ ...form, nafdacRegNo: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal" />
+            </label>
+            <label className="text-xs font-bold text-slate-700">
+              Batch number *
+              <input required minLength={2} value={form.batchNumber} onChange={(event) => setForm({ ...form, batchNumber: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal" />
+            </label>
+            <label className="text-xs font-bold text-slate-700">
+              Supplier *
+              <input required minLength={2} value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal" />
+            </label>
+            <label className="text-xs font-bold text-slate-700">
+              Expiry date *
+              <input required type="date" min={new Date().toISOString().slice(0, 10)} value={form.expiryDate} onChange={(event) => setForm({ ...form, expiryDate: event.target.value })} className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 font-normal" />
             </label>
             <label className="text-xs font-bold text-slate-700 md:col-span-2">
               Description

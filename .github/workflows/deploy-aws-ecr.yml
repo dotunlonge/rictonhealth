@@ -1,5 +1,15 @@
 name: AWS ECR Microservices CI/CD Pipeline
 
+# #111 required checks: deploy gating across workflows cannot use `needs`
+# (needs only references jobs in THIS file). The E2E gate is
+# ci.yml job `e2e-browser` — enforce it via branch protection required
+# status checks on main/master, not here. Within this workflow the chain
+# typecheck-and-test -> build-and-push-ecr -> deploy-to-staging already
+# blocks deploys on unit/contract/integration failures.
+# #110 image pin: releases are immutable — IMAGE_TAG is ${{ github.sha }}
+# everywhere below; helm callers must pass --set image.tag=${{ github.sha }}
+# (never :latest; see infra/helm/ricton-service/values*.yaml comments).
+
 on:
   push:
     branches:
@@ -158,6 +168,7 @@ jobs:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           SENDGRID_FROM_EMAIL: ${{ secrets.SENDGRID_FROM_EMAIL }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ secrets.SENTRY_TRACES_SAMPLE_RATE || '0.1' }}
           AWS_S3_BUCKET_NAME: ${{ secrets.AWS_S3_BUCKET_NAME }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -183,15 +194,18 @@ jobs:
               TELEMEDICINE_CALLBACK_URL="${API_BASE}/api/telemedicine/callbacks/status"
             fi
           fi
-          # CORS: browsers call the API domain, so it must be allowed.
-          if [ -n "${API_DOMAIN:-}" ]; then
+          # CORS: the browser's Origin is the frontend (Vercel) origin, not
+          # the API host it calls.  Add FRONTEND_URL so a fresh domain cutover
+          # cannot deploy an API that immediately rejects every browser call.
+          if [ -n "${FRONTEND_URL:-}" ]; then
+            FRONTEND_ORIGIN="${FRONTEND_URL%/}"
             case ",${ALLOWED_ORIGINS:-}," in
-              *",https://${API_DOMAIN},"*) ;;
+              *",${FRONTEND_ORIGIN},"*) ;;
               *)
                 if [ -z "${ALLOWED_ORIGINS:-}" ]; then
-                  ALLOWED_ORIGINS="https://${API_DOMAIN}"
+                  ALLOWED_ORIGINS="${FRONTEND_ORIGIN}"
                 else
-                  ALLOWED_ORIGINS="${ALLOWED_ORIGINS},https://${API_DOMAIN}"
+                  ALLOWED_ORIGINS="${ALLOWED_ORIGINS},${FRONTEND_ORIGIN}"
                 fi
                 ;;
             esac
@@ -240,6 +254,7 @@ jobs:
           SENDGRID_API_KEY="${SENDGRID_API_KEY}"
           SENDGRID_FROM_EMAIL="${SENDGRID_FROM_EMAIL}"
           SENTRY_DSN="${SENTRY_DSN}"
+          SENTRY_TRACES_SAMPLE_RATE="${SENTRY_TRACES_SAMPLE_RATE}"
           AWS_S3_BUCKET_NAME="${AWS_S3_BUCKET_NAME}"
           AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
           AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
@@ -315,6 +330,26 @@ jobs:
           scp -i ~/.ssh/id_ed25519 docker-compose.prod.yml .env.production openapi.yaml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/"
           scp -i ~/.ssh/id_ed25519 gateway/kong.deploy.yml "${STAGING_USER}@${STAGING_HOST}:/opt/ricton/gateway/kong.yml"
 
+      - name: Snapshot RDS before migrate (#97 backup gate)
+        # #97: snapshot-before-migrate. RDS identifier is ricton-<env>
+        # (see infra/terraform/rds.tf); override via RDS_INSTANCE_ID secret.
+        # Fail-closed: no continue-on-error — a snapshot failure must stop
+        # prod before `db-migrate` runs. Skips with a warning ONLY when the
+        # instance does not exist (non-RDS staging database).
+        env:
+          RDS_INSTANCE_ID: ${{ secrets.RDS_INSTANCE_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-2' }}
+        run: |
+          INSTANCE="${RDS_INSTANCE_ID:-ricton-staging}"
+          SNAP="pre-migrate-${GITHUB_SHA:0:8}-$(date +%Y%m%d%H%M%S)"
+          if aws rds describe-db-instances --db-instance-identifier "$INSTANCE" --region "$AWS_REGION" >/dev/null 2>&1; then
+            aws rds create-db-snapshot --db-instance-identifier "$INSTANCE" --db-snapshot-identifier "$SNAP" --region "$AWS_REGION"
+            aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAP" --region "$AWS_REGION"
+            echo "RDS snapshot ready: $SNAP"
+          else
+            echo "::warning::RDS instance $INSTANCE not found — skipping snapshot (non-RDS staging DB). Prod must set RDS_INSTANCE_ID."
+          fi
+
       - name: Run migrations and deploy containers
         env:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
@@ -331,3 +366,33 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --pull always
             docker compose -f docker-compose.prod.yml --env-file .env.production ps
           '
+
+      - name: Post-deploy smoke gate (#110)
+        # #110: health/ready curl loop (via SSH, localhost on the host) +
+        # scripts/load-smoke.js from the runner. No continue-on-error: any
+        # smoke failure fails the deploy.
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER || 'ubuntu' }}
+          API_DOMAIN: ${{ env.API_DOMAIN }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${STAGING_USER}@${STAGING_HOST}" '
+            set -e
+            for PORT in 3000 3001 3002 3003 3004 3005 3006 3007 3008 3009 3010 3011 3012 3013 3014 3015 3016 3017; do
+              for i in $(seq 1 12); do
+                curl -sf -o /dev/null "http://localhost:${PORT}/health" && break
+                [ "$i" -eq 12 ] && { echo "health check failed: port ${PORT}"; exit 1; }
+                sleep 10
+              done
+            done
+            curl -sf -o /dev/null http://localhost:3001/ready
+            curl -sf -o /dev/null http://localhost:3005/ready
+            echo "All service /health checks + sample /ready checks passed."
+          '
+          if [ -n "${API_DOMAIN:-}" ]; then
+            SMOKE_BASE="https://${API_DOMAIN}"
+          else
+            SMOKE_BASE="http://${STAGING_HOST}"
+          fi
+          curl -sf -o /dev/null "${SMOKE_BASE}/" || echo "::warning::Gateway root not reachable at ${SMOKE_BASE}/ — continuing to load smoke."
+          BASE_URL="$SMOKE_BASE" node scripts/load-smoke.js

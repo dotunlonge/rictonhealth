@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import { api } from '@/lib/api-client';
+import { api, setLastKnownUser } from '@/lib/api-client';
 
 export type UserRole = 'PATIENT' | 'CONSULTANT' | 'PHARMACIST' | 'HOSPITAL_ADMIN' | 'SUPER_ADMIN';
 
@@ -117,7 +117,19 @@ export const useAppStore = create<AppState>()((set, get) => ({
   setUser: (user) => {
     if (user) {
       const existing = get().user || ({} as UserProfile);
-      set({ user: { ...existing, ...user } });
+      const merged = { ...existing, ...user };
+      set({ user: merged });
+      // Remember the last successfully signed-in person (display info only)
+      // so the login screen can prefill + greet them next visit.
+      setLastKnownUser({
+        email: merged.email,
+        firstName:
+          merged.firstName ?? merged.patientProfile?.firstName ?? merged.providerProfile?.firstName,
+        lastName:
+          merged.lastName ?? merged.patientProfile?.lastName ?? merged.providerProfile?.lastName,
+        role: merged.role,
+        avatarUrl: merged.avatarUrl,
+      });
     } else {
       set({ user: null });
     }
@@ -162,12 +174,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
             existing?.lastName,
         };
         set({ user: merged });
+        setLastKnownUser({
+          email: merged.email,
+          firstName: merged.firstName,
+          lastName: merged.lastName,
+          role: merged.role,
+          avatarUrl: merged.avatarUrl,
+        });
         return merged;
       }
     } catch (err: unknown) {
       console.warn('Failed fetching current user profile', err);
     }
-    return get().user;
+    // No server user = no authenticated user. Returning the stale in-memory
+    // user here used to paint dashboards as "Account"/"User" with no session.
+    return null;
   },
 
   fetchAppointments: async () => {

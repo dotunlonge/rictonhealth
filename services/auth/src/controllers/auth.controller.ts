@@ -80,7 +80,10 @@ async function verifyGoogleCredential(
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID || (audiences.length > 0 ? audiences : undefined),
+      // Google issues different `aud` values for the web and native clients.
+      // Verify the signature and accept only one of our explicitly configured
+      // client IDs; forcing the web ID here rejects legitimate iOS tokens.
+      audience: audiences.length > 0 ? audiences : undefined,
     });
     const payload = ticket.getPayload();
     if (payload?.email && payload.sub && payload.email_verified === true) {
@@ -155,9 +158,10 @@ const hashToken = (token: string): string => {
   return crypto.createHash('sha256').update(token).digest('hex');
 };
 
-// Public self-serve roles only. HOSPITAL_ADMIN / SUPER_ADMIN must be provisioned
-// via an authenticated admin flow, never via public register or OAuth.
-const PUBLIC_REGISTRABLE_ROLES = new Set(['PATIENT', 'CONSULTANT', 'PHARMACIST']);
+// A hospital applicant may self-register, but remains PENDING and receives no
+// privileged access until a super-admin verifies the submitted facility.
+// SUPER_ADMIN is always provisioned through an authenticated admin flow.
+const PUBLIC_REGISTRABLE_ROLES = new Set(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN']);
 
 const generateSecureOtp = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
@@ -295,7 +299,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
 
     if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
       throw new ForbiddenError(
-        'Registration is limited to PATIENT, CONSULTANT, or PHARMACIST. Contact an administrator for elevated roles.'
+        'Registration is limited to patient, clinician, pharmacist, or hospital applications.'
       );
     }
 

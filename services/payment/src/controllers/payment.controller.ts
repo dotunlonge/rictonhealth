@@ -6,6 +6,8 @@ import {
   PaymentProvider,
   PaymentType,
   AppointmentStatus,
+  WalletTransactionType,
+  WalletReferenceType,
   Prisma,
 } from '@ricton/db';
 import { JwtPayload } from '@ricton/auth-middleware';
@@ -179,15 +181,19 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
     }
 
     const userPayload = req.user as JwtPayload;
-    const { amount, type, referenceId } = req.body;
+    const { amount, type, referenceId, email: requestedEmail } = req.body;
     const account = await prisma.user.findUnique({
       where: { id: userPayload.userId },
       select: { email: true },
     });
     const email = account?.email;
 
-    if (!email || !type) {
+    if (!email || !requestedEmail || !type) {
       throw new ValidationError('A verified account email and payment type are required');
+    }
+
+    if (requestedEmail.trim().toLowerCase() !== email.trim().toLowerCase()) {
+      throw new ValidationError('Payment email must match the verified account email');
     }
 
     if (!Object.values(PaymentType).includes(type)) {
@@ -301,6 +307,100 @@ export const initializePayment = async (req: Request, res: Response, next: NextF
       })
     );
   } catch (error: unknown) {
+    next(error);
+  }
+};
+
+/** Settle an appointment from stored wallet value without a Paystack redirect. */
+export const payAppointmentWithWallet = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userPayload = req.user as JwtPayload;
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: req.params.appointmentId },
+      include: { payment: true },
+    });
+    if (!appointment) throw new NotFoundError('Appointment not found');
+    if (appointment.patientId !== userPayload.userId) {
+      throw new ForbiddenError('You are not authorized to pay for this appointment');
+    }
+    if (
+      appointment.status !== AppointmentStatus.PENDING &&
+      appointment.status !== AppointmentStatus.CONFIRMED
+    ) {
+      throw new ValidationError('This appointment is not eligible for payment');
+    }
+    if (appointment.payment?.status === PaymentStatus.SUCCESS) {
+      throw new ValidationError('This appointment has already been paid');
+    }
+    if (appointment.payment?.status === PaymentStatus.PENDING) {
+      throw new ValidationError('A Paystack checkout is already active for this appointment');
+    }
+    const amount = Number(appointment.feeSnapshot);
+    if (!Number.isInteger(amount) || amount < 500 || amount > 500000) {
+      throw new ValidationError('This appointment does not have a valid fee snapshot');
+    }
+
+    const reference = `WALLET_APPOINTMENT_${crypto.randomUUID()}`;
+    const result = await prisma.$transaction(async (tx) => {
+      const wallet = await tx.wallet.findUnique({ where: { userId: userPayload.userId } });
+      if (!wallet || !wallet.isActive) throw new ValidationError('Your wallet is not available');
+      const debited = await tx.wallet.updateMany({
+        where: { id: wallet.id, balance: { gte: amount } },
+        data: { balance: { decrement: amount } },
+      });
+      if (debited.count !== 1) throw new ValidationError('Insufficient wallet balance');
+      const updatedWallet = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } });
+      const payment = await tx.payment.create({
+        data: {
+          userId: userPayload.userId,
+          amount,
+          currency: 'NGN',
+          type: PaymentType.APPOINTMENT,
+          status: PaymentStatus.SUCCESS,
+          provider: PaymentProvider.WALLET,
+          providerReference: reference,
+          metadata: { paymentMethod: 'WALLET', appointmentId: appointment.id },
+        },
+      });
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: WalletTransactionType.DEBIT,
+          amount,
+          balanceAfter: updatedWallet.balance,
+          referenceType: WalletReferenceType.PAYMENT,
+          referenceId: reference,
+          description: `Consultation payment (${appointment.id})`,
+        },
+      });
+      const linked = await tx.appointment.updateMany({
+        where: {
+          id: appointment.id,
+          OR: [{ paymentId: null }, { payment: { status: PaymentStatus.FAILED } }],
+          status: { in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+        },
+        data: { paymentId: payment.id, status: AppointmentStatus.CONFIRMED },
+      });
+      if (linked.count !== 1)
+        throw new ValidationError('Appointment payment state changed; please refresh');
+      await tx.providerEarning.upsert({
+        where: {
+          appointmentId_providerId: {
+            appointmentId: appointment.id,
+            providerId: appointment.providerId,
+          },
+        },
+        create: {
+          appointmentId: appointment.id,
+          providerId: appointment.providerId,
+          amount: amount * 0.8,
+        },
+        update: {},
+      });
+      return { payment, balance: Number(updatedWallet.balance) };
+    });
+    res.status(200).json(successResponse(result));
+  } catch (error) {
     next(error);
   }
 };

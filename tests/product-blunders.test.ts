@@ -334,3 +334,50 @@ describe('Round 5 — money/audit/continuity/parity', () => {
     expect(read('apps/mobile/app/(app)/messages/[conversationId].tsx')).toMatch(/pendingKey/);
   });
 });
+
+describe('Round 6 - parity/trust/deploy', () => {
+  it('specialty enum + bank gate + availability step + 30-day horizon', () => {
+    expect(read('apps/web/src/lib/specialties.ts')).toMatch(/Cardiology/);
+    expect(read('apps/web/src/app/onboarding/doctor/page.tsx')).toMatch(/availability/i);
+    expect(read('apps/mobile/app/(app)/booking/[providerId].tsx')).toMatch(/30/);
+  });
+  it('payment history + rewards tabs + staff gate + 2FA disable', () => {
+    expect(read('apps/web/src/app/wallet/page.tsx')).toMatch(/Payment history/);
+    expect(read('apps/web/src/app/rewards/page.tsx')).toMatch(/Redemptions/);
+    expect(read('apps/mobile/app/(app)/(tabs)/_layout.tsx')).toMatch(/Staff roles/);
+    expect(read('apps/mobile/app/(app)/account/security.tsx')).toMatch(
+      /Disable 2FA|twoFactorDisable/
+    );
+  });
+  it('referrals + support tickets + pharmacy persist', () => {
+    expect(read('services/appointment/src/controllers/referral.controller.ts')).toMatch(
+      /consentAt/
+    );
+    expect(read('services/admin/src/controllers/admin.controller.ts')).toMatch(/supportTicket/i);
+    expect(read('apps/web/src/app/onboarding/pharmacy/page.tsx')).toMatch(
+      /superintendent|operatingHours/
+    );
+  });
+  it('deploy gates: snapshot + smoke + sentry', () => {
+    expect(read('.github/workflows/deploy-aws-ecr.yml')).toMatch(/create-db-snapshot/);
+    expect(read('.github/workflows/deploy-aws-ecr.yml')).toMatch(/load-smoke/);
+    expect(read('docker-compose.prod.yml')).toMatch(/SENTRY_DSN/);
+  });
+});
+
+describe('Round 7 - erasure/release/secops', () => {
+  it('erasure anonymizes + cron entrypoint', () => {
+    expect(read('services/user/src/controllers/user.controller.ts')).toMatch(
+      /processErasureRequests/
+    );
+  });
+  it('EAS channels + version gate', () => {
+    expect(read('apps/mobile/eas.json')).toMatch(/production/);
+    expect(read('services/admin/src/index.ts')).toMatch(/minSupported/);
+    expect(read('apps/mobile/src/components/VersionGate.tsx')).toMatch(/Update required/);
+  });
+  it('security dashboard + push-token logout', () => {
+    expect(read('apps/web/src/app/admin/security/page.tsx')).toMatch(/threats/i);
+    expect(read('apps/mobile/src/features/auth/auth-service.ts')).toMatch(/push-token/);
+  });
+});

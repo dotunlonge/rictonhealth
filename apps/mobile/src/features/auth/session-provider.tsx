@@ -33,7 +33,7 @@ interface SessionContextValue {
   ): Promise<SignInResult>;
   verifyOtp(input: OtpVerifyInput): Promise<SignInResult>;
   register(input: RegisterInput): Promise<RegisterResult>;
-  signOut(): Promise<void>;
+  signOut(options?: { pushToken?: string }): Promise<void>;
   logoutAll(): Promise<void>;
   retryRestore(): Promise<void>;
 }
@@ -98,9 +98,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
     []
   );
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (options?: { pushToken?: string }) => {
     try {
-      await authService.signOut();
+      await authService.signOut(options);
     } finally {
       setUser(null);
       setStatus('unauthenticated');

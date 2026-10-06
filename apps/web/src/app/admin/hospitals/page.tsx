@@ -97,6 +97,7 @@ export default function AdminHospitalsPage() {
             >
               {showForm ? '✕ Cancel' : '+ Add Hospital'}
             </button>
+            <Link href="/admin/hospital-applications" className="rounded-full border border-amber-300 px-5 py-2.5 text-sm font-bold text-amber-800">Review applications</Link>
           </div>
 
           {/* Create Form */}

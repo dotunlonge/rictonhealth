@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { SPECIALTIES } from '@/lib/specialties';
 import { useCurrentUser } from '@/store/useAppStore';
 import { usePaystackBanks } from '@/hooks/usePaystackBanks';
 import {
@@ -59,6 +60,12 @@ const STEPS = [
     description: 'Upload MDCN license & ID card',
     icon: FileCheck2,
   },
+  {
+    id: 8,
+    title: 'Weekly Availability',
+    description: 'Days & hours patients can book',
+    icon: BookOpen,
+  },
 ];
 
 export default function DoctorOnboardingPage() {
@@ -93,6 +100,10 @@ export default function DoctorOnboardingPage() {
     // Step 5
     primaryHospital: 'Lagos University Teaching Hospital (LUTH)',
     hospitalAddress: 'Idi-Araba, Surulere, Lagos',
+    practiceCity: 'Lagos',
+    practiceState: 'Lagos',
+    practiceLatitude: '',
+    practiceLongitude: '',
     // Step 6
     bankName: '',
     accountNumber: '',
@@ -102,6 +113,10 @@ export default function DoctorOnboardingPage() {
     // Step 7
     licenseFileUploaded: false,
     idFileUploaded: false,
+    // Step 8 (explicit availability — no silent defaults server-side)
+    availDays: [0, 1, 2, 3, 4, 5, 6],
+    availStart: '09:00',
+    availEnd: '17:00',
   });
 
   const fillDevData = () => {
@@ -127,6 +142,13 @@ export default function DoctorOnboardingPage() {
       accountName: 'Dr. Jane Doe',
       licenseFileUploaded: true,
       idFileUploaded: true,
+      practiceCity: 'Lagos',
+      practiceState: 'Lagos',
+      practiceLatitude: '6.5244',
+      practiceLongitude: '3.3792',
+      availDays: [0, 1, 2, 3, 4],
+      availStart: '09:00',
+      availEnd: '17:00',
     });
     setFormError('');
   };
@@ -159,8 +181,10 @@ export default function DoctorOnboardingPage() {
         return false;
       }
     } else if (currentStep === 5) {
-      if (!formData.primaryHospital.trim()) {
-        setFormError('Primary Hospital Affiliation is required.');
+      const lat = Number(formData.practiceLatitude);
+      const lng = Number(formData.practiceLongitude);
+      if (!formData.primaryHospital.trim() || !formData.hospitalAddress.trim() || !formData.practiceCity.trim() || !formData.practiceState.trim() || !Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+        setFormError('Enter a public clinic address, city, state, and valid map coordinates. Never enter a home address.');
         return false;
       }
     } else if (currentStep === 6) {
@@ -179,7 +203,7 @@ export default function DoctorOnboardingPage() {
 
   const handleNext = () => {
     if (validateStep(step)) {
-      setStep((s) => Math.min(s + 1, 7));
+      setStep((s) => Math.min(s + 1, 8));
     }
   };
 
@@ -208,6 +232,41 @@ export default function DoctorOnboardingPage() {
     setSubmitting(false);
 
     if (res.success && res.data) {
+      const locationRes = await api.put('/users/me/practice-location', {
+        practiceAddress: formData.hospitalAddress,
+        practiceCity: formData.practiceCity,
+        practiceState: formData.practiceState,
+        latitude: Number(formData.practiceLatitude),
+        longitude: Number(formData.practiceLongitude),
+        visible: true,
+      });
+      if (!locationRes.success) {
+        setFormError(locationRes.error?.message || 'Your profile was saved, but we could not publish the practice location. Please try again.');
+        return;
+      }
+      // Best-effort availability seeding: explicit step so new doctors never
+      // rely on a silent default. Failures don't block onboarding — the
+      // doctor can set hours later under Dashboard > Availability.
+      try {
+        const days = Array.isArray(formData.availDays) ? formData.availDays : [];
+        if (days.length > 0 && formData.availStart && formData.availEnd) {
+          await Promise.all(
+            days.map((dayOfWeek) =>
+              api
+                .post('/appointments/availability', {
+                  dayOfWeek,
+                  startTime: formData.availStart,
+                  endTime: formData.availEnd,
+                  slotDurationMinutes: 30,
+                  isActive: true,
+                })
+                .catch(() => null)
+            )
+          );
+        }
+      } catch {
+        // best-effort only
+      }
       // #125 Verified gate: unverified doctors see a pending screen instead
       // of landing on the dashboard. License edits reset isVerified=false
       // server-side, so a fresh submit is (almost) always pending.
@@ -345,7 +404,7 @@ export default function DoctorOnboardingPage() {
             <div className="flex items-center justify-between border-b border-slate-100 pb-6">
               <div>
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#1877F2] bg-blue-50 px-3 py-1 rounded-full">
-                  Step {step} of 7
+                  Step {step} of 8
                 </span>
                 <h1 className="text-2xl font-black text-slate-900 mt-2">{STEPS[step - 1].title}</h1>
                 <p className="text-xs text-slate-500 font-semibold mt-1">
@@ -439,14 +498,11 @@ export default function DoctorOnboardingPage() {
                       onChange={(e) => updateForm('specialty', e.target.value)}
                       className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
                     >
-                      <option>Cardiology</option>
-                      <option>Pediatrics</option>
-                      <option>Neurology</option>
-                      <option>Orthopedics</option>
-                      <option>Endocrinology</option>
-                      <option>Ophthalmology</option>
-                      <option>Psychiatry</option>
-                      <option>General Practice</option>
+                      {SPECIALTIES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -577,6 +633,19 @@ export default function DoctorOnboardingPage() {
                     className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Public clinic address <span className="text-rose-500">*</span></label>
+                  <input type="text" value={formData.hospitalAddress} onChange={(e) => updateForm('hospitalAddress', e.target.value)} placeholder="Street and area — never a home address" className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white" />
+                  <p className="mt-1 text-[10px] text-slate-500">Patients see this public practice location on the nearby-doctor map.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input aria-label="Practice city" type="text" value={formData.practiceCity} onChange={(e) => updateForm('practiceCity', e.target.value)} placeholder="City" className="h-12 px-4 rounded-2xl border border-slate-200 text-xs font-semibold outline-none" />
+                  <input aria-label="Practice state" type="text" value={formData.practiceState} onChange={(e) => updateForm('practiceState', e.target.value)} placeholder="State" className="h-12 px-4 rounded-2xl border border-slate-200 text-xs font-semibold outline-none" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input aria-label="Practice latitude" inputMode="decimal" value={formData.practiceLatitude} onChange={(e) => updateForm('practiceLatitude', e.target.value)} placeholder="Latitude e.g. 6.5244" className="h-12 px-4 rounded-2xl border border-slate-200 text-xs font-semibold outline-none" />
+                  <input aria-label="Practice longitude" inputMode="decimal" value={formData.practiceLongitude} onChange={(e) => updateForm('practiceLongitude', e.target.value)} placeholder="Longitude e.g. 3.3792" className="h-12 px-4 rounded-2xl border border-slate-200 text-xs font-semibold outline-none" />
+                </div>
               </div>
             )}
 
@@ -699,6 +768,71 @@ export default function DoctorOnboardingPage() {
               </div>
             )}
 
+            {/* Step 8: Weekly availability (explicit — replaces silent default) */}
+            {step === 8 && (
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Available days
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, day) => {
+                      const active = formData.availDays.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() =>
+                            updateForm(
+                              'availDays',
+                              active
+                                ? formData.availDays.filter((d: number) => d !== day)
+                                : [...formData.availDays, day].sort()
+                            )
+                          }
+                          className={`px-3.5 py-2 rounded-full text-xs font-bold border transition-all ${
+                            active
+                              ? 'bg-[#1877F2] text-white border-[#1877F2]'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-[#1877F2]'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Start time
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.availStart}
+                      onChange={(e) => updateForm('availStart', e.target.value)}
+                      className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      End time
+                    </label>
+                    <input
+                      type="time"
+                      value={formData.availEnd}
+                      onChange={(e) => updateForm('availEnd', e.target.value)}
+                      className="w-full h-12 px-4 rounded-2xl border border-slate-200 focus:border-[#1877F2] text-xs font-semibold outline-none transition-all bg-slate-50 focus:bg-white"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400 font-semibold">
+                  Saved per day via POST /appointments/availability on submit (best-effort;
+                  you can edit later under Dashboard → Availability).
+                </p>
+              </div>
+            )}
+
             {/* Navigation Bar */}
             <div className="flex items-center justify-between border-t border-slate-100 pt-6">
               <button
@@ -714,7 +848,7 @@ export default function DoctorOnboardingPage() {
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
 
-              {step < 7 ? (
+              {step < 8 ? (
                 <button
                   type="button"
                   onClick={handleNext}

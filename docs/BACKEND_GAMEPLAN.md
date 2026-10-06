@@ -718,7 +718,7 @@ Explicitly out of scope for backend:
    - They can generate mocks: `npx @stoplight/prism-cli mock openapi.yaml`
    - They can generate their own clients in any language if they prefer
 
-2. **Swagger UI** at `https://api.ricton.health/docs` (or `localhost:8000/docs` locally)
+2. **Swagger UI** at `https://api.rictonhealth.com/docs` (or `localhost:8000/docs` locally)
    - Every endpoint testable in-browser
    - Request/response examples
    - Auth flow documented (paste JWT, test protected routes)

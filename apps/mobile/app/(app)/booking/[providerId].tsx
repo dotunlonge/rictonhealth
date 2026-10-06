@@ -14,8 +14,12 @@ export function toLocalDateKey(date: Date): string {
   ).padStart(2, '0')}`;
 }
 
-export function nextSevenDays(from = new Date()): Array<{ key: string; label: string }> {
-  return Array.from({ length: 7 }, (_, i) => {
+// Web parity: the web date picker allows any future date, so mobile shows a
+// 30-day horizon (was 7) instead of walling bookings at one week.
+export const BOOKING_HORIZON_DAYS = 30;
+
+export function nextThirtyDays(from = new Date()): Array<{ key: string; label: string }> {
+  return Array.from({ length: BOOKING_HORIZON_DAYS }, (_, i) => {
     const d = new Date(from);
     d.setDate(d.getDate() + i);
     return {
@@ -28,6 +32,9 @@ export function nextSevenDays(from = new Date()): Array<{ key: string; label: st
   });
 }
 
+// Back-compat alias (tests + older imports reference nextSevenDays).
+export const nextSevenDays = nextThirtyDays;
+
 export type ConsultType = 'VIDEO' | 'IN_PERSON';
 
 export default function ProviderDetailScreen() {
@@ -36,7 +43,7 @@ export default function ProviderDetailScreen() {
     rescheduleId?: string;
   }>();
   const rescheduling = typeof rescheduleId === 'string' && rescheduleId.length > 0;
-  const days = useRef(nextSevenDays()).current;
+  const days = useRef(nextThirtyDays()).current;
   const [dayKey, setDayKey] = useState(days[0].key);
   const [consultType, setConsultType] = useState<ConsultType>('VIDEO');
   const [slots, setSlots] = useState<string[] | null>(null);
@@ -175,6 +182,9 @@ export default function ProviderDetailScreen() {
         title={rescheduling ? 'Pick a new time' : 'Available times'}
         subtitle="Times update live — taken slots disappear."
       />
+      <Text style={styles.horizonNote}>
+        Showing the next {BOOKING_HORIZON_DAYS} days — same window as web booking.
+      </Text>
       {typeof providerFee === 'number' ? (
         <Text testID="booking.fee" style={styles.feeText}>
           Consultation fee: ₦{providerFee.toLocaleString('en-NG')}
@@ -324,5 +334,6 @@ const styles = StyleSheet.create({
   slotText: { ...typography.bodyStrong, color: colors.navy900 },
   feeText: { ...typography.caption, color: colors.slate700 },
   slotTextActive: { color: colors.blue700 },
+  horizonNote: { ...typography.caption, color: colors.slate600 },
   error: { ...typography.caption, color: colors.rose700 },
 });

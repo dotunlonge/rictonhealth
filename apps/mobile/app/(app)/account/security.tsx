@@ -10,6 +10,7 @@ export default function SecurityScreen() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
   const [code, setCode] = useState('');
+  const [disableCode, setDisableCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [passwordChanged, setPasswordChanged] = useState(false);
@@ -84,6 +85,26 @@ export default function SecurityScreen() {
     }
   };
 
+  // Mirrors web settings: disabling 2FA requires a fresh 6-digit
+  // authenticator code (POST /auth/2fa/disable { code }).
+  const disable = async () => {
+    if (disableCode.trim().length !== 6) {
+      setError('Enter the 6-digit code from your authenticator app to disable 2FA.');
+      return;
+    }
+    setWorking(true);
+    setError(null);
+    try {
+      await accountService.twoFactorDisable(disableCode.trim());
+      setDisableCode('');
+      setEnabled(false);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '2FA could not be disabled.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
   return (
     <Screen testID="account.security.screen" style={styles.content}>
       <PatientHeader
@@ -129,8 +150,23 @@ export default function SecurityScreen() {
       {enabled === null ? (
         <ActivityIndicator color={colors.blue600} />
       ) : enabled ? (
-        <View testID="account.2fa-on">
+        <View testID="account.2fa-on" style={styles.stack}>
           <StateNotice title="2FA is on" message="Authenticator codes protect every sign-in." />
+          <TextField
+            label="6-digit code to disable"
+            accessibilityLabel="6-digit code to disable"
+            keyboardType="number-pad"
+            maxLength={6}
+            onChangeText={setDisableCode}
+            testID="account.2fa-disable-code"
+            value={disableCode}
+          />
+          <PrimaryButton
+            label="Disable 2FA"
+            loading={working}
+            onPress={() => void disable()}
+            testID="account.2fa-disable"
+          />
         </View>
       ) : secret ? (
         <View style={styles.stack}>

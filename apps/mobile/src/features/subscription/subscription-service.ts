@@ -24,5 +24,12 @@ export class SubscriptionService {
   cancel(): Promise<unknown> {
     return this.api.post(rel(GATEWAY_PATHS.subscriptionCancel), {});
   }
+  history(query: { limit?: number; offset?: number } = {}): Promise<unknown> {
+    const params = new URLSearchParams({
+      limit: String(query.limit ?? 10),
+      offset: String(query.offset ?? 0),
+    });
+    return this.api.get(`${rel('/api/subscriptions/history')}?${params.toString()}`);
+  }
 }
 export const subscriptionService = new SubscriptionService();

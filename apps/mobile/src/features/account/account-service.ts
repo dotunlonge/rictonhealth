@@ -48,8 +48,8 @@ export class AccountService {
   twoFactorVerify(code: string): Promise<unknown> {
     return this.api.post(rel(GATEWAY_PATHS.auth2faVerify), { code });
   }
-  twoFactorDisable(): Promise<unknown> {
-    return this.api.post(rel(GATEWAY_PATHS.auth2faDisable), {});
+  twoFactorDisable(code: string): Promise<unknown> {
+    return this.api.post(rel(GATEWAY_PATHS.auth2faDisable), { code });
   }
   changePassword(input: { currentPassword: string; newPassword: string }): Promise<unknown> {
     return this.api.post(rel(GATEWAY_PATHS.authPasswordChange), input);

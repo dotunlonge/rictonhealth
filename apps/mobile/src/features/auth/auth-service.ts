@@ -128,9 +128,22 @@ export class AuthService {
     return user;
   }
 
-  async signOut(): Promise<void> {
+  async signOut(options?: { pushToken?: string }): Promise<void> {
     const tokens = await this.storage.getTokens();
     try {
+      // Best-effort: revoke the device push token (#112 orphan) so a
+      // logged-out device stops receiving pushes. Unknown/absent tokens
+      // are no-ops server-side; failures never block logout.
+      const pushToken = options?.pushToken?.trim();
+      if (pushToken) {
+        try {
+          await this.api.delete(
+            `${rel(GATEWAY_PATHS.notificationPushToken)}/${encodeURIComponent(pushToken)}`
+          );
+        } catch {
+          // ignore — logout must succeed regardless
+        }
+      }
       if (tokens?.refreshToken) {
         await this.api.post(
           rel(GATEWAY_PATHS.authLogout),

@@ -298,3 +298,14 @@ describe('P0 real-env provisions', () => {
     expect(example).not.toMatch(/SG\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/);
   });
 });
+
+describe('production domain wiring', () => {
+  it('derives CORS from the frontend origin, not the API host', () => {
+    const workflow = read('.github/workflows/deploy-aws-ecr.yml');
+    expect(workflow).toMatch(/FRONTEND_ORIGIN="\$\{FRONTEND_URL%\/\}"/);
+    expect(workflow).toMatch(/ALLOWED_ORIGINS="\$\{ALLOWED_ORIGINS\},\$\{FRONTEND_ORIGIN\}"/);
+    expect(workflow).not.toMatch(
+      /ALLOWED_ORIGINS="\$\{ALLOWED_ORIGINS\},https:\/\/\$\{API_DOMAIN\}"/
+    );
+  });
+});

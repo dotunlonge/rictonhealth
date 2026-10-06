@@ -48,6 +48,7 @@ const envSchema = z
     AWS_SECRET_ACCESS_KEY: z.string().optional(),
     AWS_S3_BUCKET_NAME: z.string().optional(),
     SENTRY_DSN: z.string().optional(),
+    SENTRY_TRACES_SAMPLE_RATE: z.string().optional(),
     DATADOG_API_KEY: z.string().optional(),
     DD_SERVICE: z.string().optional().default('ricton-backend'),
     DD_ENV: z.string().optional().default('development'),

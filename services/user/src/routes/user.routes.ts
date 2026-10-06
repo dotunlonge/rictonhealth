@@ -9,6 +9,7 @@ import {
   AvatarUploadInputSchema,
   MedicalHistoryInputSchema,
   GetProvidersQuerySchema,
+  UpdatePracticeLocationSchema,
 } from '@ricton/shared';
 
 const router = Router();
@@ -40,6 +41,12 @@ router.put(
   '/me/medical-history',
   validateRequest(MedicalHistoryInputSchema),
   userController.updateMedicalHistory
+);
+router.put(
+  '/me/practice-location',
+  requireRole('CONSULTANT'),
+  validateRequest(UpdatePracticeLocationSchema),
+  userController.updatePracticeLocation
 );
 // #L1 Versioned re-consent (minimal: { version } only, validated inline).
 router.put('/me/consent', userController.updateConsent);

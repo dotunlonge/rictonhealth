@@ -45,7 +45,7 @@ export const AdminProvisionUserSchema = z
     phone: z.string().min(7).optional(),
     password: z.string().min(8),
     role: z.enum(['HOSPITAL_ADMIN']),
-    hospitalId: z.string().uuid().optional(),
+    hospitalId: z.string().uuid(),
   })
   .refine((data) => data.email || data.phone, {
     message: 'Either email or phone is required',

@@ -26,6 +26,7 @@ export default function WalletPage() {
   const balanceKnown = walletStatus !== 'error';
   const balance = balanceKnown ? walletBalance : null;
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [banks, setBanks] = useState<Array<{ name: string; code: string }>>([]);
@@ -63,6 +64,20 @@ export default function WalletPage() {
         );
       } else {
         setTransactions([]);
+      }
+      // Payment history — GET /payments (server-authoritative receipts).
+      const payRes = await api.get<unknown>('/payments');
+      if (payRes.success && Array.isArray(payRes.data)) {
+        setPayments(payRes.data);
+      } else if (
+        payRes.success &&
+        payRes.data &&
+        typeof payRes.data === 'object' &&
+        Array.isArray((payRes.data as { payments?: unknown }).payments)
+      ) {
+        setPayments((payRes.data as { payments: any[] }).payments);
+      } else {
+        setPayments([]);
       }
       setLoading(false);
     }
@@ -424,6 +439,54 @@ export default function WalletPage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Payment history — GET /payments with receipt links. */}
+        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200/80 space-y-4">
+          <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <History className="w-4 h-4 text-[#1877F2]" /> Payment history
+          </h2>
+          {loading ? (
+            <div className="p-4 text-center text-xs text-slate-400 font-bold">
+              Loading payments...
+            </div>
+          ) : payments.length === 0 ? (
+            <p className="text-xs font-semibold text-slate-400">
+              No payments recorded yet.
+            </p>
+          ) : (
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
+              {payments.map((p: any) => {
+                const ref = p.providerReference || p.reference;
+                return (
+                  <div
+                    key={p.id}
+                    className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <p className="text-xs font-bold text-slate-900">
+                        {p.type || 'Payment'} · ₦{Number(p.amount || 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        {p.status || 'UNKNOWN'}
+                        {p.createdAt
+                          ? ` · ${new Date(p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : ''}
+                      </p>
+                    </div>
+                    {ref ? (
+                      <a
+                        href={`/payments/verify?reference=${encodeURIComponent(ref)}`}
+                        className="text-xs text-[#1877F2] font-bold hover:underline shrink-0"
+                      >
+                        Receipt
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </SidebarLayout>

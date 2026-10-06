@@ -26,6 +26,7 @@ import {
   Stethoscope,
   Menu,
   X,
+  FileText,
 } from 'lucide-react';
 import { useAppStore, UserRole } from '@/store/useAppStore';
 
@@ -213,6 +214,11 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       icon: Users,
       keywords: 'verify approve doctors',
     },
+    { label: 'Hospital Applications', href: '/admin/hospital-applications', icon: Building2, keywords: 'hospital applications facility review' },
+    { label: 'Product Review', href: '/admin/pharmacy-products', icon: Package, keywords: 'pharmacy product compliance' },
+    { label: 'Security Operations', href: '/admin/security', icon: ShieldAlert, keywords: 'security threats alerts' },
+    { label: 'Audit Log', href: '/admin/audit', icon: FileText, keywords: 'audit governance' },
+    { label: 'Support Triage', href: '/admin/support', icon: Inbox, keywords: 'support tickets triage' },
     { label: 'User Directory', href: '/patients', icon: Users, keywords: 'users directory' },
     { label: 'System Settings', href: '/settings', icon: Settings, keywords: 'preferences' },
   ],
@@ -221,10 +227,14 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
 function resolveUserDisplay(user: any) {
   const targetUser = user;
   if (!targetUser) {
+    // Never masquerade as a real account: this is the signed-out / loading
+    // state. Sidebar + dashboard fall back to "User"/"Account" when this
+    // leaks into an authenticated view — that phantom is fixed by redirecting
+    // (see below), not by a nicer placeholder.
     return {
-      name: 'Account',
+      name: 'Not signed in',
       role: 'PATIENT' as UserRole,
-      roleLabel: 'Patient',
+      roleLabel: 'Guest',
       avatarUrl: undefined,
     };
   }
@@ -281,8 +291,19 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await fetchUser();
-      if (!cancelled) setSessionChecked(true);
+      // If a stale `ricton_session` cookie survived without a refresh token
+      // (old tab-scoped session), drop it now so a failed restore lands on a
+      // real login form instead of bouncing back here as a nameless account.
+      const { clearStalePresenceCookies } = await import('@/lib/api-client');
+      clearStalePresenceCookies();
+      const restored = await fetchUser();
+      if (!cancelled) {
+        if (!restored) {
+          const { clearStalePresenceCookies: clearAgain } = await import('@/lib/api-client');
+          clearAgain();
+        }
+        setSessionChecked(true);
+      }
     })();
     fetchNotifications();
     return () => {
@@ -392,6 +413,22 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
     );
   }
 
+  // Authenticated chrome must never render for a signed-out visitor. Without
+  // this guard the layout briefly painted a phantom dashboard ("Not signed
+  // in" / fallback stats) before the redirect to /login fired.
+  if (sessionChecked && !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--ricton-surface-muted)]">
+        <div className="text-center space-y-3" role="status" aria-live="polite">
+          <div className="w-8 h-8 border-4 border-[var(--ricton-action)] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-[var(--ricton-ink-muted)]">
+            Session expired — redirecting to sign in…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const unread = notifications.some((n) => !n.isRead);
 
   const navList = (idPrefix: string) => (
@@ -464,8 +501,13 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
                 <User aria-hidden className="w-5 h-5 text-slate-300" />
               )}
             </div>
-            <div className="min-w-0">
-              <h2 className="font-bold text-sm text-white truncate leading-snug">{display.name}</h2>
+            <div className="min-w-0 flex-1">
+              <h2
+                title={display.name}
+                className="font-bold text-sm text-white truncate leading-snug"
+              >
+                {display.name}
+              </h2>
               <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-[var(--ricton-action)]/30 text-blue-300 uppercase tracking-wider mt-0.5">
                 {display.roleLabel}
               </span>

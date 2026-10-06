@@ -9,6 +9,12 @@ export interface ProviderSummary {
   yearsExperience: number;
   avatarUrl?: string;
   isVerified: boolean;
+  distanceKm?: number;
+  practiceAddress?: string;
+  practiceCity?: string;
+  practiceState?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface ProviderDetail extends ProviderSummary {
@@ -64,6 +70,24 @@ export function mapProviderSummary(value: unknown): ProviderSummary {
     yearsExperience: numberValue(provider.yearsExperience) ?? 0,
     ...(stringValue(provider.avatarUrl) ? { avatarUrl: stringValue(provider.avatarUrl) } : {}),
     isVerified: provider.isVerified === true,
+    ...(numberValue(provider.distanceKm, null) !== null
+      ? { distanceKm: numberValue(provider.distanceKm)! }
+      : {}),
+    ...(stringValue(provider.practiceAddress)
+      ? { practiceAddress: stringValue(provider.practiceAddress) }
+      : {}),
+    ...(stringValue(provider.practiceCity)
+      ? { practiceCity: stringValue(provider.practiceCity) }
+      : {}),
+    ...(stringValue(provider.practiceState)
+      ? { practiceState: stringValue(provider.practiceState) }
+      : {}),
+    ...(numberValue(provider.practiceLatitude, null) !== null
+      ? { latitude: numberValue(provider.practiceLatitude)! }
+      : {}),
+    ...(numberValue(provider.practiceLongitude, null) !== null
+      ? { longitude: numberValue(provider.practiceLongitude)! }
+      : {}),
   };
 }
 

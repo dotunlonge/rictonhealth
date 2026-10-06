@@ -66,11 +66,11 @@ Errors follow this shape:
 
 ### Base URLs
 
-| Environment | URL                                 |
-| ----------- | ----------------------------------- |
-| Local       | `http://localhost:8000`             |
-| Staging     | `https://api-staging.ricton.health` |
-| Production  | `https://api.ricton.health`         |
+| Environment | URL                                    |
+| ----------- | -------------------------------------- |
+| Local       | `http://localhost:8000`                |
+| Staging     | `https://api-staging.rictonhealth.com` |
+| Production  | `https://api.rictonhealth.com`         |
 
 ### Role-Based Access
 

@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api-client';
+import { api, clearStalePresenceCookies, getLastKnownUser, lastKnownDisplayName } from '@/lib/api-client';
 import { homeForRole, landingForUser } from '@/lib/role-home';
 import {
   triggerAppleAuth,
@@ -29,7 +29,15 @@ import {
 export default function LogInPage() {
   const router = useRouter();
   const { setUser } = useAppStore();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    // Prefill from the last signed-in person on this device (display info
+    // only, never auth). Lazy initializer avoids set-state-in-effect.
+    try {
+      return getLastKnownUser()?.email ?? '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   // Google popup flow gets its own busy flag: sharing the form-wide flag
@@ -43,6 +51,20 @@ export default function LogInPage() {
   const [oauthProvider, setOauthProvider] = useState<'GOOGLE' | 'APPLE' | null>(null);
   const [oauthToken, setOauthToken] = useState('');
   const user = useAppStore((state) => state.user);
+  const [lastUserLabel] = useState(() => {
+    try {
+      return lastKnownDisplayName();
+    } catch {
+      return '';
+    }
+  });
+  const [lastUserEmail] = useState(() => {
+    try {
+      return getLastKnownUser()?.email ?? '';
+    } catch {
+      return '';
+    }
+  });
 
   const canContinue = requires2FA
     ? totpCode.length === 6
@@ -66,6 +88,11 @@ export default function LogInPage() {
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
   // the form immediately and land on the correct dashboard for the role.
   useEffect(() => {
+    // Drop a stale presence cookie left over from a previous tab/session that
+    // has no refresh token behind it. Without this, middleware bounces /login
+    // straight to /dashboard and the app looks "already logged in" as a
+    // nameless Account/User with no real session.
+    clearStalePresenceCookies();
     const currentUser = useAppStore.getState().user;
     if (currentUser) {
       redirectAfterAuth(currentUser);
@@ -292,6 +319,13 @@ export default function LogInPage() {
           <AuthHeading id="login-heading" title="Your details" />
 
           {errorMsg && <AuthError message={errorMsg} />}
+
+          {!requires2FA && lastUserLabel && (
+            <p role="status" className="text-center text-xs font-semibold text-slate-500">
+              Welcome back{lastUserEmail ? `, ${lastUserLabel}` : ''} — sign in to continue
+              {lastUserEmail ? ` as ${lastUserEmail}` : ''}.
+            </p>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <AuthField

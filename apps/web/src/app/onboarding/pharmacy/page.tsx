@@ -203,9 +203,30 @@ export default function PharmacyOnboardingPage() {
   const handleSubmit = async () => {
     setSubmitting(true);
     setFormError('');
-    // Flat shape: the backend persists pharmacyName plus top-level bank fields.
+    // #144 end-to-end: send the full premises profile, not just the bank
+    // trio — the backend persists registration/address/hours/
+    // superintendent/services into pharmacyProfile columns.
     const res = await api.put('/users/me', {
       pharmacyName: formData.pharmacyName,
+      pharmacyRegistration: formData.registrationNumber,
+      pharmacyAddress: {
+        line1: formData.address,
+        city: formData.city,
+        state: formData.state,
+        supportEmail: formData.supportEmail,
+        supportPhone: formData.supportPhone,
+      },
+      operatingHours: {
+        is24Hours: formData.is24Hours,
+        openTime: formData.openTime,
+        closeTime: formData.closeTime,
+      },
+      superintendent: {
+        name: formData.superintendentName,
+        licenseNumber: formData.superintendentLicense,
+      },
+      pharmacyServices: formData.services,
+      pcnLicenseUploaded: formData.pcnLicenseUploaded,
       bankName: formData.bankName,
       accountNumber: formData.accountNumber,
       accountName: formData.accountName,

@@ -15,10 +15,13 @@ import adminRoutes from './routes/admin.routes';
 const app = express();
 const PORT = process.env.PORT_ADMIN || 3010;
 
-// Initialize Sentry
+// Initialize Sentry (#103: 0.1 traces sample in prod).
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV || 'development',
+  tracesSampleRate: Number(
+    process.env.SENTRY_TRACES_SAMPLE_RATE ?? (process.env.NODE_ENV === 'production' ? 0.1 : 1.0)
+  ),
 });
 
 // Middleware
@@ -67,6 +70,26 @@ app.get('/health', (_req: Request, res: Response) => {
   res.status(HTTP_STATUS.OK).json({
     status: 'ok',
     service: 'admin',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// #107 Force-update gate (public, no auth — mobile checks this pre-login on
+// launch and blocks when its build is below minSupported). Kept at the
+// service root next to /health on purpose: everything under /api/admin is
+// behind requireAuth, which would lock out logged-out / must-update clients.
+// The gateway exposes this at /api/version (kong.yml version-route with
+// strip_path so /api/version lands here). Tune via MIN_APP_VERSION_* /
+// LATEST_APP_VERSION (defaults mirror apps/mobile/app.json version).
+app.get('/version', (_req: Request, res: Response) => {
+  res.status(HTTP_STATUS.OK).json({
+    service: 'admin',
+    latest: process.env.LATEST_APP_VERSION ?? '1.0.0',
+    minSupported: {
+      ios: process.env.MIN_APP_VERSION_IOS ?? '1.0.0',
+      android: process.env.MIN_APP_VERSION_ANDROID ?? '1.0.0',
+      web: process.env.MIN_APP_VERSION_WEB ?? '1.0.0',
+    },
     timestamp: new Date().toISOString(),
   });
 });

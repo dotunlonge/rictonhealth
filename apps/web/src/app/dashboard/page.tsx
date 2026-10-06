@@ -361,8 +361,7 @@ export default function DashboardPage() {
   const isCurrentMonth = calYear === today.getFullYear() && calMonth === today.getMonth();
 
   const handleLogout = () => {
-    api.setToken(null);
-    api.clearToken();
+    useAppStore.getState().logout();
     router.push('/login');
   };
 

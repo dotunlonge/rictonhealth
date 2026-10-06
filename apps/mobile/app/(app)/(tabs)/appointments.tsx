@@ -163,14 +163,16 @@ export default function AppointmentsScreen() {
       void cancel(id, (text || '').trim() || 'Patient cancelled via mobile');
     const prompt = (Alert as unknown as { prompt?: unknown }).prompt;
     if (Platform.OS === 'ios' && typeof prompt === 'function') {
-      (Alert as unknown as {
-        prompt: (
-          title: string,
-          message: string,
-          buttons: Array<{ text: string; style?: string; onPress?: (t?: string) => void }>,
-          type?: string
-        ) => void;
-      }).prompt(
+      (
+        Alert as unknown as {
+          prompt: (
+            title: string,
+            message: string,
+            buttons: Array<{ text: string; style?: string; onPress?: (t?: string) => void }>,
+            type?: string
+          ) => void;
+        }
+      ).prompt(
         'Cancel appointment',
         'Tell the clinic why (optional)',
         [
@@ -223,9 +225,25 @@ export default function AppointmentsScreen() {
     }
   };
 
+  const payFromWallet = async (appointment: Appointment) => {
+    setPayBusyId(appointment.id);
+    setActionError(null);
+    try {
+      await bookingService.payAppointmentFromWallet(appointment.id);
+      resource.reload();
+    } catch (caught) {
+      setActionError(
+        caught instanceof Error ? caught.message : 'Wallet payment could not be completed.'
+      );
+    } finally {
+      setPayBusyId(null);
+    }
+  };
+
   const verifyPay = async (appointment: Appointment) => {
     const reference = payRefs[appointment.id];
-    if (!reference) return;    setPayBusyId(appointment.id);
+    if (!reference) return;
+    setPayBusyId(appointment.id);
     setActionError(null);
     try {
       const result = await bookingService.verifyAppointmentPayment(reference);
@@ -311,152 +329,164 @@ export default function AppointmentsScreen() {
           {allAppointments
             .filter((a) => statusFilter === 'ALL' || a.status === statusFilter)
             .map((appointment) => (
-            <View key={appointment.id} style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={styles.icon}>
-                  <Stethoscope color={colors.blue700} size={22} />
+              <View key={appointment.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={styles.icon}>
+                    <Stethoscope color={colors.blue700} size={22} />
+                  </View>
+                  <View style={styles.cardCopy}>
+                    <Text style={styles.provider}>{providerName(appointment)}</Text>
+                    <Text style={styles.specialty}>
+                      {appointment.provider?.providerProfile?.specialty ||
+                        appointment.type.replaceAll('_', ' ')}
+                    </Text>
+                  </View>
+                  <View style={styles.status}>
+                    <Text style={styles.statusText}>{appointment.status.replaceAll('_', ' ')}</Text>
+                  </View>
                 </View>
-                <View style={styles.cardCopy}>
-                  <Text style={styles.provider}>{providerName(appointment)}</Text>
-                  <Text style={styles.specialty}>
-                    {appointment.provider?.providerProfile?.specialty ||
-                      appointment.type.replaceAll('_', ' ')}
+                <View style={styles.rule} />
+                <View style={styles.detailRow}>
+                  <CalendarDays color={colors.slate600} size={17} />
+                  <Text style={styles.detailText}>
+                    {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(
+                      new Date(appointment.scheduledAt)
+                    )}
+                  </Text>
+                  <Clock3 color={colors.slate600} size={17} />
+                  <Text style={styles.detailText}>
+                    {new Intl.DateTimeFormat('en-NG', { timeStyle: 'short' }).format(
+                      new Date(appointment.scheduledAt)
+                    )}
                   </Text>
                 </View>
-                <View style={styles.status}>
-                  <Text style={styles.statusText}>{appointment.status.replaceAll('_', ' ')}</Text>
-                </View>
-              </View>
-              <View style={styles.rule} />
-              <View style={styles.detailRow}>
-                <CalendarDays color={colors.slate600} size={17} />
-                <Text style={styles.detailText}>
-                  {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(
-                    new Date(appointment.scheduledAt)
-                  )}
-                </Text>
-                <Clock3 color={colors.slate600} size={17} />
-                <Text style={styles.detailText}>
-                  {new Intl.DateTimeFormat('en-NG', { timeStyle: 'short' }).format(
-                    new Date(appointment.scheduledAt)
-                  )}
-                </Text>
-              </View>
-              {appointment.reason ? (
-                <Text style={styles.reason} numberOfLines={2}>
-                  {appointment.reason}
-                </Text>
-              ) : null}
-              {visitLocation(appointment) ? (
-                <Text testID="patient.appointments.location" style={styles.location}>
-                  📍 {visitLocation(appointment)}
-                </Text>
-              ) : null}
-              {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
-              {isPaid(appointment) ? (
-                <View testID="patient.appointments.paid" style={styles.paidRow}>
-                  <Text style={styles.paidText}>Paid</Text>
-                </View>
-              ) : consultationFee(appointment) > 0 &&
-                (appointment.status === 'PENDING' || appointment.status === 'CONFIRMED') ? (
-                <View style={styles.payRow}>
-                  <Text style={styles.feeText}>
-                    Fee: ₦{consultationFee(appointment).toLocaleString('en-NG')}
+                {appointment.reason ? (
+                  <Text style={styles.reason} numberOfLines={2}>
+                    {appointment.reason}
                   </Text>
-                  {payRefs[appointment.id] ? (
+                ) : null}
+                {visitLocation(appointment) ? (
+                  <Text testID="patient.appointments.location" style={styles.location}>
+                    📍 {visitLocation(appointment)}
+                  </Text>
+                ) : null}
+                {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
+                {isPaid(appointment) ? (
+                  <View testID="patient.appointments.paid" style={styles.paidRow}>
+                    <Text style={styles.paidText}>Paid</Text>
+                  </View>
+                ) : consultationFee(appointment) > 0 &&
+                  (appointment.status === 'PENDING' || appointment.status === 'CONFIRMED') ? (
+                  <View style={styles.payRow}>
+                    <Text style={styles.feeText}>
+                      Fee: ₦{consultationFee(appointment).toLocaleString('en-NG')}
+                    </Text>
+                    {payRefs[appointment.id] ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Verify appointment payment"
+                        testID="patient.appointments.verify"
+                        disabled={payBusyId === appointment.id}
+                        onPress={() => void verifyPay(appointment)}
+                        style={styles.cancelButton}
+                      >
+                        <Text style={styles.cancelButtonText}>
+                          {payBusyId === appointment.id ? 'Verifying…' : 'I have paid — verify'}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <View style={styles.payActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Pay consultation fee from wallet"
+                          testID="patient.appointments.pay-wallet"
+                          disabled={payBusyId === appointment.id}
+                          onPress={() => void payFromWallet(appointment)}
+                          style={styles.walletButton}
+                        >
+                          <Text style={styles.joinButtonText}>Use wallet</Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Pay consultation fee with Paystack"
+                          testID="patient.appointments.pay"
+                          disabled={payBusyId === appointment.id}
+                          onPress={() => void pay(appointment)}
+                          style={styles.joinButton}
+                        >
+                          <Text style={styles.joinButtonText}>
+                            {payBusyId === appointment.id ? 'Opening…' : 'Paystack'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+                {appointment.type === 'VIDEO' && appointment.status !== 'CANCELLED' ? (
+                  appointment.telemedicineRoom?.id ? (
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Verify appointment payment"
-                      testID="patient.appointments.verify"
-                      disabled={payBusyId === appointment.id}
-                      onPress={() => void verifyPay(appointment)}
-                      style={styles.cancelButton}
-                    >
-                      <Text style={styles.cancelButtonText}>
-                        {payBusyId === appointment.id ? 'Verifying…' : 'I have paid — verify'}
-                      </Text>
-                    </Pressable>
-                  ) : (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Pay consultation fee"
-                      testID="patient.appointments.pay"
-                      disabled={payBusyId === appointment.id}
-                      onPress={() => void pay(appointment)}
+                      accessibilityLabel="Join video consultation"
+                      testID="patient.appointments.joinVideo"
+                      onPress={() => {
+                        const roomId = appointment.telemedicineRoom?.id;
+                        if (!roomId) return;
+                        router.push({
+                          pathname: '/telemedicine/[roomId]' as any,
+                          params: {
+                            roomId,
+                            scheduledAt: appointment.scheduledAt,
+                            durationMinutes: String(appointment.durationMinutes || 30),
+                          },
+                        });
+                      }}
                       style={styles.joinButton}
                     >
-                      <Text style={styles.joinButtonText}>
-                        {payBusyId === appointment.id ? 'Opening…' : 'Pay fee'}
-                      </Text>
+                      <Video color={colors.white} size={16} />
+                      <Text style={styles.joinButtonText}>Join Video Visit</Text>
                     </Pressable>
-                  )}
-                </View>
-              ) : null}
-              {appointment.type === 'VIDEO' && appointment.status !== 'CANCELLED' ? (
-                appointment.telemedicineRoom?.id ? (
+                  ) : (
+                    <Text style={styles.location}>
+                      Room not ready yet — the video link appears here once the clinic opens it.
+                    </Text>
+                  )
+                ) : null}
+                {appointment.status === 'PENDING' || appointment.status === 'CONFIRMED' ? (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="Join video consultation"
-                    testID="patient.appointments.joinVideo"
+                    accessibilityLabel="Cancel appointment"
+                    testID="patient.appointments.cancel"
+                    disabled={cancellingId === appointment.id}
+                    onPress={() => askCancelReasonAndCancel(appointment.id)}
+                    style={styles.cancelButton}
+                  >
+                    <Text style={styles.cancelButtonText}>
+                      {cancellingId === appointment.id ? 'Cancelling…' : 'Cancel'}
+                    </Text>
+                  </Pressable>
+                ) : null}
+                {(appointment.status === 'PENDING' || appointment.status === 'CONFIRMED') &&
+                appointment.provider?.id ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Reschedule appointment"
+                    testID="patient.appointments.reschedule"
                     onPress={() => {
-                      const roomId = appointment.telemedicineRoom?.id;
-                      if (!roomId) return;
                       router.push({
-                        pathname: '/telemedicine/[roomId]' as any,
+                        pathname: '/booking/[providerId]' as any,
                         params: {
-                          roomId,
-                          scheduledAt: appointment.scheduledAt,
-                          durationMinutes: String(appointment.durationMinutes || 30),
+                          providerId: appointment.provider!.id!,
+                          rescheduleId: appointment.id,
                         },
                       });
                     }}
-                    style={styles.joinButton}
+                    style={styles.cancelButton}
                   >
-                    <Video color={colors.white} size={16} />
-                    <Text style={styles.joinButtonText}>Join Video Visit</Text>
+                    <Text style={styles.cancelButtonText}>Reschedule</Text>
                   </Pressable>
-                ) : (
-                  <Text style={styles.location}>
-                    Room not ready yet — the video link appears here once the clinic opens it.
-                  </Text>
-                )
-              ) : null}
-              {appointment.status === 'PENDING' || appointment.status === 'CONFIRMED' ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Cancel appointment"
-                  testID="patient.appointments.cancel"
-                  disabled={cancellingId === appointment.id}
-                  onPress={() => askCancelReasonAndCancel(appointment.id)}
-                  style={styles.cancelButton}
-                >
-                  <Text style={styles.cancelButtonText}>
-                    {cancellingId === appointment.id ? 'Cancelling…' : 'Cancel'}
-                  </Text>
-                </Pressable>
-              ) : null}
-              {(appointment.status === 'PENDING' || appointment.status === 'CONFIRMED') &&
-              appointment.provider?.id ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Reschedule appointment"
-                  testID="patient.appointments.reschedule"
-                  onPress={() => {
-                    router.push({
-                      pathname: '/booking/[providerId]' as any,
-                      params: {
-                        providerId: appointment.provider!.id!,
-                        rescheduleId: appointment.id,
-                      },
-                    });
-                  }}
-                  style={styles.cancelButton}
-                >
-                  <Text style={styles.cancelButtonText}>Reschedule</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ))}
+                ) : null}
+              </View>
+            ))}
           {nextOffset !== null ? (
             <Pressable
               accessibilityRole="button"
@@ -466,9 +496,7 @@ export default function AppointmentsScreen() {
               onPress={() => void loadMore()}
               style={styles.cancelButton}
             >
-              <Text style={styles.cancelButtonText}>
-                {loadingMore ? 'Loading…' : 'Load more'}
-              </Text>
+              <Text style={styles.cancelButtonText}>{loadingMore ? 'Loading…' : 'Load more'}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -567,6 +595,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   payRow: { gap: spacing[2], marginTop: spacing[2] },
+  payActions: { flexDirection: 'row', gap: spacing[2] },
+  walletButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.slate900,
+    borderRadius: radii.md,
+    paddingVertical: spacing[2],
+    paddingHorizontal: spacing[3],
+    marginTop: spacing[2],
+  },
   feeText: { ...typography.caption, color: colors.slate700 },
   cancelButton: {
     flexDirection: 'row',

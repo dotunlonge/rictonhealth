@@ -139,6 +139,16 @@ describe('security', () => {
     await waitFor(() => expect(acct.twoFactorVerify).toHaveBeenCalledWith('123456'));
     expect(await screen.findByTestId('account.2fa-on')).toBeTruthy();
   });
+
+  it('disables 2FA with a fresh authenticator code', async () => {
+    acct.twoFactorStatus.mockResolvedValue({ twoFactorEnabled: true });
+    acct.twoFactorDisable.mockResolvedValue({ twoFactorEnabled: false });
+    await render(<SecurityScreen />);
+    expect(await screen.findByTestId('account.2fa-on')).toBeTruthy();
+    await fireEvent.changeText(screen.getByTestId('account.2fa-disable-code'), '654321');
+    await fireEvent.press(screen.getByTestId('account.2fa-disable'));
+    await waitFor(() => expect(acct.twoFactorDisable).toHaveBeenCalledWith('654321'));
+  });
 });
 
 describe('account hub sessions', () => {

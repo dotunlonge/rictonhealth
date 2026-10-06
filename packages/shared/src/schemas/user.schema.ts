@@ -89,6 +89,14 @@ export const UpdateProfileInputSchema = registry.register(
     title: z.string().optional(),
     licenseNumber: z.string().optional(),
     pharmacyName: z.string().optional(),
+    // #144 Pharmacy onboarding: full premises profile (persisted to
+    // pharmacy_profiles columns; all optional so partial saves stay valid).
+    pharmacyRegistration: z.string().optional(),
+    pharmacyAddress: z.union([z.string(), z.record(z.unknown())]).optional(),
+    operatingHours: z.record(z.unknown()).optional(),
+    superintendent: z.record(z.unknown()).optional(),
+    pharmacyServices: z.array(z.string()).optional(),
+    pcnLicenseUploaded: z.boolean().optional(),
     // Hospital Onboarding fields
     hospitalName: z.string().optional(),
     registrationNumber: z.string().optional(),
@@ -147,8 +155,23 @@ export const GetProvidersQuerySchema = registry.register(
     specialty: z.string().optional(),
     name: z.string().optional(),
     search: z.string().optional(),
+    latitude: z.string().optional(),
+    longitude: z.string().optional(),
+    radiusKm: z.string().optional(),
     limit: z.string().optional(),
     offset: z.string().optional(),
+  })
+);
+
+export const UpdatePracticeLocationSchema = registry.register(
+  'UpdatePracticeLocation',
+  z.object({
+    practiceAddress: z.string().trim().min(5).max(300),
+    practiceCity: z.string().trim().min(2).max(100),
+    practiceState: z.string().trim().min(2).max(100),
+    latitude: z.number().finite().min(-90).max(90),
+    longitude: z.number().finite().min(-180).max(180),
+    visible: z.boolean().default(true),
   })
 );
 

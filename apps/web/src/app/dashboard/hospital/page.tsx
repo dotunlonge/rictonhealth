@@ -108,7 +108,7 @@ function buildMonthlyChart(trend: any[]): { month: string; value: number }[] {
   }
   return Object.entries(byMonth).map(([month, amount]) => ({
     month,
-    value: Math.min(Math.max(Math.round(amount / 1000), 10), 140),
+    value: Math.min(Math.max(Math.round(amount / 1000), 4), 140),
   }));
 }
 
@@ -116,7 +116,6 @@ export default function ElementHospitalHomePage() {
   const router = useRouter();
   const [activeNav, setActiveNav] = useState('Home');
   const [monthOffset, setMonthOffset] = useState(0);
-  const [patientOverviewRange, setPatientOverviewRange] = useState('Day');
   const [revenueRange, setRevenueRange] = useState('Month');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -130,10 +129,7 @@ export default function ElementHospitalHomePage() {
   }>({ totalDoctors: 0, totalAppointments: 0, activePatients: 0 });
   const [appointmentsList, setAppointmentsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
-  const [walletData, setWalletData] = useState<{ balance: number; weekly: number }>({
-    balance: 0,
-    weekly: 0,
-  });
+  const [revenueTotal, setRevenueTotal] = useState(0);
   const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
 
@@ -197,23 +193,12 @@ export default function ElementHospitalHomePage() {
         setDoctorsList(provs);
       }
 
-      // 5. Wallet
-      const walletRes = await api.get('/wallets/me');
-      if (walletRes.success && walletRes.data) {
-        const bal = Number(walletRes.data.balance) || 0;
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-        const txs = walletRes.data.transactions || [];
-        const weekly = txs
-          .filter((tx: any) => tx.type === 'CREDIT' && new Date(tx.createdAt) >= oneWeekAgo)
-          .reduce((sum: number, tx: any) => sum + Number(tx.amount || 0), 0);
-        setWalletData({ balance: bal, weekly });
-      }
-
-      // 6. Revenue Trend
+      // Facility revenue is analytics scoped by the authenticated hospital,
+      // never the individual administrator's wallet.
       const revRes = await api.get('/analytics/revenue');
       if (revRes.success && revRes.data?.trend) {
         setRevenueTrend(revRes.data.trend);
+        setRevenueTotal(Number(revRes.data.totalRevenue) || 0);
       }
 
       // 7. Notifications
@@ -282,68 +267,18 @@ export default function ElementHospitalHomePage() {
               </article>
             </section>
 
-            {/* Patient Overview Chart Section */}
+            {/* Do not invent demographic data: the current API provides a
+                facility-scoped patient total, not an age breakdown. */}
             <section className="bg-white rounded-3xl p-7 shadow-xs border border-slate-100 space-y-6">
-              <div className="flex items-center justify-between">
+              <div>
                 <div>
                   <h2 className="font-bold text-lg text-slate-900">Patient Overview</h2>
-                  <div className="flex items-center gap-4 text-xs font-semibold text-slate-500 mt-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-green-500" /> Child
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Adult
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-600" /> Elderly
-                    </span>
-                  </div>
+                  <p className="text-sm text-slate-500 mt-1">Active patients currently attributed to this facility.</p>
                 </div>
-                <select
-                  value={patientOverviewRange}
-                  onChange={(e) => setPatientOverviewRange(e.target.value)}
-                  className="px-4 py-2 bg-[#1877F2] text-white rounded-full text-xs font-bold border-none outline-none cursor-pointer"
-                >
-                  <option value="Day">Day</option>
-                  <option value="Week">Week</option>
-                  <option value="Month">Month</option>
-                </select>
               </div>
-
-              {/* Multi-bar Chart Container */}
-              <div className="h-56 flex items-end justify-between px-4 pb-2 border-b border-slate-200 gap-2">
-                {[
-                  '4 Jul',
-                  '5 Jul',
-                  '6 Jul',
-                  '7 Jul',
-                  '8 Jul',
-                  '9 Jul',
-                  '10 Jul',
-                  '11 Jul',
-                  '12 Jul',
-                  '13 Jul',
-                ].map((dayLabel, i) => (
-                  <div key={dayLabel} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="flex items-end gap-1 h-44">
-                      <div
-                        className="w-2 bg-green-500 rounded-t-xs"
-                        style={{ height: `${((i * 13 + 30) % 110) + 20}px` }}
-                      />
-                      <div
-                        className="w-2 bg-amber-400 rounded-t-xs"
-                        style={{ height: `${((i * 19 + 40) % 130) + 15}px` }}
-                      />
-                      <div
-                        className="w-2 bg-red-600 rounded-t-xs"
-                        style={{ height: `${((i * 17 + 25) % 90) + 10}px` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-semibold text-slate-500 mt-2">
-                      {dayLabel}
-                    </span>
-                  </div>
-                ))}
+              <div className="rounded-2xl bg-slate-50 p-8 text-center">
+                <p className="text-4xl font-extrabold text-slate-900">{hospitalStats.activePatients}</p>
+                <p className="mt-2 text-sm text-slate-500">Age distribution will appear here when clinical demographics reporting is available.</p>
               </div>
             </section>
 
@@ -378,15 +313,7 @@ export default function ElementHospitalHomePage() {
                         </span>
                       </div>
                     ))
-                  : ['Jan', 'Feb', 'March', 'April', 'May', 'June', 'July', 'Aug'].map((m, idx) => (
-                      <div key={m} className="flex flex-col items-center justify-end h-full">
-                        <div
-                          className="w-10 bg-[#1877F2] rounded-t-xl"
-                          style={{ height: `${[20, 30, 45, 60, 40, 75, 90, 50][idx]}px` }}
-                        />
-                        <span className="mt-3 text-xs font-semibold text-slate-600">{m}</span>
-                      </div>
-                    ))}
+                  : <p className="w-full self-center text-center text-sm text-slate-500">No facility revenue has been recorded for this period.</p>}
               </div>
 
               {/* Earnings Summary Footer */}
@@ -397,20 +324,20 @@ export default function ElementHospitalHomePage() {
                   </span>
                   <div>
                     <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                      Weekly earning
+                      Facility revenue
                     </p>
                     <p className="text-2xl font-extrabold text-slate-900">
-                      {walletData.weekly.toLocaleString()}
+                      ₦{revenueTotal.toLocaleString()}
                     </p>
                   </div>
                 </div>
 
                 <div>
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    Total earning
+                    Reporting scope
                   </p>
                   <p className="text-2xl font-extrabold text-slate-900">
-                    {walletData.balance.toLocaleString()}
+                    This facility
                   </p>
                 </div>
               </div>

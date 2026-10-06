@@ -293,8 +293,42 @@ export const updateCurrentUser = async (req: Request, res: Response, next: NextF
       }
       await invalidateCache('providers*');
     } else if (role === UserRole.PHARMACIST) {
+      // #144 Pharmacy onboarding: persist the full premises profile, not
+      // just pharmacyName. Columns address/operatingHours/documents/
+      // bankDetails all exist on pharmacy_profiles; bank trio also mirrors
+      // to users.bankDetails via the shared sync below.
+      const bankTrio =
+        updateData.bankName || updateData.accountNumber || updateData.accountName
+          ? {
+              bankName: updateData.bankName,
+              bankCode: updateData.bankCode,
+              accountNumber: updateData.accountNumber,
+              accountName: updateData.accountName,
+            }
+          : undefined;
+      const documents =
+        updateData.superintendent ||
+        updateData.pharmacyServices ||
+        updateData.pcnLicenseUploaded !== undefined
+          ? {
+              ...(updateData.superintendent && typeof updateData.superintendent === 'object'
+                ? { superintendent: updateData.superintendent }
+                : {}),
+              ...(Array.isArray(updateData.pharmacyServices)
+                ? { services: updateData.pharmacyServices }
+                : {}),
+              ...(updateData.pcnLicenseUploaded !== undefined
+                ? { pcnLicenseUploaded: Boolean(updateData.pcnLicenseUploaded) }
+                : {}),
+            }
+          : undefined;
       const data: Record<string, unknown> = {
         pharmacyName: updateData.pharmacyName,
+        licenseNumber: updateData.pharmacyRegistration,
+        address: updateData.pharmacyAddress,
+        operatingHours: updateData.operatingHours,
+        documents,
+        ...(bankTrio ? { bankDetails: bankTrio } : {}),
       };
       Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
       // Pharmacists never get a profile row at registration (password or
@@ -528,18 +562,46 @@ export const getAvatarUploadUrl = async (req: Request, res: Response, next: Next
 
 export const getProviders = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { specialty, name, search, limit = 20, offset = 0 } = req.query;
+    const actor = req.user as JwtPayload | undefined;
+    const {
+      specialty,
+      name,
+      search,
+      limit = 20,
+      offset = 0,
+      latitude,
+      longitude,
+      radiusKm,
+    } = req.query;
     const take = Math.min(Math.max(Number(limit) || 20, 1), 50);
     const skip = Math.max(Number(offset) || 0, 0);
     const searchTerm = (name || search) as string | undefined;
+    const patientLatitude = latitude === undefined ? undefined : Number(latitude);
+    const patientLongitude = longitude === undefined ? undefined : Number(longitude);
+    const hasCoordinates = Number.isFinite(patientLatitude) && Number.isFinite(patientLongitude);
+    if ((latitude !== undefined || longitude !== undefined) && !hasCoordinates) {
+      throw new ValidationError('Latitude and longitude must both be valid coordinates');
+    }
+    const radius = Math.min(Math.max(Number(radiusKm) || 25, 1), 200);
 
     // No runtime auto-seeding: demo doctors are dev fixtures only, seeded
     // explicitly via `prisma db seed`. An empty directory returns empty —
     // it must never fabricate providers, in any environment.
 
     const isProd = process.env.NODE_ENV === 'production';
+    let hospitalId: string | undefined;
+    if (actor?.role === UserRole.HOSPITAL_ADMIN) {
+      const admin = await prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { hospitalId: true },
+      });
+      if (!admin?.hospitalId)
+        throw new ForbiddenError('Hospital administrator is not assigned to a hospital');
+      hospitalId = admin.hospitalId;
+    }
     const where: Prisma.ProviderProfileWhereInput = {
       ...(isProd ? { isVerified: true } : {}),
+      ...(hospitalId ? { hospitalId } : {}),
       ...(specialty && { specialty: { equals: String(specialty), mode: 'insensitive' } }),
       ...(searchTerm && {
         OR: [
@@ -557,6 +619,8 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
       searchTerm,
       limit as string | undefined,
       offset as string | undefined,
+      hospitalId,
+      hasCoordinates ? `${patientLatitude},${patientLongitude},${radius}` : undefined,
     ]);
     const cached = await getCached<{ providers: any[]; total: number }>(cacheKey, {
       ttlSeconds: 300,
@@ -569,19 +633,81 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
     const [providers, total] = await Promise.all([
       prisma.providerProfile.findMany({
         where,
-        take,
-        skip,
+        // Geospatial ordering is computed below without requiring PostGIS.
+        take: hasCoordinates ? 200 : take,
+        skip: hasCoordinates ? 0 : skip,
         include: { hospital: true },
       }),
       prisma.providerProfile.count({ where }),
     ]);
 
-    const result = { providers, total, limit: take, offset: skip };
+    const toNumber = (value: unknown) => Number(value);
+    const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+      const radians = (value: number) => (value * Math.PI) / 180;
+      const dLat = radians(lat2 - lat1);
+      const dLng = radians(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const nearbyProviders = hasCoordinates
+      ? providers
+          .filter(
+            (provider) =>
+              provider.practiceLocationVisible &&
+              provider.practiceLatitude !== null &&
+              provider.practiceLongitude !== null
+          )
+          .map((provider) => ({
+            ...provider,
+            distanceKm: Number(
+              distanceKm(
+                patientLatitude!,
+                patientLongitude!,
+                toNumber(provider.practiceLatitude),
+                toNumber(provider.practiceLongitude)
+              ).toFixed(1)
+            ),
+          }))
+          .filter((provider) => provider.distanceKm <= radius)
+          .sort((a, b) => a.distanceKm - b.distanceKm)
+          .slice(skip, skip + take)
+      : providers;
+    const result = {
+      providers: nearbyProviders,
+      total: hasCoordinates ? nearbyProviders.length : total,
+      limit: take,
+      offset: skip,
+      ...(hasCoordinates ? { radiusKm: radius } : {}),
+    };
     if (result.providers.length > 0) {
       await setCached(cacheKey, result, { ttlSeconds: 300 });
     }
 
     res.status(200).json(successResponse(result));
+  } catch (error: unknown) {
+    next(error);
+  }
+};
+
+export const updatePracticeLocation = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req.user as JwtPayload).userId;
+    const { practiceAddress, practiceCity, practiceState, latitude, longitude, visible } = req.body;
+    const profile = await prisma.providerProfile.update({
+      where: { userId },
+      data: {
+        practiceAddress,
+        practiceCity,
+        practiceState,
+        practiceLatitude: new Prisma.Decimal(latitude),
+        practiceLongitude: new Prisma.Decimal(longitude),
+        practiceLocationVisible: visible,
+      },
+    });
+    await invalidateCache('providers*');
+    res.status(200).json(successResponse(profile));
   } catch (error: unknown) {
     next(error);
   }
@@ -879,13 +1005,125 @@ export const updateConsent = async (req: Request, res: Response, next: NextFunct
 };
 
 /**
+ * #L3 Erasure worker (inline + cron-able, BullMQ-agnostic).
+ * Anonymizes PII for a user with no legal hold:
+ * - users: email -> deleted_{id}@deleted.ricton.health, phone -> null,
+ *   bankDetails -> null, tokenVersion +1, status DEACTIVATED
+ * - refresh_tokens: revoke all active (password-reset pattern)
+ * - patient_profiles / provider_profiles: firstName/lastName -> 'Deleted'
+ * - pharmacy_profiles: pharmacyName -> 'Deleted', bankDetails -> null
+ * - erasure_requests: status -> DONE
+ * Best-effort per row: throws on failure so callers can leave PENDING (retryable).
+ */
+const erasureEmailFor = (userId: string) => `deleted_${userId}@deleted.ricton.health`;
+
+const hasErasureLegalHold = async (userId: string): Promise<boolean> => {
+  try {
+    const signedCount = await prisma.prescription.count({
+      where: {
+        status: 'SIGNED' as never,
+        OR: [{ patientId: userId }, { providerId: userId }],
+      },
+    });
+    return signedCount > 0;
+  } catch {
+    return false;
+  }
+};
+
+const anonymizeErasedUser = async (userId: string): Promise<void> => {
+  const anonEmail = erasureEmailFor(userId);
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      email: anonEmail,
+      phone: null,
+      bankDetails: Prisma.DbNull,
+      tokenVersion: { increment: 1 },
+      status: UserStatus.DEACTIVATED,
+    },
+  });
+  // Reuse password-reset session-kill pattern: bump above invalidates access
+  // tokens, this revokes refresh tokens so no new access tokens can be minted.
+  try {
+    await prisma.refreshToken.updateMany({
+      where: { userId, isActive: true },
+      data: {
+        isActive: false,
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokeReason: 'ERASURE',
+      },
+    });
+  } catch {
+    // best-effort: tokenVersion bump above already invalidates access tokens
+  }
+  // updateMany (not update) so missing profile rows don't throw P2025.
+  try {
+    await prisma.patientProfile.updateMany({
+      where: { userId },
+      data: { firstName: 'Deleted', lastName: 'Deleted' },
+    });
+  } catch {
+    // best-effort per profile table
+  }
+  try {
+    await prisma.providerProfile.updateMany({
+      where: { userId },
+      data: { firstName: 'Deleted', lastName: 'Deleted' },
+    });
+  } catch {
+    // best-effort per profile table
+  }
+  try {
+    await prisma.pharmacyProfile.updateMany({
+      where: { userId },
+      data: { pharmacyName: 'Deleted', bankDetails: Prisma.DbNull },
+    });
+  } catch {
+    // best-effort per profile table
+  }
+  await (prisma as any).erasureRequest.update({
+    where: { userId },
+    data: { status: 'DONE' },
+  });
+};
+
+/**
+ * BullMQ-agnostic cron entrypoint: picks PENDING rows and runs the same
+ * anonymize routine. Returns a summary. Legal-hold rows are skipped
+ * (left PENDING — the HTTP path rejects them with 409 and never queues,
+ * but a hold may appear between queueing and processing).
+ */
+export const processErasureRequests = async (limit = 50) => {
+  const pending = await (prisma as any).erasureRequest.findMany({
+    where: { status: 'PENDING' },
+    take: Math.min(Math.max(limit, 1), 200),
+    select: { userId: true },
+  });
+  const summary = { total: pending.length, done: 0, skippedLegalHold: 0, failed: 0 };
+  for (const row of pending as Array<{ userId: string }>) {
+    try {
+      if (await hasErasureLegalHold(row.userId)) {
+        summary.skippedLegalHold += 1;
+        continue;
+      }
+      await anonymizeErasedUser(row.userId);
+      summary.done += 1;
+    } catch {
+      summary.failed += 1;
+    }
+  }
+  return summary;
+};
+
+/**
  * #L3 Erasure request: DELETE /users/me.
  * Legal hold: users with SIGNED prescriptions are rejected with 409
- * (records retained 7y). Otherwise a PENDING ErasureRequest row is filed
- * and the account is DEACTIVATED.
- * TODO(worker): a back-office worker must pick up PENDING rows and anonymize
- * PII (email -> deleted_{id}@example.com, phone -> null); until then the
- * request stays queued and the account stays deactivated.
+ * (records retained 7y). Otherwise a PENDING ErasureRequest row is filed,
+ * the account is DEACTIVATED, and anonymization runs immediately inline
+ * (best-effort). On anonymize failure the request stays PENDING +
+ * DEACTIVATED so processErasureRequests() can retry it.
  */
 export const requestErasure = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -917,7 +1155,7 @@ export const requestErasure = async (req: Request, res: Response, next: NextFunc
       );
     }
 
-    let erasure: unknown;
+    let erasure: any;
     try {
       erasure = await (prisma as any).erasureRequest.create({
         data: { userId, status: 'PENDING' },
@@ -937,7 +1175,21 @@ export const requestErasure = async (req: Request, res: Response, next: NextFunc
       data: { status: UserStatus.DEACTIVATED },
     });
 
-    res.status(200).json(successResponse(erasure));
+    // Inline worker: anonymize immediately (no legal hold — checked above).
+    // Best-effort: on failure leave PENDING + DEACTIVATED for retry via
+    // processErasureRequests().
+    try {
+      await anonymizeErasedUser(userId);
+      erasure = await (prisma as any).erasureRequest.findUnique({ where: { userId } });
+      res.status(200).json(successResponse({ ...erasure, anonymized: true }));
+    } catch {
+      erasure = await (prisma as any).erasureRequest.findUnique({ where: { userId } });
+      res
+        .status(200)
+        .json(
+          successResponse({ ...(erasure ?? { userId, status: 'PENDING' }), anonymized: false })
+        );
+    }
   } catch (error: unknown) {
     next(error);
   }

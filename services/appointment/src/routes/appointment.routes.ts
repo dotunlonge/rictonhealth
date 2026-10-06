@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireRole, requireActiveStatus } from '@ricton/auth-middleware';
 import * as appointmentController from '../controllers/appointment.controller';
+import * as referralController from '../controllers/referral.controller';
 import {
   validateRequest,
   validateQuery,
@@ -67,6 +68,15 @@ router.delete(
   requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
   appointmentController.deleteLeave
 );
+
+// #F2 Referrals: provider-to-provider handoff (must precede /:id)
+router.post(
+  '/referrals',
+  requireRole('CONSULTANT'),
+  requireActiveStatus,
+  referralController.createReferral
+);
+router.get('/referrals', referralController.listReferrals);
 
 // List appointments
 router.get('/', validateQuery(GetAppointmentsQuerySchema), appointmentController.getAppointments);

@@ -47,6 +47,22 @@ function normalizeProvider(raw: RawProvider): Provider {
   };
 }
 
+// Canonical specialty list — mirrors apps/web/src/lib/specialties.ts.
+// Tapping a chip sets the search query, which passes through as the
+// `specialty` filter in bookingService.listProviders.
+export const SPECIALTIES = [
+  'General Practice',
+  'Cardiology',
+  'Dermatology',
+  'Pediatrics',
+  'Psychiatry',
+  'Orthopedics',
+  'Gynecology',
+  'Neurology',
+  'Ophthalmology',
+  'ENT',
+] as const;
+
 export default function DiscoverScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -98,6 +114,24 @@ export default function DiscoverScreen() {
         testID="booking.search"
         value={search}
       />
+      <View style={styles.chips}>
+        {SPECIALTIES.map((specialty) => {
+          const active = search === specialty;
+          return (
+            <Pressable
+              key={specialty}
+              accessibilityRole="button"
+              accessibilityLabel={`Filter by ${specialty}`}
+              accessibilityState={{ selected: active }}
+              onPress={() => setSearch(active ? '' : specialty)}
+              style={[styles.chip, active && styles.chipActive]}
+              testID={`booking.specialty-${specialty}`}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>{specialty}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       {loading && providers === null ? (
         <View style={styles.loading}>
           <ActivityIndicator color={colors.blue600} />
@@ -144,6 +178,18 @@ const styles = StyleSheet.create({
   content: { gap: spacing[5] },
   loading: { paddingVertical: spacing[10], alignItems: 'center', gap: spacing[3] },
   loadingText: { ...typography.body, color: colors.slate600 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing[2] },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.slate200,
+    borderRadius: radii.md,
+    backgroundColor: colors.white,
+    paddingVertical: spacing[1],
+    paddingHorizontal: spacing[3],
+  },
+  chipActive: { borderColor: colors.blue600, backgroundColor: colors.blue50 },
+  chipText: { ...typography.caption, color: colors.slate600 },
+  chipTextActive: { color: colors.blue700 },
   list: { gap: spacing[3] },
   card: {
     ...cardShadow,

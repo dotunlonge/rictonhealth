@@ -47,30 +47,122 @@ export interface RequestOptions extends RequestInit {
   skipRefreshRetry?: boolean;
 }
 
-// Tab-scoped storage for the refresh token. Persistent localStorage is intentionally
-// prohibited because it extends the theft window after a browser restart.
+// Refresh-token storage.
+// Access token stays in memory only. The refresh token is persisted to
+// localStorage (with a sessionStorage mirror for fast tab-local reads) so a
+// real session survives new tabs + browser restarts. This is what lets us
+// "remember the last logged-in person" — without it every new tab looked
+// logged-out while the `ricton_session` presence cookie still said logged-in,
+// and middleware bounced /login straight to a dashboard with no user
+// ("Account" / "Welcome back, User!").
 const STORAGE_REFRESH_KEY = 'ricton_session_rt';
+const STORAGE_REFRESH_LOCAL_KEY = 'ricton_refresh_token';
+// Non-sensitive display snapshot only (name/email/role/avatar). Never tokens.
+// Used to prefill the login form ("Welcome back, X") — never as auth proof.
+const STORAGE_LAST_USER_KEY = 'ricton_last_user';
 
-function getStoredRefreshToken(): string | null {
+export interface LastKnownUser {
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  role?: string;
+  avatarUrl?: string;
+}
+
+function safeGet(key: string, storage: 'local' | 'session'): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return sessionStorage.getItem(STORAGE_REFRESH_KEY);
+    const store = storage === 'local' ? window.localStorage : window.sessionStorage;
+    return store.getItem(key);
   } catch {
     return null;
   }
 }
 
-function setStoredRefreshToken(token: string | null) {
+function safeSet(key: string, value: string | null, storage: 'local' | 'session') {
   if (typeof window === 'undefined') return;
   try {
-    if (token) {
-      sessionStorage.setItem(STORAGE_REFRESH_KEY, token);
-    } else {
-      sessionStorage.removeItem(STORAGE_REFRESH_KEY);
-    }
+    const store = storage === 'local' ? window.localStorage : window.sessionStorage;
+    if (value) store.setItem(key, value);
+    else store.removeItem(key);
   } catch {
     // ignore storage errors
   }
+}
+
+function getStoredRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  // sessionStorage first (tab-local), then persistent localStorage.
+  return (
+    safeGet(STORAGE_REFRESH_KEY, 'session') ??
+    safeGet(STORAGE_REFRESH_KEY, 'local') ??
+    safeGet(STORAGE_REFRESH_LOCAL_KEY, 'local')
+  );
+}
+
+function setStoredRefreshToken(token: string | null) {
+  if (typeof window === 'undefined') return;
+  safeSet(STORAGE_REFRESH_KEY, token, 'session');
+  safeSet(STORAGE_REFRESH_KEY, token, 'local');
+  safeSet(STORAGE_REFRESH_LOCAL_KEY, token, 'local');
+  // Legacy keys from earlier builds.
+  safeSet('ricton_refresh_token', token, 'local');
+  safeSet('ricton_refresh_token', token, 'session');
+}
+
+export function getLastKnownUser(): LastKnownUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw =
+      window.localStorage.getItem(STORAGE_LAST_USER_KEY) ??
+      window.sessionStorage.getItem(STORAGE_LAST_USER_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LastKnownUser;
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function setLastKnownUser(user: LastKnownUser | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!user) {
+      window.localStorage.removeItem(STORAGE_LAST_USER_KEY);
+      window.sessionStorage.removeItem(STORAGE_LAST_USER_KEY);
+      return;
+    }
+    const snapshot: LastKnownUser = {
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      name: user.name,
+      role: user.role,
+      avatarUrl: user.avatarUrl,
+    };
+    const raw = JSON.stringify(snapshot);
+    window.localStorage.setItem(STORAGE_LAST_USER_KEY, raw);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function lastKnownDisplayName(): string {
+  const last = getLastKnownUser();
+  if (!last) return '';
+  const full = [last.firstName, last.lastName].filter(Boolean).join(' ').trim();
+  if (full) return full;
+  if (last.name) return last.name;
+  if (last.email?.includes('@')) {
+    const raw = last.email
+      .split('@')[0]
+      .replace(/[._-]+/g, ' ')
+      .trim();
+    if (raw) return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+  return '';
 }
 
 let accessToken: string | null = null;
@@ -113,6 +205,33 @@ export function hasSessionHints(): boolean {
     .some((part) => part === 'ricton_session=1');
 }
 
+export function hasStoredRefreshToken(): boolean {
+  return Boolean(getStoredRefreshToken());
+}
+
+/**
+ * The phantom-login fix.
+ *
+ * Presence cookies (`ricton_session`) are shared across tabs while the old
+ * refresh token lived in tab-scoped sessionStorage. A new tab therefore had
+ * the cookie but no credential: middleware bounced /login -> /dashboard and
+ * the dashboard rendered with no user ("Account" / "Welcome back, User!").
+ * Call this on app/login mount: if there is no refresh token to back the
+ * cookie, drop the cookie so the user sees a real login form.
+ */
+export function clearStalePresenceCookies(): boolean {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return false;
+  if (hasStoredRefreshToken()) return false;
+  if (!hasSessionHints()) return false;
+  try {
+    document.cookie = `ricton_session=; path=/; max-age=0; SameSite=Lax`;
+    document.cookie = `ricton_role=; path=/; max-age=0; SameSite=Lax`;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 class ApiClient {
   public setToken(token: string | null, refreshToken?: string | null, role?: string | null) {
     accessToken = token;
@@ -139,12 +258,16 @@ class ApiClient {
     setStoredRefreshToken(null);
     setPresenceCookies(null);
     if (typeof window !== 'undefined') {
+      // NOTE: ricton_last_user is intentionally preserved here — logging out
+      // (or a stale-session cleanup) must not forget who last used this
+      // device. It holds display info only, never tokens.
       for (const k of [
         'ricton_token',
         'ricton_refresh_token',
         'ricton_user',
         'ricton_user_storage',
         STORAGE_REFRESH_KEY,
+        STORAGE_REFRESH_LOCAL_KEY,
       ]) {
         try {
           window.sessionStorage.removeItem(k);

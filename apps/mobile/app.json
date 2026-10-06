@@ -7,6 +7,9 @@
       "com.googleusercontent.apps.648128561576-qnd6isvap6q5ce1rsn5m0cl35gftblrt"
     ],
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

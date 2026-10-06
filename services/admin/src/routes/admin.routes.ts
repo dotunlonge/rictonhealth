@@ -23,6 +23,11 @@ router.delete(
   adminController.detachDoctor
 );
 
+// #C3 Disputes: user-facing ticket filing (any authenticated ACTIVE user;
+// placed before the SUPER_ADMIN gate below).
+router.post('/support/tickets', requireActiveStatus, adminController.createTicket);
+router.get('/support/tickets', adminController.listMyTickets);
+
 // Everything below remains SUPER_ADMIN-only.
 router.use(requireRole('SUPER_ADMIN'));
 router.use(requireActiveStatus);
@@ -49,6 +54,10 @@ router.put('/hospitals/:id', adminController.updateHospital);
 
 // Audit Logs
 router.get('/audit-logs', adminController.getAuditLogs);
+
+// #C3 Disputes: SUPER_ADMIN triage queue + resolve.
+router.get('/support/tickets/all', adminController.listAllTickets);
+router.patch('/support/tickets/:id', adminController.resolveTicket);
 
 // Analytics
 router.get('/analytics', adminController.getAnalytics);

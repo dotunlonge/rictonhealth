@@ -24,7 +24,8 @@ function storeSession(res: { success: boolean; data?: unknown }) {
     | { token?: string; refreshToken?: string; user?: { role?: string } }
     | undefined;
   if (res.success && data?.token) {
-    // Memory-only session (api-client); never persisted to localStorage.
+    // Access token stays memory-only; refresh token persists (api-client) so
+    // sessions survive new tabs/restarts. Never put tokens in URLs.
     api.setToken(data.token, data.refreshToken ?? null, data.user?.role ?? null);
   }
 }

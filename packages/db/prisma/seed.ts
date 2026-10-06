@@ -22,9 +22,12 @@ async function main() {
   const salt = await bcrypt.genSalt(10);
   const passwordHash = await bcrypt.hash('password123', salt);
 
-  // Clean existing users (cascade will handle profiles)
-  await prisma.user.deleteMany({});
-  console.log('Cleaned existing users.');
+  // A normal DELETE is blocked by non-cascading appointment relations. This
+  // seed is deliberately development-only and has already passed the explicit
+  // production guard above, so reset the whole user graph atomically instead
+  // of leaving a half-seeded database after a FK failure.
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "users" CASCADE');
+  console.log('Cleaned existing user graph.');
 
   // Create Admin
   const admin = await prisma.user.create({
@@ -134,6 +137,39 @@ async function main() {
     },
   });
   console.log(`Created Pharmacist: ${pharmacist.email}`);
+
+  // Seed a complete facility workspace so the hospital-admin interface can be
+  // exercised without borrowing an unrelated patient or administrator account.
+  const hospital = await prisma.hospital.create({
+    data: {
+      name: 'Ricton Demo Hospital',
+      registrationNumber: 'HEFAMAA-RIC-2026-001',
+      phone: '+2348000000004',
+      email: 'facility@ricton.health',
+      address: { street: '42 Health Avenue', city: 'Lagos', state: 'Lagos' },
+      departments: ['Cardiology', 'General Medicine', 'Pediatrics'],
+      documents: { licenceVerified: true, cacVerified: true },
+      onboardingComplete: true,
+    },
+  });
+  const hospitalAdmin = await prisma.user.create({
+    data: {
+      email: 'hospital.admin@ricton.health',
+      phone: '+2348000000004',
+      passwordHash,
+      role: UserRole.HOSPITAL_ADMIN,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      hospitalId: hospital.id,
+    },
+  });
+  // Give the facility real staff for its roster, schedule, and appointment
+  // views. The accounts remain ordinary consultant accounts, scoped by hospital.
+  await prisma.providerProfile.updateMany({
+    where: { user: { email: { in: ['doctor@ricton.health', 'dr.adeyemi@ricton.com'] } } },
+    data: { hospitalId: hospital.id, isVerified: true },
+  });
+  console.log(`Created Hospital Admin: ${hospitalAdmin.email}`);
 
   console.log('Seed completed successfully.');
 }

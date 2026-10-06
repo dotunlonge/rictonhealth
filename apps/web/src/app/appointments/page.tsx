@@ -21,7 +21,11 @@ interface AppointmentRecord {
   consultationFee: number | null;
   hospitalName: string | null;
   hospitalAddress: string | null;
-  emergencyContact?: { name?: string | null; phone?: string | null; relationship?: string | null } | null;
+  emergencyContact?: {
+    name?: string | null;
+    phone?: string | null;
+    relationship?: string | null;
+  } | null;
 }
 
 function toFee(value: unknown): number | null {
@@ -538,6 +542,36 @@ function AppointmentsContent() {
       setTimeout(() => setBookingMsg(null), 6000);
     }
   };
+
+  const payAppointmentFromWallet = async (apt: AppointmentRecord) => {
+    setActingId(apt.id);
+    const res = await api.post<{ balance?: number }>(
+      `/payments/appointments/${apt.id}/wallet`,
+      {},
+      {
+        idempotencyKey:
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}`,
+      }
+    );
+    setActingId(null);
+    if (res.success) {
+      setAppointmentsList((previous) =>
+        previous.map((item) =>
+          item.id === apt.id
+            ? { ...item, paymentStatus: 'SUCCESS', status: 'CONFIRMED' as const }
+            : item
+        )
+      );
+      setBookingMsg(`Paid ₦${apt.consultationFee?.toLocaleString()} from your wallet.`);
+      setBookingError(false);
+      return;
+    }
+    setBookingMsg(res.error?.message || 'Wallet payment could not be completed.');
+    setBookingError(true);
+    setTimeout(() => setBookingMsg(null), 6000);
+  };
   // Patient self-service cancel (same endpoint consultants use).
   const cancelPatientAppointment = async (id: string) => {
     setActingId(id);
@@ -662,7 +696,17 @@ function AppointmentsContent() {
               />
             </div>
             <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-              {(['ALL', 'CONFIRMED', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'NO_SHOW', 'CANCELLED'] as const).map((tab) => (
+              {(
+                [
+                  'ALL',
+                  'CONFIRMED',
+                  'PENDING',
+                  'IN_PROGRESS',
+                  'COMPLETED',
+                  'NO_SHOW',
+                  'CANCELLED',
+                ] as const
+              ).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -726,7 +770,7 @@ function AppointmentsContent() {
                               >
                                 #{apt.id.slice(0, 8)}
                               </p>
-{apt.emergencyContact?.phone && (
+                              {apt.emergencyContact?.phone && (
                                 <a
                                   href={`tel:${apt.emergencyContact.phone}`}
                                   className="mt-0.5 block text-[10px] font-bold text-red-600 hover:underline"
@@ -931,7 +975,17 @@ function AppointmentsContent() {
           </div>
 
           <div className="flex items-center bg-slate-200/60 p-1 rounded-full border border-slate-200">
-            {(['ALL', 'CONFIRMED', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'NO_SHOW', 'CANCELLED'] as const).map((tab) => (
+            {(
+              [
+                'ALL',
+                'CONFIRMED',
+                'PENDING',
+                'IN_PROGRESS',
+                'COMPLETED',
+                'NO_SHOW',
+                'CANCELLED',
+              ] as const
+            ).map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -1003,7 +1057,7 @@ function AppointmentsContent() {
                             >
                               #{apt.id.slice(0, 8)}
                             </p>
-{apt.emergencyContact?.phone && (
+                            {apt.emergencyContact?.phone && (
                               <a
                                 href={`tel:${apt.emergencyContact.phone}`}
                                 className="mt-0.5 block text-[10px] font-bold text-red-600 hover:underline"
@@ -1011,7 +1065,7 @@ function AppointmentsContent() {
                               >
                                 SOS: {apt.emergencyContact.name || apt.emergencyContact.phone}
                               </a>
-                              )}
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1057,9 +1111,7 @@ function AppointmentsContent() {
                           apt.telemedicineRoomId ? (
                             <button
                               type="button"
-                              onClick={() =>
-                                router.push(`/telemedicine/${apt.telemedicineRoomId}`)
-                              }
+                              onClick={() => router.push(`/telemedicine/${apt.telemedicineRoomId}`)}
                               className="px-4 py-1.5 bg-slate-100 hover:bg-[#1877F2] hover:text-white text-slate-800 font-bold rounded-full text-xs transition-all whitespace-nowrap"
                             >
                               Join Call →
@@ -1117,14 +1169,24 @@ function AppointmentsContent() {
                           {apt.paymentStatus !== 'SUCCESS' &&
                           apt.consultationFee &&
                           (apt.status === 'PENDING' || apt.status === 'CONFIRMED') ? (
-                            <button
-                              type="button"
-                              disabled={actingId === apt.id}
-                              onClick={() => void payAppointment(apt)}
-                              className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
-                            >
-                              Pay ₦{apt.consultationFee.toLocaleString()}
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                disabled={actingId === apt.id}
+                                onClick={() => void payAppointmentFromWallet(apt)}
+                                className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
+                              >
+                                Pay from wallet
+                              </button>
+                              <button
+                                type="button"
+                                disabled={actingId === apt.id}
+                                onClick={() => void payAppointment(apt)}
+                                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-full text-xs transition-all whitespace-nowrap"
+                              >
+                                Pay ₦{apt.consultationFee.toLocaleString()}
+                              </button>
+                            </>
                           ) : null}
                         </div>
                       </td>

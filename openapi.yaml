@@ -741,6 +741,13 @@ components:
             - VIDEO
         status:
           type: string
+          enum:
+            - PENDING
+            - CONFIRMED
+            - IN_PROGRESS
+            - COMPLETED
+            - CANCELLED
+            - NO_SHOW
         notes:
           type: string
           nullable: true
@@ -756,6 +763,12 @@ components:
         cancelledBy:
           type: string
           nullable: true
+          enum:
+            - PATIENT
+            - CONSULTANT
+            - PHARMACIST
+            - HOSPITAL_ADMIN
+            - SUPER_ADMIN
         createdAt:
           type: string
         updatedAt:
@@ -813,6 +826,7 @@ components:
           type: integer
           minimum: 0
           exclusiveMinimum: true
+          maximum: 480
       required:
         - providerId
         - scheduledAt
@@ -881,6 +895,7 @@ components:
           type: integer
           minimum: 0
           exclusiveMinimum: true
+          maximum: 480
         hospitalId:
           type: string
           format: uuid
@@ -902,6 +917,12 @@ components:
             - NO_SHOW
         cancellationReason:
           type: string
+        waivedReason:
+          type: string
+          maxLength: 500
+        followUpAt:
+          type: string
+          format: date-time
       required:
         - status
     RescheduleAppointment:
@@ -914,6 +935,7 @@ components:
           type: integer
           minimum: 0
           exclusiveMinimum: true
+          maximum: 480
       required:
         - scheduledAt
     GetAvailabilityQuery:
@@ -925,6 +947,8 @@ components:
         date:
           type: string
           pattern: ^\d{4}-\d{2}-\d{2}$
+        timezone:
+          type: string
       required:
         - date
     SetAvailabilityInput:
@@ -994,6 +1018,8 @@ components:
         firstName:
           type: string
         lastName:
+          type: string
+        dateOfBirth:
           type: string
         consentVersion:
           type: string
@@ -2711,8 +2737,19 @@ components:
           nullable: true
         role:
           type: string
+          enum:
+            - PATIENT
+            - CONSULTANT
+            - PHARMACIST
+            - HOSPITAL_ADMIN
+            - SUPER_ADMIN
         status:
           type: string
+          enum:
+            - PENDING
+            - ACTIVE
+            - SUSPENDED
+            - DEACTIVATED
         patientProfile:
           type: object
           nullable: true
@@ -2789,11 +2826,11 @@ components:
             consultationFee:
               type: number
               nullable: true
-          # C4: specialty/consultationFee are nullable => optional (not in
-          # required). firstName/lastName kept required (non-null in practice).
           required:
             - firstName
             - lastName
+            - specialty
+            - consultationFee
         pharmacyProfile:
           type: object
           nullable: true
@@ -2846,13 +2883,37 @@ components:
         specialty:
           type: string
         consultationFee:
-          type: number
+          type: integer
+          minimum: 500
+          maximum: 500000
         title:
           type: string
         licenseNumber:
           type: string
         pharmacyName:
           type: string
+        pharmacyRegistration:
+          type: string
+        pharmacyAddress:
+          anyOf:
+            - type: string
+            - type: object
+              additionalProperties:
+                nullable: true
+        operatingHours:
+          type: object
+          additionalProperties:
+            nullable: true
+        superintendent:
+          type: object
+          additionalProperties:
+            nullable: true
+        pharmacyServices:
+          type: array
+          items:
+            type: string
+        pcnLicenseUploaded:
+          type: boolean
         hospitalName:
           type: string
         registrationNumber:
@@ -4792,6 +4853,22 @@ paths:
           description: Validation error
         '401':
           description: Unauthorized
+    delete:
+      summary: Remove users me [user]
+      tags:
+        - user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   /api/users/dashboard/hospital:
     get:
       summary: Get dashboard statistics for Hospital Admin portal
@@ -4959,6 +5036,79 @@ paths:
           description: Validation error
         '401':
           description: Unauthorized
+  /api/admin/hospitals/doctors:
+    post:
+      summary: Create admin hospitals doctors [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/admin/hospitals/doctors/{id}':
+    delete:
+      summary: Remove admin hospitals doctors id [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  /api/admin/support/tickets:
+    post:
+      summary: Create admin support tickets [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+    get:
+      summary: Retrieve admin support tickets [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   /api/admin/users:
     get:
       summary: Retrieve admin users [admin]
@@ -5154,6 +5304,46 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AdminHospitalInput'
+  /api/admin/hospitals/pending:
+    get:
+      summary: Retrieve admin hospitals pending [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/admin/hospitals/{id}/verify':
+    post:
+      summary: Create admin hospitals id verify [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   '/api/admin/hospitals/{id}':
     get:
       summary: Retrieve admin hospitals id [admin]
@@ -5221,6 +5411,46 @@ paths:
         '404':
           description: Not found
       x-coverage: route-generated
+  /api/admin/support/tickets/all:
+    get:
+      summary: Retrieve admin support tickets all [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/admin/support/tickets/{id}':
+    patch:
+      summary: Update admin support tickets id [admin]
+      tags:
+        - admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   /api/admin/analytics:
     get:
       summary: Retrieve admin analytics [admin]
@@ -5245,6 +5475,141 @@ paths:
         - appointment
       security:
         - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  /api/appointments/leave:
+    post:
+      summary: Create appointments leave [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+    get:
+      summary: Retrieve appointments leave [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/appointments/leave/{id}':
+    delete:
+      summary: Remove appointments leave id [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  /api/appointments/referrals:
+    post:
+      summary: Create appointments referrals [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+    get:
+      summary: Retrieve appointments referrals [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/appointments/providers/{id}/reviews':
+    get:
+      summary: Retrieve appointments providers id reviews [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/appointments/{id}/reviews':
+    post:
+      summary: Create appointments id reviews [appointment]
+      tags:
+        - appointment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Successful operation
@@ -5831,6 +6196,29 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PaymentInitializeInput'
+  '/api/payments/{id}/refund':
+    post:
+      summary: Create payments id refund [payment]
+      tags:
+        - payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   '/api/payments/{id}':
     get:
       summary: Retrieve payments id [payment]
@@ -5989,6 +6377,52 @@ paths:
         '404':
           description: Not found
       x-coverage: documented-no-body
+  '/api/pharmacy/orders/{id}/reorder':
+    post:
+      summary: Create pharmacy orders id reorder [pharmacy]
+      tags:
+        - pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
+  '/api/pharmacy/products/{id}/verify':
+    patch:
+      summary: Update pharmacy products id verify [pharmacy]
+      tags:
+        - pharmacy
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   '/api/pharmacy/orders/{id}/status':
     patch:
       summary: Update pharmacy orders id status [pharmacy]
@@ -6663,6 +7097,23 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/MedicalHistoryInput'
+  /api/users/me/consent:
+    put:
+      summary: Replace users me consent [user]
+      tags:
+        - user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful operation
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+      x-coverage: route-generated
   /api/users/patients:
     get:
       summary: Retrieve users patients [user]

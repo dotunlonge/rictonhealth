@@ -23,6 +23,7 @@ import {
   E2E_PASSWORD,
   E2E_PATIENT,
   E2E_PHARMACY,
+  E2E_HOSPITAL_ADMIN,
   E2E_PRESCRIPTIONS,
   E2E_PRODUCTS,
   E2E_PROVIDER,
@@ -116,9 +117,52 @@ async function main() {
     },
   });
 
+  const existingHospital = await prisma.hospital.findFirst({
+    where: { registrationNumber: 'E2E-HOSPITAL-2026' },
+    select: { id: true },
+  });
+  const hospital = existingHospital
+    ? await prisma.hospital.update({
+        where: { id: existingHospital.id },
+        data: { name: E2E_HOSPITAL_ADMIN.hospitalName, onboardingComplete: true, isActive: true },
+      })
+    : await prisma.hospital.create({
+        data: {
+          name: E2E_HOSPITAL_ADMIN.hospitalName,
+          registrationNumber: 'E2E-HOSPITAL-2026',
+          phone: E2E_HOSPITAL_ADMIN.phone,
+          email: E2E_HOSPITAL_ADMIN.email,
+          address: { city: 'Lagos', state: 'Lagos' },
+          departments: ['Cardiology', 'General Medicine'],
+          onboardingComplete: true,
+        },
+      });
+  await prisma.user.upsert({
+    where: { email: E2E_HOSPITAL_ADMIN.email },
+    update: {
+      passwordHash,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      hospitalId: hospital.id,
+    },
+    create: {
+      email: E2E_HOSPITAL_ADMIN.email,
+      phone: E2E_HOSPITAL_ADMIN.phone,
+      passwordHash,
+      role: UserRole.HOSPITAL_ADMIN,
+      status: UserStatus.ACTIVE,
+      emailVerified: true,
+      hospitalId: hospital.id,
+    },
+  });
+  await prisma.providerProfile.update({
+    where: { userId: provider.id },
+    data: { hospitalId: hospital.id },
+  });
+
   await prisma.product.deleteMany({ where: { pharmacyId: pharmacy.id } });
   for (const product of E2E_PRODUCTS) {
-    await prisma.product.create({ data: { pharmacyId: pharmacy.id, ...product } });
+    await prisma.product.create({ data: { pharmacyId: pharmacy.id, ...product, isActive: true } });
   }
 
   await prisma.prescription.deleteMany({ where: { patientId: patient.id } });

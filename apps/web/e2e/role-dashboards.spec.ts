@@ -5,7 +5,7 @@ import { test, expect, request } from '@playwright/test';
 // ambient shell state (hoisted imports evaluate before this line, so only an
 // unconditional assignment is airtight).
 process.env.DATABASE_URL =
-  'postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public';
+  'postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5435/ricton_test_db?schema=public';
 import { PrismaClient, UserRole, UserStatus } from '@ricton/db';
 import bcrypt from 'bcrypt';
 

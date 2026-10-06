@@ -9,6 +9,7 @@ const navItems = [
   { label: 'Users', href: '/admin/users', icon: '👥' },
   { label: 'Providers', href: '/admin/providers', icon: '🩺' },
   { label: 'Hospitals', href: '/admin/hospitals', icon: '🏥' },
+  { label: 'Product review', href: '/admin/pharmacy-products', icon: '💊' },
   { label: 'Analytics', href: '/admin/analytics', icon: '📈' },
   { label: 'Audit Log', href: '/admin/audit', icon: '📋' },
 ];

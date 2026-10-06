@@ -3,6 +3,7 @@ replicaCount: 2
 image:
   repository: placeholder-account.dkr.ecr.us-east-1.amazonaws.com/ricton-service
   pullPolicy: IfNotPresent
+  # #110: never deploy :latest — callers must --set image.tag=<git sha>.
   tag: "latest"
 
 imagePullSecrets: []
@@ -77,6 +78,9 @@ secrets:
   googleClientId: ""
   googleClientSecret: ""
   frontendUrl: ""
+  # #103: Sentry DSN for all services (empty = disabled); 0.1 sample in prod.
+  sentryDsn: ""
+  sentryTracesSampleRate: "0.1"
 
 ingress:
   enabled: false

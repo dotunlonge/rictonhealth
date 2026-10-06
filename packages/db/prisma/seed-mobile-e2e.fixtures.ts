@@ -28,6 +28,12 @@ export const E2E_PHARMACY = {
   pharmacyName: 'E2E Test Pharmacy',
 } as const;
 
+export const E2E_HOSPITAL_ADMIN = {
+  email: 'e2e.hospital.admin@ricton.health',
+  phone: '+2348000000104',
+  hospitalName: 'E2E Demonstration Hospital',
+} as const;
+
 /** Availability Mon–Fri 09:00–17:00, 30-min slots (dayOfWeek 0=Monday). */
 export const E2E_AVAILABILITY = [0, 1, 2, 3, 4].map((dayOfWeek) => ({
   dayOfWeek,
@@ -44,6 +50,10 @@ export const E2E_PRODUCTS = [
     stock: 100,
     category: 'Analgesics',
     requiresPrescription: false,
+    nafdacRegNo: 'NAFDAC-E2E-001',
+    batchNumber: 'E2E-PARA-001',
+    supplierName: 'E2E Medical Supplies',
+    expiryDate: '2030-12-31T00:00:00.000Z',
   },
   {
     name: 'E2E Amoxicillin 250mg',
@@ -51,6 +61,10 @@ export const E2E_PRODUCTS = [
     stock: 50,
     category: 'Antibiotics',
     requiresPrescription: true,
+    nafdacRegNo: 'NAFDAC-E2E-002',
+    batchNumber: 'E2E-AMOX-001',
+    supplierName: 'E2E Medical Supplies',
+    expiryDate: '2030-12-31T00:00:00.000Z',
   },
   {
     name: 'E2E Vitamin C 1000mg',
@@ -58,6 +72,10 @@ export const E2E_PRODUCTS = [
     stock: 200,
     category: 'Supplements',
     requiresPrescription: false,
+    nafdacRegNo: 'NAFDAC-E2E-003',
+    batchNumber: 'E2E-VITC-001',
+    supplierName: 'E2E Medical Supplies',
+    expiryDate: '2030-12-31T00:00:00.000Z',
   },
 ] as const;
 

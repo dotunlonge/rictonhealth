@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
-import { Stethoscope, Star, Clock, CheckCircle2, User } from 'lucide-react';
+import { Stethoscope, Star, Clock, CheckCircle2, User, MapPin, Navigation, List, Map as MapIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { mapProviderSummary, type ProviderSummary } from '@/lib/api-contract-mappers';
+import { SPECIALTIES } from '@/lib/specialties';
 import { useCurrentUser } from '@/store/useAppStore';
 
 export default function ProvidersPage() {
@@ -22,12 +23,21 @@ export default function ProvidersPage() {
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>('All');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [radiusKm, setRadiusKm] = useState(25);
+  const [mapView, setMapView] = useState(true);
 
-  useEffect(() => {
-    async function loadProviders() {
+  const loadProviders = useCallback(async (location = coordinates) => {
       setLoading(true);
       setLoadError(null);
-      const res = await api.get('/users/providers');
+      const query = new URLSearchParams();
+      if (location) {
+        query.set('latitude', String(location.latitude));
+        query.set('longitude', String(location.longitude));
+        query.set('radiusKm', String(radiusKm));
+      }
+      const res = await api.get(`/users/providers${query.size ? `?${query}` : ''}`);
       if (!res.success) {
         setProviders([]);
         setLoadError(res.error?.message || 'The medical specialist directory could not be loaded.');
@@ -38,9 +48,22 @@ export default function ProvidersPage() {
 
       setProviders(rawList.map(mapProviderSummary));
       setLoading(false);
+  }, [coordinates, radiusKm]);
+
+  useEffect(() => { loadProviders(); }, [loadProviders]);
+
+  const useMyLocation = () => {
+    setLocationError(null);
+    if (!navigator.geolocation) {
+      setLocationError('Your browser cannot share a location. You can still browse all doctors.');
+      return;
     }
-    loadProviders();
-  }, []);
+    navigator.geolocation.getCurrentPosition(
+      (position) => setCoordinates({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+      () => setLocationError('Location was not shared. We have kept the full doctor directory visible.'),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
+  };
 
   const filteredProviders = providers.filter(
     (p) =>
@@ -64,6 +87,11 @@ export default function ProvidersPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {canBook && (
+              <button type="button" onClick={useMyLocation} className="px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-[#1877F2] text-xs font-bold rounded-full border border-blue-200 transition-all flex items-center gap-1.5">
+                <Navigation className="w-3.5 h-3.5" /> {coordinates ? 'Nearby doctors' : 'Use my location'}
+              </button>
+            )}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-500">Specialty:</span>
               <select
@@ -72,11 +100,11 @@ export default function ProvidersPage() {
                 className="px-4 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
               >
                 <option value="All">All Specialties</option>
-                <option value="Cardiology">Cardiology</option>
-                <option value="Telemedicine">Telemedicine & Internal Medicine</option>
-                <option value="Ophthalmology">Ophthalmology & Eye Care</option>
-                <option value="Endocrinology">Endocrinology & Diabetes</option>
-                <option value="General">General Practice</option>
+                {SPECIALTIES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -90,6 +118,19 @@ export default function ProvidersPage() {
             )}
           </div>
         </div>
+
+        {canBook && (
+          <section className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 flex flex-wrap items-center gap-3" aria-label="Nearby doctor search">
+            <MapPin className="w-5 h-5 text-[#1877F2]" />
+            <div className="min-w-48 flex-1">
+              <p className="text-sm font-extrabold text-slate-900">{coordinates ? `Doctors within ${radiusKm} km` : 'Search doctors near you'}</p>
+              <p className="text-xs text-slate-500">{coordinates ? 'Showing public clinic and hospital locations only.' : 'Share your location to sort nearby practice locations. Telemedicine remains available to everyone.'}</p>
+            </div>
+            {coordinates && <select aria-label="Search radius" value={radiusKm} onChange={(e) => setRadiusKm(Number(e.target.value))} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"><option value={5}>5 km</option><option value={10}>10 km</option><option value={25}>25 km</option><option value={50}>50 km</option></select>}
+            {coordinates && <button type="button" onClick={() => setCoordinates(null)} className="text-xs font-bold text-slate-600 hover:text-slate-900">Clear location</button>}
+            {locationError && <p role="status" className="w-full text-xs font-semibold text-amber-700">{locationError}</p>}
+          </section>
+        )}
 
         {/* Doctors Grid */}
         {loading ? (
@@ -123,6 +164,9 @@ export default function ProvidersPage() {
             </button>
           </div>
         ) : (
+          <>
+          {coordinates && <div className="flex justify-end"><button type="button" onClick={() => setMapView((value) => !value)} className="text-xs font-bold text-[#1877F2] flex items-center gap-1.5">{mapView ? <List className="w-4 h-4" /> : <MapIcon className="w-4 h-4" />}{mapView ? 'List view' : 'Map view'}</button></div>}
+          {coordinates && mapView && <NearbyMap providers={filteredProviders} onSelect={(id) => router.push(`/providers/${id}`)} />}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredProviders.map((doc) => (
               <div
@@ -149,6 +193,7 @@ export default function ProvidersPage() {
                       <p className="text-[10px] font-semibold text-slate-400">
                         {doc.yearsExperience} Years Clinical Experience
                       </p>
+                      {doc.distanceKm !== undefined && <p className="text-[10px] font-bold text-emerald-700 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {doc.distanceKm} km away{doc.practiceCity ? ` · ${doc.practiceCity}` : ''}</p>}
                     </div>
                   </div>
 
@@ -200,8 +245,21 @@ export default function ProvidersPage() {
               </div>
             ))}
           </div>
+          </>
         )}
       </div>
     </SidebarLayout>
   );
+}
+
+function NearbyMap({ providers, onSelect }: { providers: ProviderSummary[]; onSelect: (id: string) => void }) {
+  const located = providers.filter((provider) => provider.latitude !== undefined && provider.longitude !== undefined);
+  if (!located.length) return <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-xs font-semibold text-slate-500">No public practice locations fall within this area. Try a wider search or browse telemedicine doctors.</div>;
+  const lats = located.map((p) => p.latitude!); const lngs = located.map((p) => p.longitude!);
+  const latSpan = Math.max(...lats) - Math.min(...lats) || 0.02; const lngSpan = Math.max(...lngs) - Math.min(...lngs) || 0.02;
+  return <div className="relative h-80 overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-sky-100 via-blue-50 to-emerald-50" role="region" aria-label="Map of nearby doctor practice locations">
+    <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'linear-gradient(#93c5fd 1px, transparent 1px), linear-gradient(90deg, #93c5fd 1px, transparent 1px)', backgroundSize: '36px 36px' }} />
+    {located.map((provider) => { const left = 10 + ((provider.longitude! - Math.min(...lngs)) / lngSpan) * 80; const top = 12 + (1 - (provider.latitude! - Math.min(...lats)) / latSpan) * 72; return <button key={provider.id} type="button" onClick={() => onSelect(provider.id)} style={{ left: `${left}%`, top: `${top}%` }} className="absolute -translate-x-1/2 -translate-y-1/2 group" aria-label={`View ${provider.name}`}><span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1877F2] text-white shadow-lg ring-4 ring-white"><MapPin className="w-4 h-4" /></span><span className="absolute left-1/2 top-10 hidden w-max max-w-44 -translate-x-1/2 rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-bold text-white group-hover:block">{provider.name}</span></button>; })}
+    <p className="absolute bottom-3 left-4 text-[10px] font-bold text-slate-500">Public clinic locations · Tap a pin for doctor details</p>
+  </div>;
 }

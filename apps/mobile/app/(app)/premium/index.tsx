@@ -31,6 +31,7 @@ export default function PremiumScreen() {
   const router = useRouter();
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [entitlement, setEntitlement] = useState<Entitlement | null>(null);
+  const [history, setHistory] = useState<Array<{ plan?: string; status?: string; createdAt?: string; expiresAt?: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
@@ -45,6 +46,15 @@ export default function PremiumScreen() {
       setEntitlement(e);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Plans could not be loaded.');
+    }
+    // History is non-critical: never block plans/entitlement on it.
+    try {
+      const h = (await subscriptionService.history({ limit: 10, offset: 0 })) as
+        | { subscriptions?: Array<{ plan?: string; status?: string; createdAt?: string; expiresAt?: string }> }
+        | Array<{ plan?: string; status?: string; createdAt?: string; expiresAt?: string }>;
+      setHistory(Array.isArray(h) ? h : (h.subscriptions ?? []));
+    } catch {
+      setHistory([]);
     }
   }, []);
 
@@ -151,6 +161,27 @@ export default function PremiumScreen() {
           >
             <Text style={styles.link}>View rewards</Text>
           </Pressable>
+          <View style={styles.history} testID="premium.history">
+            <Text style={styles.historyTitle}>Subscription history</Text>
+            {history.length === 0 ? (
+              <Text style={styles.historyEmpty}>No past subscriptions.</Text>
+            ) : (
+              history.map((item, index) => (
+                <View
+                  key={`${item.plan ?? 'plan'}-${item.createdAt ?? index}`}
+                  style={styles.historyRow}
+                  testID={`premium.history-${index}`}
+                >
+                  <Text style={styles.historyPlan}>{item.plan ?? '—'}</Text>
+                  <Text style={styles.historyMeta}>
+                    {[item.status, item.createdAt ? new Date(item.createdAt).toLocaleDateString() : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+              ))
+            )}
+          </View>
         </>
       )}
     </Screen>
@@ -177,4 +208,17 @@ const styles = StyleSheet.create({
   name: { ...typography.bodyStrong, color: colors.navy900 },
   feature: { ...typography.caption, color: colors.slate600 },
   link: { ...typography.bodyStrong, color: colors.blue700, textAlign: 'center' },
+  history: { gap: spacing[2] },
+  historyTitle: { ...typography.bodyStrong, color: colors.navy900 },
+  historyEmpty: { ...typography.caption, color: colors.slate600 },
+  historyRow: {
+    borderWidth: 1,
+    borderColor: colors.slate200,
+    borderRadius: radii.md,
+    backgroundColor: colors.white,
+    padding: spacing[3],
+    gap: spacing[1],
+  },
+  historyPlan: { ...typography.bodyStrong, color: colors.navy900 },
+  historyMeta: { ...typography.caption, color: colors.slate600 },
 });

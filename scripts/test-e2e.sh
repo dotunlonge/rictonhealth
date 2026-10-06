@@ -27,8 +27,8 @@ until docker compose -f docker-compose.test.yml exec -T test-redis redis-cli -a 
   sleep 1
 done
 
-export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public"
-export REDIS_URL="redis://127.0.0.1:6381"
+export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5435/ricton_test_db?schema=public"
+export REDIS_URL="redis://127.0.0.1:6382"
 export REDIS_PASSWORD="ricton_test_redis_password"
 
 echo "Replaying Prisma migrations on a fresh database..."

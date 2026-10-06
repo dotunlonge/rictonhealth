@@ -59,6 +59,12 @@ router.get('/bank/resolve', paymentController.resolveAccount);
  */
 router.post('/initialize', idempotency(prisma), paymentController.initializePayment);
 
+router.post(
+  '/appointments/:appointmentId/wallet',
+  idempotency(prisma),
+  paymentController.payAppointmentWithWallet
+);
+
 /**
  * @openapi
  * /api/payments/verify/{reference}:

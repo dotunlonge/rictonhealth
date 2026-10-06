@@ -5,6 +5,9 @@ services:
     restart: always
     environment:
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT: 3000
     ports:
       - '3000:3000'
@@ -67,6 +70,8 @@ services:
     container_name: ricton-db-migrate-prod
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
     depends_on:
       redis:
         condition: service_healthy
@@ -83,6 +88,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       INTERNAL_NOTIFICATION_URL: ${INTERNAL_NOTIFICATION_URL}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
@@ -112,6 +120,9 @@ services:
       REFRESH_SECRET: ${REFRESH_SECRET}
       OTP_SECRET: ${OTP_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_AUTH: 3001
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
@@ -145,6 +156,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_USER: 3002
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       AWS_REGION: ${AWS_REGION:-eu-west-2}
@@ -168,6 +182,9 @@ services:
     restart: always
     environment:
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT: 3003
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     volumes:
@@ -193,6 +210,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_PRESCRIPTION: 3004
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -216,6 +236,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_APPOINTMENT: 3005
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -239,6 +262,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_ANALYTICS: 3006
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -263,6 +289,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_PAYMENT: 3007
       FRONTEND_URL: ${FRONTEND_URL}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -290,6 +319,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_WALLET: 3008
       FRONTEND_URL: ${FRONTEND_URL}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -315,6 +347,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_SUBSCRIPTION: 3009
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
@@ -340,9 +375,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_ADMIN: 3010
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      SENTRY_DSN: ${SENTRY_DSN}
     depends_on:
       redis:
         condition: service_healthy
@@ -364,6 +401,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_REWARDS: 3011
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -387,6 +427,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       # Canonical PORT_MESSAGING; falls back to legacy MESSAGING_PORT (both accepted in code).
       PORT_MESSAGING: ${PORT_MESSAGING:-${MESSAGING_PORT:-3012}}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -411,6 +454,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_TELEMEDICINE: 3013
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       LIVEKIT_URL: ${LIVEKIT_URL}
@@ -438,6 +484,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PHARMACY_PORT: ${PHARMACY_PORT:-3014}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -461,6 +510,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_ADDRESS: 3015
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
@@ -484,6 +536,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       NOTIFICATION_PORT: ${NOTIFICATION_PORT:-3016}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
@@ -509,6 +564,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
+      # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
+      SENTRY_DSN: ${SENTRY_DSN}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       PORT_SMARTGUARD: 3017
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:

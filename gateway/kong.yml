@@ -235,6 +235,14 @@ services:
         paths:
           - /api/admin
         strip_path: false
+      # #107 Force-update gate: public carve-out (default-deny intent above
+      # applies to authenticated /api/* services; this dependency-free
+      # endpoint is safe unauthenticated — mobile checks it pre-login).
+      # strip_path: true so gateway /api/version lands on admin GET /version.
+      - name: version-route
+        paths:
+          - /api/version
+        strip_path: true
 
   - name: smartguard-service
     url: http://smartguard-service:3017

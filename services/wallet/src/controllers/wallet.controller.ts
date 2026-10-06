@@ -445,7 +445,7 @@ export const withdrawToBank = async (req: Request, res: Response, next: NextFunc
 
     const userPayload = req.user as JwtPayload;
     const userId = userPayload.userId;
-    const { amount, bankCode, accountNumber } = req.body;
+    const { amount, bankCode, accountNumber, accountName: claimedAccountName } = req.body;
 
     if (!amount || typeof amount !== 'number' || amount < 100) {
       throw new ValidationError('Amount must be at least 100 NGN');
@@ -494,19 +494,42 @@ export const withdrawToBank = async (req: Request, res: Response, next: NextFunc
       );
     }
 
-    // 2. Human-readable holder name (best effort; never blocks on lookup).
-    let accountName = `Account ${String(accountNumber).slice(-4).padStart(10, '•')}`;
-    try {
-      const verifyRes = await fetch(
-        `${PAYSTACK_API_URL}/bank/resolve?account_number=${encodeURIComponent(String(accountNumber))}&bank_code=${encodeURIComponent(String(bankCode))}`,
-        { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
-      );
-      const verifyData = (await verifyRes.json()) as PaystackResolveResponse;
-      if (verifyRes.ok && verifyData.status && verifyData.data?.account_name) {
-        accountName = verifyData.data.account_name;
+    // 2. Blocking bank/resolve gate: the destination holder name must be
+    // resolved before any money moves. The only fallback is a masked
+    // placeholder when the provider key is missing in non-prod (local dev
+    // without Paystack); every other resolve failure/mismatch blocks.
+    const keyMissing =
+      !PAYSTACK_SECRET_KEY || (PAYSTACK_SECRET_KEY as string).includes('replace_me');
+    let accountName: string;
+    if (keyMissing && process.env.NODE_ENV !== 'production') {
+      accountName = `Account ${String(accountNumber).slice(-4).padStart(10, '•')}`;
+    } else {
+      let verifyRes: { ok: boolean };
+      let verifyData: PaystackResolveResponse;
+      try {
+        const res = await fetch(
+          `${PAYSTACK_API_URL}/bank/resolve?account_number=${encodeURIComponent(String(accountNumber))}&bank_code=${encodeURIComponent(String(bankCode))}`,
+          { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+        );
+        verifyRes = res as unknown as { ok: boolean };
+        verifyData = (await res.json()) as PaystackResolveResponse;
+      } catch {
+        throw new ValidationError('Destination account could not be verified');
       }
-    } catch {
-      // Display-name lookup is cosmetic; existence is already proven above.
+      if (!verifyRes.ok || !verifyData.status || !verifyData.data?.account_name) {
+        throw new ValidationError(
+          `Destination account could not be verified: ${verifyData.message || 'bank resolve failed'}`
+        );
+      }
+      accountName = verifyData.data.account_name;
+      if (claimedAccountName && typeof claimedAccountName === 'string') {
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const resolved = norm(accountName);
+        const claimed = norm(claimedAccountName);
+        if (!resolved.includes(claimed) && !claimed.includes(resolved)) {
+          throw new ValidationError('Account name does not match the resolved bank account');
+        }
+      }
     }
 
     // #30 Unpredictable idempotency reference: crypto UUID (not userId+Date.now,

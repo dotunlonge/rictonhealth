@@ -1,6 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
-const baseURL = process.env.E2E_BASE_URL || 'http://localhost:3100';
+// `scripts/dev-up.sh` (the documented local launcher) serves Next on 3000.
+// Keep the test default aligned so a real E2E run never silently targets a
+// dead, undocumented port. CI/staging can still override E2E_BASE_URL.
+const baseURL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 const useExternalServer = process.env.E2E_USE_EXTERNAL_SERVER === '1';
 
 // Staging-slice E2E: exercises the wired patient journey in a real browser

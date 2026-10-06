@@ -1,5 +1,6 @@
 /** @ricton/api-contract — authoritative gateway path constants (TDD RED→GREEN seed). */
 export const GATEWAY_PATHS = {
+  version: '/api/version',
   messages: '/api/messages',
   wallets: '/api/wallets',
   appointments: '/api/appointments',
@@ -34,6 +35,7 @@ export const GATEWAY_PATHS = {
   walletTransactions: '/api/wallets/transactions',
   walletVirtualAccount: '/api/wallets/virtual-account',
   paymentInitialize: '/api/payments/initialize',
+  paymentWalletAppointment: '/api/payments/appointments',
   paymentVerify: '/api/payments/verify',
   teleRooms: '/api/telemedicine/rooms',
   subscriptionPlans: '/api/subscriptions/plans',
@@ -48,6 +50,11 @@ export const GATEWAY_PATHS = {
   notificationPushToken: '/api/notifications/push-token',
   addresses: '/api/addresses',
   authPasswordChange: '/api/auth/password/change',
+  smartguardStatus: '/api/smartguard/status',
+  smartguardAlerts: '/api/smartguard/alerts',
+  smartguardMetrics: '/api/smartguard/metrics',
+  smartguardThreats: '/api/smartguard/threats',
+  smartguardAuditLog: '/api/smartguard/audit-log',
 } as const;
 
 export type GatewayPath = (typeof GATEWAY_PATHS)[keyof typeof GATEWAY_PATHS];
@@ -67,6 +74,15 @@ export function teleRoomJoinPath(roomId: string): string {
 
 export function teleRoomLeavePath(roomId: string): string {
   return `${GATEWAY_PATHS.teleRooms}/${roomId}/leave`;
+}
+
+/** Smartguard SecOps actions (alert/threat id is part of the path, not a literal). */
+export function smartguardAlertAcknowledgePath(alertId: string): string {
+  return `${GATEWAY_PATHS.smartguardAlerts}/${alertId}/acknowledge`;
+}
+
+export function smartguardThreatMitigatePath(threatId: string): string {
+  return `${GATEWAY_PATHS.smartguardThreats}/${threatId}/mitigate`;
 }
 
 /**

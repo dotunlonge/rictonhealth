@@ -96,6 +96,7 @@ model User {
   erasureRequest           ErasureRequest?
   reviewsGiven             Review[]                  @relation("ReviewPatient")
   reviewsReceived          Review[]                  @relation("ReviewProvider")
+  supportTickets           SupportTicket[]
 
   @@map("users")
 }
@@ -166,6 +167,13 @@ model ProviderProfile {
   onboardingStep  Int       @default(1)
   documents       Json?
   idVerifiedAt    DateTime? @db.Timestamptz(6)
+  // Public place of practice only. Never reuse a provider's private address.
+  practiceAddress String?
+  practiceCity    String?
+  practiceState   String?
+  practiceLatitude  Decimal? @db.Decimal(10, 8)
+  practiceLongitude Decimal? @db.Decimal(11, 8)
+  practiceLocationVisible Boolean @default(false)
 
   @@map("provider_profiles")
 }
@@ -895,6 +903,11 @@ model Product {
   // #P3 Controlled-drug schedule (e.g. "CONTROLLED"). Nullable; enforced in
   // createOrder qty cap via (product as any).schedule until client regen.
   schedule   String?
+  // Stock traceability. A product listing represents one sellable batch until
+  // dedicated multi-batch receiving is introduced.
+  batchNumber String?
+  supplierName String?
+  expiryDate DateTime? @db.Date
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now()) @db.Timestamptz(6)
   updatedAt            DateTime @updatedAt @db.Timestamptz(6)
@@ -903,6 +916,7 @@ model Product {
   @@index([pharmacyId, name])
   @@index([category])
   @@index([isActive])
+  @@index([expiryDate])
   @@map("products")
 }
 
@@ -1045,4 +1059,28 @@ model Review {
   @@index([providerId])
   @@index([patientId])
   @@map("reviews")
+}
+
+// #C3 Disputes: user-filed support tickets triaged by SUPER_ADMIN.
+// Status transitions OPEN -> IN_PROGRESS -> RESOLVED are app-layer only;
+// the table carries no workflow constraints so existing rows stay safe.
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model SupportTicket {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String              @db.Uuid
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  body      String              @db.Text
+  status    SupportTicketStatus @default(OPEN)
+  createdAt DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime            @updatedAt @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_tickets")
 }

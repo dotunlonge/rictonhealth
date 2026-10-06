@@ -250,6 +250,11 @@ router.post('/orders/:id/reorder', idempotency(prisma), pharmacyController.reord
 // #P2 NAFDAC verification (SUPER_ADMIN only). Registered before the
 // PHARMACIST gate below so admins can reach it.
 router.patch('/products/:id/verify', requireRole('SUPER_ADMIN'), pharmacyController.verifyProduct);
+router.get(
+  '/products/review/pending',
+  requireRole('SUPER_ADMIN'),
+  pharmacyController.getPendingProducts
+);
 
 // Pharmacist-only endpoints
 router.use(requireRole('PHARMACIST'));

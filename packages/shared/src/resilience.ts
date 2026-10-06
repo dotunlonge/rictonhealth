@@ -18,7 +18,10 @@ export function initSentry(serviceName: string) {
     Sentry.init({
       dsn: process.env.SENTRY_DSN,
       environment: process.env.NODE_ENV || 'development',
-      tracesSampleRate: 1.0,
+      // #103: 0.1 traces sample in prod (override via SENTRY_TRACES_SAMPLE_RATE).
+      tracesSampleRate: Number(
+        process.env.SENTRY_TRACES_SAMPLE_RATE ?? (process.env.NODE_ENV === 'production' ? 0.1 : 1.0)
+      ),
       serverName: serviceName,
     });
     logger.info(`Sentry initialized for ${serviceName}`);

@@ -196,7 +196,7 @@ export function RolePills({
   return (
     <div className="space-y-3">
       <p className="text-xs font-bold tracking-widest text-slate-500 uppercase">{label}</p>
-      <div role="radiogroup" aria-label={label} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div role="radiogroup" aria-label={label} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {options.map((item) => {
           const active = value === item.key;
           return (

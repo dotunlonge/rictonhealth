@@ -1,9 +1,28 @@
 import { Tabs } from 'expo-router';
 import { CalendarDays, ClipboardList, Home, UserRound } from 'lucide-react-native';
 
+import { Screen, StateNotice } from '@/components/ui';
+import { useSession } from '@/features/auth/session-provider';
 import { colors, spacing, typography } from '@/theme/tokens';
 
 export default function PatientTabsLayout() {
+  const { user, signOut } = useSession();
+
+  // Explicit staff gate: non-patient roles never reach patient tabs.
+  // Shows a friendly card with logout instead of throwing.
+  if (user && user.role !== 'PATIENT') {
+    return (
+      <Screen testID="staff-role-gate">
+        <StateNotice
+          title="Staff roles use the web dashboard"
+          message={`This mobile app is for patients. Signed in as ${user.role} (${user.email ?? 'staff account'}). Please use the Ricton web portal.`}
+          actionLabel="Log out"
+          onAction={() => void signOut()}
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{

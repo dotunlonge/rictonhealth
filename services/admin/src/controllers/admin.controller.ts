@@ -871,6 +871,134 @@ export const detachDoctor = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+/**
+ * #C3 Disputes: POST /support/tickets — any authenticated ACTIVE user files
+ * a ticket (always OPEN). Uses (prisma as any) so a pre-migration generated
+ * client fails closed with 503 instead of TypeError-crashing the service.
+ */
+export const createTicket = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!(prisma as any).supportTicket?.create) {
+      throw new ValidationError('Support tickets unavailable (pending migration)');
+    }
+    const { subject, body } = (req.body || {}) as { subject?: unknown; body?: unknown };
+    if (typeof subject !== 'string' || !subject.trim()) {
+      throw new ValidationError('subject is required');
+    }
+    if (typeof body !== 'string' || !body.trim()) {
+      throw new ValidationError('body is required');
+    }
+
+    const ticket = await (prisma as any).supportTicket.create({
+      data: {
+        userId: req.user!.userId,
+        subject: subject.trim(),
+        body: body.trim(),
+      },
+    });
+
+    res.status(201).json(successResponse(ticket));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #C3 Disputes: GET /support/tickets — caller's own tickets (capped).
+ */
+export const listMyTickets = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!(prisma as any).supportTicket?.findMany) {
+      throw new ValidationError('Support tickets unavailable (pending migration)');
+    }
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 50);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
+    const [tickets, total] = await Promise.all([
+      (prisma as any).supportTicket.findMany({
+        where: { userId: req.user!.userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      (prisma as any).supportTicket.count({ where: { userId: req.user!.userId } }),
+    ]);
+
+    res.status(200).json(successResponse({ tickets, meta: { total, limit: take, offset: skip } }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #C3 Disputes: GET /support/tickets/all — SUPER_ADMIN triage queue
+ * (route-gated). Optional ?status=OPEN|IN_PROGRESS|RESOLVED filter.
+ */
+export const listAllTickets = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 50);
+    const skip = Math.max(Number(req.query.offset) || 0, 0);
+    const status = req.query.status as string | undefined;
+    if (status !== undefined && !['OPEN', 'IN_PROGRESS', 'RESOLVED'].includes(status)) {
+      throw new ValidationError('status must be OPEN, IN_PROGRESS, or RESOLVED');
+    }
+    const where = status ? { status } : {};
+    const [tickets, total] = await Promise.all([
+      (prisma as any).supportTicket.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      (prisma as any).supportTicket.count({ where }),
+    ]);
+
+    res.status(200).json(successResponse({ tickets, meta: { total, limit: take, offset: skip } }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * #C3 Disputes: PATCH /support/tickets/:id — SUPER_ADMIN triage/resolve
+ * (route-gated). status IN_PROGRESS or RESOLVED only; creation status OPEN
+ * is set server-side and never user-assignable.
+ */
+export const resolveTicket = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { status } = (req.body || {}) as { status?: unknown };
+    if (status !== 'IN_PROGRESS' && status !== 'RESOLVED') {
+      throw new ValidationError('status must be IN_PROGRESS or RESOLVED');
+    }
+
+    const existing = await (prisma as any).supportTicket.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    const ticket = await (prisma as any).supportTicket.update({
+      where: { id },
+      data: { status },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user?.userId || null,
+        action: status === 'RESOLVED' ? 'SUPPORT_TICKET_RESOLVED' : 'SUPPORT_TICKET_TRIAGED',
+        resourceType: 'SupportTicket',
+        resourceId: id,
+        metadata: { from: existing.status, to: status } as never,
+        ipAddress: req.ip || '',
+        userAgent: req.headers['user-agent'] || '',
+      },
+    });
+
+    res.status(200).json(successResponse(ticket));
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getAuditLogs = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const queryResult = AdminAuditLogQuerySchema.safeParse(req.query);
