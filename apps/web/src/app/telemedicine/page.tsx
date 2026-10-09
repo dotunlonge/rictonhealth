@@ -46,6 +46,7 @@ export default function TelemedicinePage() {
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createType, setCreateType] = useState<'ONE_ON_ONE' | 'MDT'>('ONE_ON_ONE');
 
   useEffect(() => {
     async function loadMeetings() {
@@ -97,7 +98,7 @@ export default function TelemedicinePage() {
   const handleCreateMeeting = async () => {
     setCreating(true);
     setCreateError(null);
-    const res = await api.post('/telemedicine/meetings', { roomType: 'ONE_ON_ONE' });
+    const res = await api.post('/telemedicine/meetings', { roomType: createType });
     setCreating(false);
     if (res.success && res.data?.id) {
       router.push(`/telemedicine/${res.data.id}`);
@@ -148,15 +149,35 @@ export default function TelemedicinePage() {
           </div>
 
           {(user?.role === 'CONSULTANT' || user?.role === 'SUPER_ADMIN') && (
-            <button
-              type="button"
-              onClick={handleCreateMeeting}
-              disabled={creating}
-              className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{creating ? 'Initializing Room...' : 'Start Instant Consultation'}</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600">
+                Room type
+                <select
+                  value={createType}
+                  onChange={(e) => setCreateType(e.target.value as 'ONE_ON_ONE' | 'MDT')}
+                  aria-label="Room type"
+                  className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none"
+                >
+                  <option value="ONE_ON_ONE">One-on-one</option>
+                  <option value="MDT">MDT (team)</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={handleCreateMeeting}
+                disabled={creating}
+                className="px-6 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md shadow-blue-500/20 transition-all flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>
+                  {creating
+                    ? 'Initializing Room...'
+                    : createType === 'MDT'
+                      ? 'Start MDT Session'
+                      : 'Start Instant Consultation'}
+                </span>
+              </button>
+            </div>
           )}
         </div>
 
