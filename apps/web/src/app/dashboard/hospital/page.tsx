@@ -129,6 +129,11 @@ export default function ElementHospitalHomePage() {
   }>({ totalDoctors: 0, totalAppointments: 0, activePatients: 0 });
   const [appointmentsList, setAppointmentsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
+  const [attachId, setAttachId] = useState('');
+  const [attaching, setAttaching] = useState(false);
+  const [detachingId, setDetachingId] = useState<string | null>(null);
+  const [staffMsg, setStaffMsg] = useState<string | null>(null);
+  const [staffError, setStaffError] = useState(false);
   const [revenueTotal, setRevenueTotal] = useState(0);
   const [revenueTrend, setRevenueTrend] = useState<any[]>([]);
   const [notificationsList, setNotificationsList] = useState<any[]>([]);
@@ -273,12 +278,19 @@ export default function ElementHospitalHomePage() {
               <div>
                 <div>
                   <h2 className="font-bold text-lg text-slate-900">Patient Overview</h2>
-                  <p className="text-sm text-slate-500 mt-1">Active patients currently attributed to this facility.</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Active patients currently attributed to this facility.
+                  </p>
                 </div>
               </div>
               <div className="rounded-2xl bg-slate-50 p-8 text-center">
-                <p className="text-4xl font-extrabold text-slate-900">{hospitalStats.activePatients}</p>
-                <p className="mt-2 text-sm text-slate-500">Age distribution will appear here when clinical demographics reporting is available.</p>
+                <p className="text-4xl font-extrabold text-slate-900">
+                  {hospitalStats.activePatients}
+                </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Age distribution will appear here when clinical demographics reporting is
+                  available.
+                </p>
               </div>
             </section>
 
@@ -298,22 +310,23 @@ export default function ElementHospitalHomePage() {
 
               {/* Revenue Bar Chart Visual */}
               <div className="h-56 flex items-end justify-between px-6 pb-2 border-b border-slate-200">
-                {revenueChart.length > 0
-                  ? revenueChart.map((item) => (
+                {revenueChart.length > 0 ? (
+                  revenueChart.map((item) => (
+                    <div key={item.month} className="flex flex-col items-center justify-end h-full">
                       <div
-                        key={item.month}
-                        className="flex flex-col items-center justify-end h-full"
-                      >
-                        <div
-                          className="w-10 bg-[#1877F2] rounded-t-xl transition-all hover:bg-blue-700"
-                          style={{ height: `${item.value}px` }}
-                        />
-                        <span className="mt-3 text-xs font-semibold text-slate-600">
-                          {item.month}
-                        </span>
-                      </div>
-                    ))
-                  : <p className="w-full self-center text-center text-sm text-slate-500">No facility revenue has been recorded for this period.</p>}
+                        className="w-10 bg-[#1877F2] rounded-t-xl transition-all hover:bg-blue-700"
+                        style={{ height: `${item.value}px` }}
+                      />
+                      <span className="mt-3 text-xs font-semibold text-slate-600">
+                        {item.month}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="w-full self-center text-center text-sm text-slate-500">
+                    No facility revenue has been recorded for this period.
+                  </p>
+                )}
               </div>
 
               {/* Earnings Summary Footer */}
@@ -336,9 +349,7 @@ export default function ElementHospitalHomePage() {
                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                     Reporting scope
                   </p>
-                  <p className="text-2xl font-extrabold text-slate-900">
-                    This facility
-                  </p>
+                  <p className="text-2xl font-extrabold text-slate-900">This facility</p>
                 </div>
               </div>
             </section>
@@ -495,9 +506,60 @@ export default function ElementHospitalHomePage() {
               </div>
             </section>
 
-            {/* Doctors Schedule List Card */}
+            {/* Medical Staff Management Card (H2: attach/detach bound to own hospital server-side) */}
             <section className="bg-white rounded-3xl p-6 shadow-xs border border-slate-100 space-y-4">
-              <h2 className="font-bold text-base text-slate-900">Doctors Schedule</h2>
+              <h2 className="font-bold text-base text-slate-900">Medical Staff</h2>
+              <form
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  const value = attachId.trim();
+                  if (!value || attaching) return;
+                  setAttaching(true);
+                  setStaffMsg(null);
+                  // No hospitalId sent: the controller binds HOSPITAL_ADMIN to their own hospital.
+                  const res = await api.post('/admin/hospitals/doctors', { providerId: value });
+                  setAttaching(false);
+                  if (res.success) {
+                    setStaffError(false);
+                    setStaffMsg('Doctor attached to your hospital.');
+                    setAttachId('');
+                    const refreshed = await api.get('/users/providers');
+                    if (refreshed.success && refreshed.data) {
+                      const provs = Array.isArray(refreshed.data)
+                        ? refreshed.data
+                        : refreshed.data.providers || [];
+                      setDoctorsList(provs);
+                    }
+                  } else {
+                    setStaffError(true);
+                    setStaffMsg(res.error?.message || 'Unable to attach doctor.');
+                  }
+                }}
+                className="flex flex-col gap-2"
+              >
+                <input
+                  value={attachId}
+                  onChange={(event) => setAttachId(event.target.value)}
+                  placeholder="Provider user ID or profile ID"
+                  aria-label="Provider user ID or profile ID"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-xs"
+                />
+                <button
+                  type="submit"
+                  disabled={attaching || !attachId.trim()}
+                  className="rounded-xl bg-[#1877F2] px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {attaching ? 'Attaching…' : 'Attach doctor'}
+                </button>
+              </form>
+              {staffMsg && (
+                <p
+                  role="status"
+                  className={`rounded-xl border p-3 text-xs font-bold ${staffError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
+                >
+                  {staffMsg}
+                </p>
+              )}
 
               {doctorsList.length === 0 ? (
                 <p className="text-slate-500 text-xs py-2">
@@ -505,35 +567,60 @@ export default function ElementHospitalHomePage() {
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {doctorsList.slice(0, 4).map((doc, idx) => (
-                    <div
-                      key={doc.id || idx}
-                      className="flex items-center justify-between pb-3 border-b border-slate-100 last:border-none last:pb-0"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-lg">
-                          👨‍⚕️
-                        </div>
-                        <div>
-                          <p className="font-bold text-xs text-slate-900">
-                            {doc.specialty || 'Specialist'}
-                          </p>
-                          <p className="text-[10px] text-slate-400 font-medium">10 AM - 12 AM</p>
-                          <p className="text-xs font-semibold text-slate-600">
-                            Dr. {doc.firstName || doc.user?.email?.split('@')[0] || 'Doctor'}{' '}
-                            {doc.lastName || ''}
-                          </p>
-                        </div>
-                      </div>
-                      <span
-                        className={`px-3 py-1 rounded-full text-[10px] font-bold text-white ${
-                          doc.status === 'UNAVAILABLE' ? 'bg-red-600' : 'bg-green-500'
-                        }`}
+                  {doctorsList.slice(0, 8).map((doc, idx) => {
+                    const profileId = doc.id;
+                    const userId = doc.userId || doc.user?.id;
+                    const detachKey = profileId || userId || String(idx);
+                    const displayName =
+                      `Dr. ${doc.firstName || doc.user?.email?.split('@')[0] || 'Doctor'} ${doc.lastName || ''}`.trim();
+                    return (
+                      <div
+                        key={detachKey}
+                        className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100 last:border-none last:pb-0"
                       >
-                        {doc.status === 'UNAVAILABLE' ? 'Unavailable' : 'Available'}
-                      </span>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-lg shrink-0">
+                            👨‍⚕️
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-xs text-slate-900 truncate">
+                              {displayName}
+                            </p>
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              {doc.specialty || 'Specialist'} ·{' '}
+                              {doc.isVerified === false ? 'Pending verification' : 'Verified'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={detachingId === detachKey}
+                          onClick={async () => {
+                            if (!confirm(`Detach ${displayName} from your hospital?`)) return;
+                            setDetachingId(detachKey);
+                            // Backend accepts either the user id or the provider-profile id.
+                            const res = await api.delete(
+                              `/admin/hospitals/doctors/${profileId || userId}`
+                            );
+                            setDetachingId(null);
+                            if (res.success) {
+                              setStaffError(false);
+                              setStaffMsg('Doctor detached.');
+                              setDoctorsList((prev) =>
+                                prev.filter((d) => (d.id || d.userId) !== (profileId || userId))
+                              );
+                            } else {
+                              setStaffError(true);
+                              setStaffMsg(res.error?.message || 'Unable to detach doctor.');
+                            }
+                          }}
+                          className="shrink-0 rounded-lg border border-rose-200 px-3 py-1.5 text-[11px] font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          {detachingId === detachKey ? 'Detaching…' : 'Detach'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
