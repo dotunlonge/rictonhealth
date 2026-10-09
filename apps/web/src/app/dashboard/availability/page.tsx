@@ -67,17 +67,15 @@ export default function AvailabilityPage() {
     loadList();
   }, []);
 
-  const removeRule = async (index: number) => {
-    const rule = rules[index];
-    if (rule?.id) {
-      // Best-effort: no documented DELETE endpoint; drop locally regardless.
-      try {
-        await api.delete(`/appointments/availability/${rule.id}`);
-      } catch {
-        // local-only removal
-      }
-    }
+  const removeRule = (index: number) => {
+    // Local-only removal: the backend exposes no DELETE for availability
+    // windows (only POST /appointments/availability + leave-day CRUD at
+    // /appointments/leave/:id). Never call a phantom endpoint — the saved
+    // window stays server-side until superseded by a newer save.
     setRules((prev) => prev.filter((_, i) => i !== index));
+    setListNote(
+      'Removed from this view only. To retract saved availability, save a corrected window or add a leave day.'
+    );
   };
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
