@@ -22,6 +22,33 @@ type Product = {
   stock: number;
   category?: string;
   imageUrl?: string;
+  expiryDate?: string | null;
+};
+
+const LOW_STOCK_AT_OR_BELOW = 10;
+const EXPIRING_WITHIN_DAYS = 90;
+
+type AttentionKind = 'OUT_OF_STOCK' | 'LOW_STOCK' | 'EXPIRED' | 'EXPIRING_SOON';
+
+function attentionFor(p: Product, now: number): AttentionKind[] {
+  const kinds: AttentionKind[] = [];
+  if (p.stock <= 0) kinds.push('OUT_OF_STOCK');
+  else if (p.stock <= LOW_STOCK_AT_OR_BELOW) kinds.push('LOW_STOCK');
+  if (p.expiryDate) {
+    const t = new Date(p.expiryDate).getTime();
+    if (!Number.isNaN(t)) {
+      if (t < now) kinds.push('EXPIRED');
+      else if (t - now <= EXPIRING_WITHIN_DAYS * 24 * 60 * 60 * 1000) kinds.push('EXPIRING_SOON');
+    }
+  }
+  return kinds;
+}
+
+const ATTENTION_LABEL: Record<AttentionKind, string> = {
+  OUT_OF_STOCK: 'Out of stock',
+  LOW_STOCK: 'Low stock (≤10)',
+  EXPIRED: 'Expired',
+  EXPIRING_SOON: 'Expiring ≤90 days',
 };
 
 export default function PharmacyProductsPage() {
@@ -41,6 +68,10 @@ export default function PharmacyProductsPage() {
   }, []);
 
   const filtered = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()));
+  const now = Date.now();
+  const needsAttention = filtered
+    .map((p) => ({ product: p, kinds: attentionFor(p, now) }))
+    .filter((e) => e.kinds.length > 0);
 
   return (
     <div className="min-h-screen flex font-sans">
@@ -97,6 +128,43 @@ export default function PharmacyProductsPage() {
               />
             </div>
           </div>
+
+          {!loading && needsAttention.length > 0 && (
+            <section
+              aria-label="Products needing attention"
+              className="mb-6 rounded-3xl border border-amber-200 bg-amber-50/70 p-5"
+            >
+              <h2 className="font-bold text-slate-900 text-sm">
+                Needs attention ({needsAttention.length})
+              </h2>
+              <ul className="mt-3 space-y-2">
+                {needsAttention.slice(0, 8).map(({ product, kinds }) => (
+                  <li key={product.id} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="font-bold text-slate-900 truncate">{product.name}</span>
+                    <span className="flex gap-1.5 flex-wrap justify-end">
+                      {kinds.map((k) => (
+                        <span
+                          key={k}
+                          className={`px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                            k === 'OUT_OF_STOCK' || k === 'EXPIRED'
+                              ? 'bg-red-100 text-red-600'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
+                          {ATTENTION_LABEL[k]}
+                        </span>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {needsAttention.length > 8 && (
+                <p className="mt-2 text-[11px] font-semibold text-slate-500">
+                  +{needsAttention.length - 8} more below — search to narrow.
+                </p>
+              )}
+            </section>
+          )}
 
           {loading ? (
             <div className="flex justify-center py-20">

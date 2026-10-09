@@ -39,6 +39,9 @@ export default function PharmacyDashboard() {
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [expandedRxId, setExpandedRxId] = useState<string | null>(null);
+  const [linkedRx, setLinkedRx] = useState<Record<string, any>>({});
+  const [loadingRxId, setLoadingRxId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -76,7 +79,12 @@ export default function PharmacyDashboard() {
   }, []);
 
   const setOrderStatus = async (orderId: string, status: string) => {
-    if (!confirm(`${status === 'CANCELLED' ? 'Cancel' : `Move order to ${status.replaceAll('_', ' ')}`}?`)) return;
+    if (
+      !confirm(
+        `${status === 'CANCELLED' ? 'Cancel' : `Move order to ${status.replaceAll('_', ' ')}`}?`
+      )
+    )
+      return;
     setActingId(orderId);
     setActionMsg(null);
     const res = await api.patch(`/pharmacy/orders/${orderId}/status`, { status });
@@ -86,6 +94,25 @@ export default function PharmacyDashboard() {
       setActionMsg(`Order moved to ${status.replaceAll('_', ' ')}.`);
     } else {
       setActionMsg(res.error?.message || 'Status update failed.');
+    }
+  };
+
+  // Unified worklist: load the linked prescription's full detail inline
+  // (GET /prescriptions/:id — items, patient, prescriber, status) so the
+  // pharmacist verifies before fulfilling without cross-navigating.
+  const toggleLinkedRx = async (order: PharmacyOrder) => {
+    if (!order.prescriptionId) return;
+    if (expandedRxId === order.id) {
+      setExpandedRxId(null);
+      return;
+    }
+    setExpandedRxId(order.id);
+    if (linkedRx[order.prescriptionId]) return;
+    setLoadingRxId(order.id);
+    const res = await api.get(`/prescriptions/${order.prescriptionId}`);
+    setLoadingRxId(null);
+    if (res.success && res.data) {
+      setLinkedRx((prev) => ({ ...prev, [order.prescriptionId as string]: res.data }));
     }
   };
 
@@ -99,9 +126,7 @@ export default function PharmacyDashboard() {
     setActionMsg(null);
     const res = await api.post('/pharmacy/prescriptions/fulfill', { prescriptionId });
     setActingId(null);
-    setActionMsg(
-      res.success ? 'Prescription fulfilled.' : res.error?.message || 'Fulfill failed.'
-    );
+    setActionMsg(res.success ? 'Prescription fulfilled.' : res.error?.message || 'Fulfill failed.');
   };
 
   return (
@@ -193,7 +218,8 @@ export default function PharmacyDashboard() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-bold text-slate-900">
-                        {order.items?.map((item) => item.drugName).join(', ') || `Order #${order.id}`}
+                        {order.items?.map((item) => item.drugName).join(', ') ||
+                          `Order #${order.id}`}
                       </p>
                       <p className="text-[10px] font-semibold text-slate-400">
                         {order.status.replaceAll('_', ' ')}
@@ -216,14 +242,81 @@ export default function PharmacyDashboard() {
                       </button>
                     ))}
                     {order.prescriptionId && (
-                      <button
-                        type="button"
-                        disabled={actingId === order.id}
-                        onClick={() => void fulfillOrder(order.id, order.prescriptionId)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-full transition-all disabled:opacity-50"
-                      >
-                        Fulfill Rx
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void toggleLinkedRx(order)}
+                          aria-expanded={expandedRxId === order.id}
+                          className="px-3 py-1.5 bg-white border border-slate-200 hover:border-[#1877F2] hover:text-[#1877F2] text-slate-700 text-[11px] font-bold rounded-full transition-all"
+                        >
+                          {expandedRxId === order.id ? 'Hide linked Rx' : 'View linked Rx'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actingId === order.id}
+                          onClick={() => void fulfillOrder(order.id, order.prescriptionId)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-full transition-all disabled:opacity-50"
+                        >
+                          Fulfill Rx
+                        </button>
+                      </>
+                    )}
+                    {order.prescriptionId && expandedRxId === order.id && (
+                      <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-[11px]">
+                        {loadingRxId === order.id ? (
+                          <p className="font-semibold text-slate-500">
+                            Loading linked prescription…
+                          </p>
+                        ) : linkedRx[order.prescriptionId] ? (
+                          <dl className="space-y-1.5">
+                            <div className="flex justify-between gap-3">
+                              <dt className="font-bold uppercase tracking-wide text-slate-400">
+                                Rx status
+                              </dt>
+                              <dd className="font-bold text-slate-800">
+                                {String(linkedRx[order.prescriptionId].status || '—').replaceAll(
+                                  '_',
+                                  ' '
+                                )}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="font-bold uppercase tracking-wide text-slate-400">
+                                Items
+                              </dt>
+                              <dd className="font-semibold text-slate-800">
+                                {(linkedRx[order.prescriptionId].items || [])
+                                  .map(
+                                    (it: any) =>
+                                      `${it.drugName}${it.dosage ? ` ${it.dosage}` : ''}${it.quantity ? ` ×${it.quantity}` : ''}`
+                                  )
+                                  .join('; ') || '—'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt className="font-bold uppercase tracking-wide text-slate-400">
+                                Patient
+                              </dt>
+                              <dd className="font-semibold text-slate-800">
+                                {linkedRx[order.prescriptionId].patient?.email || '—'}
+                              </dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt className="font-bold uppercase tracking-wide text-slate-400">
+                                Prescriber
+                              </dt>
+                              <dd className="font-semibold text-slate-800">
+                                {linkedRx[order.prescriptionId].provider?.email || '—'}
+                              </dd>
+                            </div>
+                          </dl>
+                        ) : (
+                          <p className="font-semibold text-rose-600">
+                            Linked prescription could not be loaded (it may be outside your
+                            dispensing scope).
+                          </p>
+                        )}
+                      </div>
                     )}
                     <button
                       type="button"
