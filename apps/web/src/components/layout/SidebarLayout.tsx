@@ -27,6 +27,8 @@ import {
   Menu,
   X,
   FileText,
+  ArrowRightLeft,
+  LifeBuoy,
 } from 'lucide-react';
 import { useAppStore, UserRole } from '@/store/useAppStore';
 
@@ -59,6 +61,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       keywords: 'medication rx e-prescription',
     },
     {
+      label: 'My Referrals',
+      href: '/referrals',
+      icon: ArrowRightLeft,
+      keywords: 'referral specialist transfer',
+    },
+    {
       label: 'Pharmacy Store',
       href: '/pharmacy',
       icon: ShoppingBag,
@@ -84,6 +92,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       keywords: 'points loyalty incentives',
     },
     { label: 'Messages', href: '/inbox', icon: Inbox, keywords: 'inbox chat conversation' },
+    {
+      label: 'Support',
+      href: '/support',
+      icon: LifeBuoy,
+      keywords: 'support help ticket complaint',
+    },
     {
       label: 'Account Settings',
       href: '/settings',
@@ -111,6 +125,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       keywords: 'schedule clinic queue availability',
     },
     {
+      label: 'Referrals',
+      href: '/referrals',
+      icon: ArrowRightLeft,
+      keywords: 'referral handoff specialist transfer',
+    },
+    {
       label: 'Availability',
       href: '/dashboard/availability',
       icon: Calendar,
@@ -131,6 +151,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
     },
     { label: 'Rewards', href: '/rewards', icon: Award, keywords: 'points incentives' },
     { label: 'Messages', href: '/inbox', icon: Inbox, keywords: 'inbox chat' },
+    {
+      label: 'Support',
+      href: '/support',
+      icon: LifeBuoy,
+      keywords: 'support help ticket complaint',
+    },
     {
       label: 'Provider Settings',
       href: '/settings',
@@ -159,6 +185,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
     },
     { label: 'Store Earnings', href: '/wallet', icon: Wallet, keywords: 'earnings money payout' },
     { label: 'Messages', href: '/inbox', icon: Inbox, keywords: 'inbox chat' },
+    {
+      label: 'Support',
+      href: '/support',
+      icon: LifeBuoy,
+      keywords: 'support help ticket complaint',
+    },
     {
       label: 'Pharmacy Settings',
       href: '/settings',
@@ -194,6 +226,12 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
     { label: 'Hospital Revenue', href: '/wallet', icon: Wallet, keywords: 'revenue money billing' },
     { label: 'Messages', href: '/inbox', icon: Inbox, keywords: 'inbox chat' },
     {
+      label: 'Support',
+      href: '/support',
+      icon: LifeBuoy,
+      keywords: 'support help ticket complaint',
+    },
+    {
       label: 'Hospital Settings',
       href: '/settings',
       icon: Settings,
@@ -214,11 +252,31 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       icon: Users,
       keywords: 'verify approve doctors',
     },
-    { label: 'Hospital Applications', href: '/admin/hospital-applications', icon: Building2, keywords: 'hospital applications facility review' },
-    { label: 'Product Review', href: '/admin/pharmacy-products', icon: Package, keywords: 'pharmacy product compliance' },
-    { label: 'Security Operations', href: '/admin/security', icon: ShieldAlert, keywords: 'security threats alerts' },
+    {
+      label: 'Hospital Applications',
+      href: '/admin/hospital-applications',
+      icon: Building2,
+      keywords: 'hospital applications facility review',
+    },
+    {
+      label: 'Product Review',
+      href: '/admin/pharmacy-products',
+      icon: Package,
+      keywords: 'pharmacy product compliance',
+    },
+    {
+      label: 'Security Operations',
+      href: '/admin/security',
+      icon: ShieldAlert,
+      keywords: 'security threats alerts',
+    },
     { label: 'Audit Log', href: '/admin/audit', icon: FileText, keywords: 'audit governance' },
-    { label: 'Support Triage', href: '/admin/support', icon: Inbox, keywords: 'support tickets triage' },
+    {
+      label: 'Support Triage',
+      href: '/admin/support',
+      icon: Inbox,
+      keywords: 'support tickets triage',
+    },
     { label: 'User Directory', href: '/patients', icon: Users, keywords: 'users directory' },
     { label: 'System Settings', href: '/settings', icon: Settings, keywords: 'preferences' },
   ],
