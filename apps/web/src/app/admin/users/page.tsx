@@ -55,6 +55,7 @@ export default function AdminUsersPage() {
   const [provEmail, setProvEmail] = useState('');
   const [provPassword, setProvPassword] = useState('');
   const [provHospitalId, setProvHospitalId] = useState('');
+  const [provRole, setProvRole] = useState<'HOSPITAL_ADMIN' | 'SUPER_ADMIN'>('HOSPITAL_ADMIN');
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [provMsg, setProvMsg] = useState<string | null>(null);
   const [provError, setProvError] = useState(false);
@@ -73,19 +74,23 @@ export default function AdminUsersPage() {
     setProvisioning(true);
     setProvMsg(null);
     // The ONLY creation path for privileged roles (public signup is capped).
+    // SUPER_ADMIN is global and must never carry a hospitalId.
     const res = await api.post('/admin/users', {
       email: provEmail,
       password: provPassword,
-      role: 'HOSPITAL_ADMIN',
-      hospitalId: provHospitalId,
+      role: provRole,
+      ...(provRole === 'HOSPITAL_ADMIN' ? { hospitalId: provHospitalId } : {}),
     });
     setProvisioning(false);
     if (res.success && res.data?.id) {
-      setProvMsg(`Hospital admin ${provEmail} provisioned and active.`);
+      setProvMsg(
+        `${provRole === 'SUPER_ADMIN' ? 'Super admin' : 'Hospital admin'} ${provEmail} provisioned and active.`
+      );
       setProvError(false);
       setProvEmail('');
       setProvPassword('');
       setProvHospitalId('');
+      setProvRole('HOSPITAL_ADMIN');
       const list = await api.get('/admin/users');
       if (list.success) {
         setUsers(Array.isArray(list.data) ? list.data : list.data?.users || []);
@@ -96,9 +101,14 @@ export default function AdminUsersPage() {
     }
   };
 
-  useEffect(() => { void api.get<{ hospitals: Hospital[] }>('/admin/hospitals').then((r) => { if (r.success) setHospitals(r.data?.hospitals || []); }); }, []);
+  useEffect(() => {
+    void api.get<{ hospitals: Hospital[] }>('/admin/hospitals').then((r) => {
+      if (r.success) setHospitals(r.data?.hospitals || []);
+    });
+  }, []);
 
-  const roles = ['ALL', 'PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'PHARMACY_ADMIN', 'SUPER_ADMIN'];
+  // Canonical backend roles (UserRole): PHARMACIST, not PHARMACY_ADMIN.
+  const roles = ['ALL', 'PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'PHARMACIST', 'SUPER_ADMIN'];
 
   return (
     <div className="min-h-screen flex font-sans">
@@ -142,7 +152,7 @@ export default function AdminUsersPage() {
               onClick={() => setShowProvision((v) => !v)}
               className="px-5 py-2.5 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs shadow-md transition-all"
             >
-              + Provision Hospital Admin
+              + Provision privileged user
             </button>
           </div>
 
@@ -152,7 +162,7 @@ export default function AdminUsersPage() {
               className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-6 space-y-4 max-w-2xl"
             >
               <h2 className="text-sm font-bold text-slate-900">
-                Provision Hospital Admin (privileged — Super Admin only)
+                Provision privileged user (Super Admin only)
               </h2>
               {provMsg && (
                 <p
@@ -170,10 +180,32 @@ export default function AdminUsersPage() {
                   onChange={(e) => setProvEmail(e.target.value)}
                   className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1877F2]"
                 />
-                <select required value={provHospitalId} onChange={(e) => setProvHospitalId(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  <option value="">Select active hospital…</option>
-                  {hospitals.filter((h) => h.isActive).map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                <select
+                  value={provRole}
+                  onChange={(e) => setProvRole(e.target.value as 'HOSPITAL_ADMIN' | 'SUPER_ADMIN')}
+                  aria-label="Provisioned role"
+                  className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                >
+                  <option value="HOSPITAL_ADMIN">Hospital admin (hospital-scoped)</option>
+                  <option value="SUPER_ADMIN">Super admin (global — no hospital)</option>
                 </select>
+                {provRole === 'HOSPITAL_ADMIN' && (
+                  <select
+                    required
+                    value={provHospitalId}
+                    onChange={(e) => setProvHospitalId(e.target.value)}
+                    className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                  >
+                    <option value="">Select active hospital…</option>
+                    {hospitals
+                      .filter((h) => h.isActive)
+                      .map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.name}
+                        </option>
+                      ))}
+                  </select>
+                )}
                 <input
                   required
                   type="password"
@@ -189,7 +221,11 @@ export default function AdminUsersPage() {
                 disabled={provisioning}
                 className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-full text-xs disabled:opacity-50"
               >
-                {provisioning ? 'Provisioning...' : 'Create Active Hospital Admin'}
+                {provisioning
+                  ? 'Provisioning...'
+                  : provRole === 'SUPER_ADMIN'
+                    ? 'Create Active Super Admin'
+                    : 'Create Active Hospital Admin'}
               </button>
             </form>
           )}

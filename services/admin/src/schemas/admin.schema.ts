@@ -37,6 +37,8 @@ export const AdminVerifyProviderSchema = z.object({
 // Provisioning (SUPER_ADMIN only): the ONLY way privileged roles come into
 // existence, since public registration and OAuth are capped at self-serve
 // roles. Provisioned users start ACTIVE (admin identity-proofed).
+// A SUPER_ADMIN may provision another SUPER_ADMIN (global, never
+// hospital-scoped) or a HOSPITAL_ADMIN (hospitalId required).
 // NOTE: HOSPITAL_ADMIN has no profile model yet, so display names derive
 // from the email local-part until one is introduced.
 export const AdminProvisionUserSchema = z
@@ -44,12 +46,20 @@ export const AdminProvisionUserSchema = z
     email: z.string().email().optional(),
     phone: z.string().min(7).optional(),
     password: z.string().min(8),
-    role: z.enum(['HOSPITAL_ADMIN']),
-    hospitalId: z.string().uuid(),
+    role: z.enum(['HOSPITAL_ADMIN', 'SUPER_ADMIN']),
+    hospitalId: z.string().uuid().optional(),
   })
   .refine((data) => data.email || data.phone, {
     message: 'Either email or phone is required',
     path: ['email'],
+  })
+  .refine((data) => data.role !== 'HOSPITAL_ADMIN' || data.hospitalId, {
+    message: 'hospitalId is required for HOSPITAL_ADMIN',
+    path: ['hospitalId'],
+  })
+  .refine((data) => data.role !== 'SUPER_ADMIN' || !data.hospitalId, {
+    message: 'SUPER_ADMIN must not be scoped to a hospital',
+    path: ['hospitalId'],
   });
 
 export const AdminHospitalCreateSchema = z.object({

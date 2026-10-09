@@ -112,12 +112,20 @@ export const AdminProvisionUserInput = registry.register(
       email: z.string().email().optional(),
       phone: z.string().min(7).optional(),
       password: z.string().min(8),
-      role: z.enum(['HOSPITAL_ADMIN']),
+      role: z.enum(['HOSPITAL_ADMIN', 'SUPER_ADMIN']),
       hospitalId: z.string().uuid().optional(),
     })
     .refine((data) => data.email || data.phone, {
       message: 'Either email or phone is required',
       path: ['email'],
+    })
+    .refine((data) => data.role !== 'HOSPITAL_ADMIN' || data.hospitalId, {
+      message: 'hospitalId is required for HOSPITAL_ADMIN',
+      path: ['hospitalId'],
+    })
+    .refine((data) => data.role !== 'SUPER_ADMIN' || !data.hospitalId, {
+      message: 'SUPER_ADMIN must not be scoped to a hospital',
+      path: ['hospitalId'],
     })
 );
 
