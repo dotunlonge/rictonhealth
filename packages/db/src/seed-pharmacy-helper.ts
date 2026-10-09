@@ -100,6 +100,13 @@ export const DEFAULT_PRODUCTS = [
 ];
 
 export async function seedPharmacy(prisma: PrismaClient): Promise<number> {
+  // #96 (parity with seedDoctors): demo pharmacies carry a default password
+  // hash and must never be written by service boot or request paths in
+  // production. All callers funnel through here, so one guard covers them.
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[Auto-Bootstrap] Skipping seedPharmacy in production.');
+    return 0;
+  }
   let seededPharmacies = 0;
 
   for (const p of DEFAULT_PHARMACIES) {

@@ -10,7 +10,8 @@
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
     "seed": "ts-node prisma/seed.ts",
-    "seed:e2e": "ts-node prisma/seed-mobile-e2e.ts"
+    "seed:e2e": "ts-node prisma/seed-mobile-e2e.ts",
+    "bootstrap:admin": "ts-node prisma/bootstrap-admin.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.13.0"

@@ -3,6 +3,16 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  // Destructive and previously unguarded: refuse production outright, and
+  // require explicit opt-in everywhere else (mirrors prisma/seed.ts).
+  if (process.env.NODE_ENV === 'production') {
+    console.error('ERROR: Refusing to clear the database in production!');
+    process.exit(1);
+  }
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== 'yes') {
+    console.error('ERROR: Set ALLOW_DESTRUCTIVE_SEED=yes to confirm a full database wipe.');
+    process.exit(1);
+  }
   console.log('Clearing all database records...');
 
   // Truncate all tables in PostgreSQL with CASCADE
