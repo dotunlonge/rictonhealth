@@ -49,6 +49,7 @@ export const GATEWAY_PATHS = {
   notificationPreferences: '/api/notifications/preferences',
   notificationPushToken: '/api/notifications/push-token',
   addresses: '/api/addresses',
+  supportTickets: '/api/admin/support/tickets',
   authPasswordChange: '/api/auth/password/change',
   smartguardStatus: '/api/smartguard/status',
   smartguardAlerts: '/api/smartguard/alerts',

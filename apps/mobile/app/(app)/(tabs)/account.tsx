@@ -150,6 +150,16 @@ export default function AccountScreen() {
         </Pressable>
       </Link>
 
+      <Link href="../account/support" asChild>
+        <Pressable accessibilityRole="button" style={styles.securityCard} testID="account.support">
+          <ShieldCheck color={colors.navy900} size={22} />
+          <View style={styles.securityCopy}>
+            <Text style={styles.securityTitle}>Help and support</Text>
+            <Text style={styles.securityText}>File a ticket and track its status.</Text>
+          </View>
+        </Pressable>
+      </Link>
+
       <Link href="../premium" asChild>
         <Pressable accessibilityRole="button" style={styles.securityCard} testID="account.premium">
           <ShieldCheck color={colors.navy900} size={22} />
