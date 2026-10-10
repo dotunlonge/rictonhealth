@@ -62,7 +62,11 @@ router.post(
   requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
   appointmentController.upsertLeave
 );
-router.get('/leave', appointmentController.listLeaves);
+router.get(
+  '/leave',
+  requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  appointmentController.listLeaves
+);
 router.delete(
   '/leave/:id',
   requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),

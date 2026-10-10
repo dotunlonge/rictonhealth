@@ -113,9 +113,62 @@ export const listLeaves = async (req: Request, res: Response, next: NextFunction
       to?: string;
     };
 
-    // CONSULTANT sees only their own leave; staff may filter by provider.
-    const providerId =
-      userPayload.role === UserRole.CONSULTANT ? userPayload.userId : queryProviderId || undefined;
+    // CONSULTANT sees only their own leave; HOSPITAL_ADMIN is confined to
+    // providers of their own hospital; SUPER_ADMIN may filter freely. Anyone
+    // else has no leave visibility (route also gates, this is defense-in-depth).
+    if (
+      userPayload.role !== UserRole.CONSULTANT &&
+      userPayload.role !== UserRole.HOSPITAL_ADMIN &&
+      userPayload.role !== UserRole.SUPER_ADMIN
+    ) {
+      throw new ForbiddenError('Only clinical staff can list provider leave');
+    }
+
+    let providerId: string | undefined;
+    if (userPayload.role === UserRole.CONSULTANT) {
+      providerId = userPayload.userId;
+    } else if (userPayload.role === UserRole.HOSPITAL_ADMIN) {
+      const admin = await prisma.user.findUnique({
+        where: { id: userPayload.userId },
+        select: { hospitalId: true },
+      });
+      if (!admin?.hospitalId) {
+        throw new ForbiddenError('Hospital administrator is not assigned to a hospital');
+      }
+      const staff = await prisma.providerProfile.findMany({
+        where: { hospitalId: admin.hospitalId },
+        select: { userId: true },
+      });
+      const staffIds = new Set(staff.map((s) => s.userId));
+      if (queryProviderId) {
+        if (!staffIds.has(queryProviderId)) {
+          throw new ForbiddenError('Provider is not on your hospital roster');
+        }
+        providerId = queryProviderId;
+      } else if (staffIds.size > 0) {
+        // Prisma widening: assigned below via `in`.
+        providerId = undefined;
+      }
+      // Hospital scope applies below through staffIds when unfiltered.
+      const where: { providerId?: string | { in: string[] }; date?: { gte?: Date; lte?: Date } } =
+        {};
+      if (providerId) where.providerId = providerId;
+      else where.providerId = { in: [...staffIds] };
+      if (from || to) {
+        where.date = {};
+        if (from) where.date.gte = leaveDay(from);
+        if (to) where.date.lte = leaveDay(to);
+      }
+      const leaves = await prisma.providerLeave.findMany({
+        where,
+        orderBy: { date: 'asc' },
+        take: 100,
+      });
+      res.status(200).json(successResponse(leaves));
+      return;
+    } else {
+      providerId = queryProviderId || undefined;
+    }
 
     const where: { providerId?: string; date?: { gte?: Date; lte?: Date } } = {};
     if (providerId) where.providerId = providerId;

@@ -25,9 +25,6 @@ export class AccountService {
   updateMedicalHistory(medicalHistory: unknown[]): Promise<unknown> {
     return this.api.put(`${rel(GATEWAY_PATHS.usersMe)}/medical-history`, { medicalHistory });
   }
-  avatarUploadUrl(fileType: string): Promise<{ uploadUrl: string; key?: string }> {
-    return this.api.put(`${rel(GATEWAY_PATHS.usersMe)}/avatar`, { fileType });
-  }
   /** Presigned-upload flow: URL from backend → binary PUT to storage → save public URL. */
   async requestAvatarUpload(fileType: string): Promise<{ uploadUrl: string; publicUrl: string }> {
     const result = (await this.api.put(`${rel(GATEWAY_PATHS.usersMe)}/avatar`, { fileType })) as {
