@@ -1,6 +1,21 @@
 /** B4 TDD RED: wallet overview + top-up + verify (component, mocked service). */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import React from 'react';
+import { Alert } from 'react-native';
+
+// The top-up screen confirms via Alert.alert; auto-press Confirm in tests.
+beforeEach(() => {
+  jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+    const confirm = (buttons as Array<{ text?: string; onPress?: () => void }> | undefined)?.find(
+      (b) => b.text === 'Confirm'
+    );
+    confirm?.onPress?.();
+  });
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 jest.mock('expo-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,

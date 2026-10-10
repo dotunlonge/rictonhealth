@@ -115,8 +115,10 @@ describe('Appointment lifecycle notifications (TDD RED)', () => {
         specialty: 'Cardiology',
         consultationFee: 15000,
         licenseNumber: `LIC-NT-${Date.now()}`,
+        // Booking requires a verified provider (product rule, not test setup).
+        isVerified: true,
       },
-      update: {},
+      update: { isVerified: true },
     });
     await prisma.providerAvailability.deleteMany({ where: { providerId: provider.id } });
     await prisma.providerAvailability.create({

@@ -136,8 +136,10 @@ describe('Appointment lifecycle: status guard + reschedule (TDD RED)', () => {
         specialty: 'Cardiology',
         consultationFee: 15000,
         licenseNumber: `LIC-LC-${Date.now()}`,
+        // Booking requires a verified provider (product rule, not test setup).
+        isVerified: true,
       },
-      update: {},
+      update: { isVerified: true },
     });
     await prisma.providerAvailability.deleteMany({ where: { providerId: provider.id } });
     await prisma.providerAvailability.create({
@@ -177,11 +179,18 @@ describe('Appointment lifecycle: status guard + reschedule (TDD RED)', () => {
 
   it('allows the legal path PENDING -> CONFIRMED -> IN_PROGRESS -> COMPLETED', async () => {
     const appt = await makeAppointment(patientA.id, nextMondayAt(11));
+    // Paid provider: CONFIRMED needs a staff waiver (no payment in fixture);
+    // VIDEO visit: IN_PROGRESS needs telemedicine consent (product rules).
+    const payloads: Record<string, object> = {
+      CONFIRMED: { status: 'CONFIRMED', waivedReason: 'Test waiver — dev fixture' },
+      IN_PROGRESS: { status: 'IN_PROGRESS', telemedicineConsent: true },
+      COMPLETED: { status: 'COMPLETED' },
+    };
     for (const status of ['CONFIRMED', 'IN_PROGRESS', 'COMPLETED']) {
       const res = await request(app)
         .patch(`/api/appointments/${appt.id}/status`)
         .set('Authorization', `Bearer ${consultantToken}`)
-        .send({ status });
+        .send(payloads[status]);
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe(status);
     }

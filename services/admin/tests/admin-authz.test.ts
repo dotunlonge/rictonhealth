@@ -88,60 +88,117 @@ describe('Admin authorization (negative: privileged surface)', () => {
   });
 
   it('provisions an ACTIVE hospital admin (the privileged creation path)', async () => {
+    // HOSPITAL_ADMIN is hospital-scoped: the schema requires a hospitalId.
+    const hospital = await prisma.hospital.create({ data: { name: 'Authz Test Hospital' } });
+    try {
+      const res = await request(app)
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${activeAdminToken}`)
+        .send({
+          email: 'provisioned-hospital@example.com',
+          password: 'SecureP@ssw0rd1',
+          role: 'HOSPITAL_ADMIN',
+          hospitalId: hospital.id,
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.data.role).toBe('HOSPITAL_ADMIN');
+      expect(res.body.data.status).toBe('ACTIVE');
+      expect(res.body.data.passwordHash).toBeUndefined();
+      const persisted = await prisma.user.findUnique({
+        where: { email: 'provisioned-hospital@example.com' },
+      });
+      expect(persisted?.status).toBe('ACTIVE');
+      expect(persisted?.hospitalId).toBe(hospital.id);
+      await prisma.auditLog.deleteMany({ where: { resourceId: persisted!.id } });
+      await prisma.user.deleteMany({ where: { id: persisted!.id } });
+    } finally {
+      await prisma.user.deleteMany({ where: { hospitalId: hospital.id } });
+      await prisma.hospital.deleteMany({ where: { id: hospital.id } });
+    }
+  });
+
+  it('provisions an ACTIVE super admin with no hospital scope', async () => {
     const res = await request(app)
       .post('/api/admin/users')
       .set('Authorization', `Bearer ${activeAdminToken}`)
       .send({
-        email: 'provisioned-hospital@example.com',
+        email: 'provisioned-super@example.com',
         password: 'SecureP@ssw0rd1',
-        role: 'HOSPITAL_ADMIN',
+        role: 'SUPER_ADMIN',
       });
     expect(res.status).toBe(201);
-    expect(res.body.data.role).toBe('HOSPITAL_ADMIN');
+    expect(res.body.data.role).toBe('SUPER_ADMIN');
     expect(res.body.data.status).toBe('ACTIVE');
-    expect(res.body.data.passwordHash).toBeUndefined();
+    expect(res.body.data.hospitalId).toBeNull();
     const persisted = await prisma.user.findUnique({
-      where: { email: 'provisioned-hospital@example.com' },
+      where: { email: 'provisioned-super@example.com' },
     });
-    expect(persisted?.status).toBe('ACTIVE');
+    expect(persisted?.hospitalId).toBeNull();
     await prisma.auditLog.deleteMany({ where: { resourceId: persisted!.id } });
     await prisma.user.deleteMany({ where: { id: persisted!.id } });
   });
 
-  it('rejects privileged provisioning from non-admins and duplicates', async () => {
-    const forbidden = await request(app)
-      .post('/api/admin/users')
-      .set('Authorization', `Bearer ${patientToken}`)
-      .send({
-        email: 'nope@example.com',
-        password: 'SecureP@ssw0rd1',
-        role: 'HOSPITAL_ADMIN',
-      });
-    expect(forbidden.status).toBe(403);
+  it('rejects a hospital-scoped super admin', async () => {
+    const hospital = await prisma.hospital.create({ data: { name: 'Scope Test Hospital' } });
+    try {
+      const res = await request(app)
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${activeAdminToken}`)
+        .send({
+          email: 'scoped-super@example.com',
+          password: 'SecureP@ssw0rd1',
+          role: 'SUPER_ADMIN',
+          hospitalId: hospital.id,
+        });
+      expect(res.status).toBe(400);
+    } finally {
+      await prisma.hospital.deleteMany({ where: { id: hospital.id } });
+    }
+  });
 
-    const duplicate = await request(app)
-      .post('/api/admin/users')
-      .set('Authorization', `Bearer ${activeAdminToken}`)
-      .send({
-        email: 'provisioned-hospital@example.com',
-        password: 'SecureP@ssw0rd1',
-        role: 'HOSPITAL_ADMIN',
+  it('rejects privileged provisioning from non-admins and duplicates', async () => {
+    const hospital = await prisma.hospital.create({ data: { name: 'Dup Test Hospital' } });
+    try {
+      const forbidden = await request(app)
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${patientToken}`)
+        .send({
+          email: 'nope@example.com',
+          password: 'SecureP@ssw0rd1',
+          role: 'HOSPITAL_ADMIN',
+          hospitalId: hospital.id,
+        });
+      expect(forbidden.status).toBe(403);
+
+      const duplicate = await request(app)
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${activeAdminToken}`)
+        .send({
+          email: 'provisioned-hospital@example.com',
+          password: 'SecureP@ssw0rd1',
+          role: 'HOSPITAL_ADMIN',
+          hospitalId: hospital.id,
+        });
+      expect(duplicate.status).toBe(201);
+      const persisted = await prisma.user.findUnique({
+        where: { email: 'provisioned-hospital@example.com' },
       });
-    expect(duplicate.status).toBe(201);
-    const persisted = await prisma.user.findUnique({
-      where: { email: 'provisioned-hospital@example.com' },
-    });
-    const clash = await request(app)
-      .post('/api/admin/users')
-      .set('Authorization', `Bearer ${activeAdminToken}`)
-      .send({
-        email: 'provisioned-hospital@example.com',
-        password: 'SecureP@ssw0rd1',
-        role: 'HOSPITAL_ADMIN',
-      });
-    expect(clash.status).toBe(409);
-    await prisma.auditLog.deleteMany({ where: { resourceId: persisted!.id } });
-    await prisma.user.deleteMany({ where: { id: persisted!.id } });
+      const clash = await request(app)
+        .post('/api/admin/users')
+        .set('Authorization', `Bearer ${activeAdminToken}`)
+        .send({
+          email: 'provisioned-hospital@example.com',
+          password: 'SecureP@ssw0rd1',
+          role: 'HOSPITAL_ADMIN',
+          hospitalId: hospital.id,
+        });
+      expect(clash.status).toBe(409);
+      await prisma.auditLog.deleteMany({ where: { resourceId: persisted!.id } });
+      await prisma.user.deleteMany({ where: { id: persisted!.id } });
+    } finally {
+      await prisma.user.deleteMany({ where: { hospitalId: hospital.id } });
+      await prisma.hospital.deleteMany({ where: { id: hospital.id } });
+    }
   });
 
   it('never leaks passwordHash or twoFactorSecret in getUserById', async () => {

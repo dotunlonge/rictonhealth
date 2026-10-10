@@ -26,6 +26,11 @@ jest.mock('@/features/notifications/notification-service', () => ({
   },
 }));
 
+// ThreadScreen reads the session user (sender identity); inbox/notifications screens do not.
+jest.mock('@/features/auth/session-provider', () => ({
+  useSession: () => ({ user: { id: 'patient-1', email: 'patient@example.com' } }),
+}));
+
 import { messagingService } from '@/features/messaging/messaging-service';
 import { notificationService } from '@/features/notifications/notification-service';
 import InboxScreen from '../app/(app)/messages/index';

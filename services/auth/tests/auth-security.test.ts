@@ -105,9 +105,11 @@ describe('Auth Service - Security & TOTP 2FA Verification (TDD)', () => {
       expect(loginRes.status).toBe(200);
       const token = loginRes.body.data.token;
 
+      // #46 step-up: setup requires password re-verification.
       const setupRes = await request(app)
         .post('/api/auth/2fa/setup')
-        .set('Authorization', `Bearer ${token}`);
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: testPassword });
 
       expect(setupRes.status).toBe(200);
       expect(setupRes.body.success).toBe(true);
@@ -130,8 +132,11 @@ describe('Auth Service - Security & TOTP 2FA Verification (TDD)', () => {
         .send({ email: user.email, password: testPassword });
       const token = loginRes.body.data.token;
 
-      // Setup 2FA
-      await request(app).post('/api/auth/2fa/setup').set('Authorization', `Bearer ${token}`);
+      // Setup 2FA (#46 step-up: password re-verification required)
+      await request(app)
+        .post('/api/auth/2fa/setup')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: testPassword });
 
       // Attempt verify with bogus code
       const verifyRes = await request(app)
@@ -161,10 +166,11 @@ describe('Auth Service - Security & TOTP 2FA Verification (TDD)', () => {
         .send({ email: user.email, password: testPassword });
       const token = loginRes.body.data.token;
 
-      // Setup 2FA
+      // Setup 2FA (#46 step-up: password re-verification required)
       const setupRes = await request(app)
         .post('/api/auth/2fa/setup')
-        .set('Authorization', `Bearer ${token}`);
+        .set('Authorization', `Bearer ${token}`)
+        .send({ password: testPassword });
       const secret = setupRes.body.data.secret;
 
       // Generate real valid TOTP code

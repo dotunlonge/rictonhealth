@@ -107,11 +107,14 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
         specialty: 'Cardiology',
         consultationFee: 15000,
         licenseNumber: `LIC-${Date.now()}`,
+        // Booking requires a verified provider (product rule, not test setup).
+        isVerified: true,
       },
       update: {
         specialty: 'Cardiology',
         consultationFee: 15000,
         licenseNumber: `LIC-${Date.now()}`,
+        isVerified: true,
       },
     });
 
@@ -260,7 +263,8 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
   });
 
   it('5. should maintain exact unmutated scheduledAt date timestamp after booking', async () => {
-    // Choose 11:30 slot
+    // Choose 11:30 slot. VIDEO: IN_PERSON bookings require a clinic venue
+    // (provider hospital), irrelevant to timestamp immutability.
     const slot1130 = new Date(scheduledAtIso);
     slot1130.setHours(11, 30, 0, 0);
 
@@ -271,7 +275,7 @@ describe('Appointment Concurrency & Double-Booking Resilience (TDD)', () => {
         providerId: provider.id,
         scheduledAt: slot1130.toISOString(),
         durationMinutes: 30,
-        type: AppointmentType.IN_PERSON,
+        type: AppointmentType.VIDEO,
         reason: 'Timestamp Check',
       });
 
