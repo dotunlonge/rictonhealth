@@ -232,14 +232,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   markNotificationRead: async (id: string) => {
-    // Optimistic UI update
-    const currentList = get().notifications;
+    // Optimistic UI update with rollback: the api client returns an
+    // envelope (no throw) on HTTP errors, so !success must restore the
+    // snapshot or the UI lies about server state.
+    const snapshot = get().notifications;
     set({
-      notifications: currentList.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+      notifications: snapshot.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
     });
     try {
-      await api.patch(`/notifications/${id}/read`, {});
+      const res = await api.patch(`/notifications/${id}/read`, {});
+      if (!res.success) {
+        set({ notifications: snapshot });
+        console.warn('Failed to mark notification read', res.error?.message);
+      }
     } catch (err) {
+      set({ notifications: snapshot });
       console.warn('Failed to mark notification read', err);
     }
   },

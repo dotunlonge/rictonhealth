@@ -32,6 +32,8 @@ export default function InboxPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
 
   // New Message Modal State
   const [showNewMsgModal, setShowNewMsgModal] = useState(false);
@@ -40,12 +42,20 @@ export default function InboxPage() {
   const [bodyText, setBodyText] = useState('');
   const [sending, setSending] = useState(false);
 
+  // Extracted for retry: a failed load must surface, never masquerade
+  // clinical threads as "no threads".
+  const [threadsReload, setThreadsReload] = useState(0);
   useEffect(() => {
     async function loadThreads() {
       setLoading(true);
+      setThreadsError(null);
       const res = await api.get<{ conversations: any[] }>('/messages/conversations');
-      const rawList =
-        res.success && Array.isArray(res.data?.conversations) ? res.data.conversations : [];
+      if (!res.success) {
+        setThreadsError(res.error?.message || 'Conversations could not be loaded.');
+        setLoading(false);
+        return;
+      }
+      const rawList = Array.isArray(res.data?.conversations) ? res.data.conversations : [];
 
       const formatted = rawList.map((t: any) => {
         const lastMsg =
@@ -79,7 +89,7 @@ export default function InboxPage() {
       setLoading(false);
     }
     loadThreads();
-  }, [user]);
+  }, [user, threadsReload]);
 
   // Load the complete conversation (server-authoritative messages) on selection.
   useEffect(() => {
@@ -89,6 +99,7 @@ export default function InboxPage() {
         return;
       }
       setMessagesLoading(true);
+      setMessagesError(null);
       const res = await api.get<{ messages: ThreadMessage[] }>(
         `/messages/conversations/${selectedThread.id}`
       );
@@ -96,6 +107,7 @@ export default function InboxPage() {
         setMessages(res.data.messages);
       } else {
         setMessages([]);
+        setMessagesError(res.error?.message || 'This conversation could not be loaded.');
       }
       setMessagesLoading(false);
     }
@@ -252,6 +264,21 @@ export default function InboxPage() {
               <div className="p-8 text-center text-xs font-bold text-slate-400">
                 Loading messages...
               </div>
+            ) : threadsError ? (
+              <div className="p-8 text-center space-y-3">
+                <MessageSquare className="w-8 h-8 text-rose-300 mx-auto" />
+                <p className="text-xs font-bold text-rose-600">{threadsError}</p>
+                <p className="text-[11px] text-slate-500">
+                  Your conversations are safe — this is a loading failure, not an empty inbox.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setThreadsReload((n) => n + 1)}
+                  className="text-xs text-[#1877F2] font-bold hover:underline"
+                >
+                  Try again
+                </button>
+              </div>
             ) : filteredThreads.length === 0 ? (
               <div className="p-8 text-center space-y-3">
                 <MessageSquare className="w-8 h-8 text-slate-300 mx-auto" />
@@ -320,6 +347,17 @@ export default function InboxPage() {
                     {messagesLoading ? (
                       <div className="p-4 text-center text-xs font-bold text-slate-400">
                         Loading conversation...
+                      </div>
+                    ) : messagesError ? (
+                      <div className="bg-rose-50 p-5 rounded-2xl border border-rose-200 space-y-2">
+                        <p className="text-xs text-rose-700 font-bold">{messagesError}</p>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedThread({ ...selectedThread })}
+                          className="text-xs text-[#1877F2] font-bold hover:underline"
+                        >
+                          Reload conversation
+                        </button>
                       </div>
                     ) : messages.length === 0 ? (
                       <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
