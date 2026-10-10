@@ -7,8 +7,6 @@ import { useSession } from '@/features/auth/session-provider';
 import { ApiClientError } from '@/lib/api/client';
 import { colors, spacing, typography } from '@/theme/tokens';
 
-type RegisterRole = 'PATIENT' | 'CONSULTANT' | 'PHARMACIST';
-
 export default function RegisterScreen() {
   const { register, verifyOtp } = useSession();
   const [email, setEmail] = useState('');
@@ -16,7 +14,9 @@ export default function RegisterScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<RegisterRole>('PATIENT');
+  // Patient-only app: professional roles onboard on web. The role is fixed
+  // (a picker here created accounts that mobile immediately rejects).
+  const role = 'PATIENT' as const;
   const [consent, setConsent] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [otp, setOtp] = useState('');
@@ -122,19 +122,10 @@ export default function RegisterScreen() {
             onChangeText={setPhone}
             testID="auth.register.phone"
           />
-          <View style={styles.roleRow} testID="auth.register.role">
-            {(['PATIENT', 'CONSULTANT', 'PHARMACIST'] as const).map((r) => (
-              <Pressable
-                key={r}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: role === r }}
-                onPress={() => setRole(r)}
-                style={[styles.roleChip, role === r && styles.roleChipActive]}
-                testID={`auth.register.role-${r}`}
-              >
-                <Text style={role === r ? styles.roleTextActive : styles.roleText}>{r}</Text>
-              </Pressable>
-            ))}
+          <View style={styles.roleNote} testID="auth.register.role">
+            <Text style={styles.roleNoteText}>
+              Patient account — doctors and pharmacists onboard on the Ricton web portal.
+            </Text>
           </View>
           <Pressable
             accessibilityRole="checkbox"
@@ -191,17 +182,14 @@ const styles = StyleSheet.create({
   content: { paddingTop: spacing[8], gap: spacing[5], justifyContent: 'center' },
   title: { ...typography.heading },
   instructions: { ...typography.body },
-  roleRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  roleChip: {
+  roleNote: {
     borderWidth: 1,
     borderColor: colors.slate300,
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  roleChipActive: { backgroundColor: colors.blue600, borderColor: colors.blue600 },
-  roleText: { ...typography.caption, color: colors.slate600 },
-  roleTextActive: { ...typography.caption, color: colors.white },
+  roleNoteText: { ...typography.caption, color: colors.slate600 },
   consentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   consentBox: { fontSize: 18 },
   consentText: { ...typography.caption, color: colors.slate600, flex: 1 },
