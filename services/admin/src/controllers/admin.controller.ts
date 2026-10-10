@@ -325,6 +325,19 @@ export const verifyUser = async (req: Request, res: Response, next: NextFunction
       },
     });
 
+    // Status elevation (PENDING→ACTIVE, force-verified) must leave a trail.
+    await prisma.auditLog.create({
+      data: {
+        actorId: req.user?.userId || null,
+        action: 'USER_VERIFIED',
+        resourceType: 'User',
+        resourceId: id,
+        metadata: { role: updatedUser.role },
+        ipAddress: req.ip || '',
+        userAgent: req.headers['user-agent'] || '',
+      },
+    });
+
     res.status(200).json(
       successResponse({
         message: 'User verified successfully',

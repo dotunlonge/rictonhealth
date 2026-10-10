@@ -837,6 +837,26 @@ export const refundPayment = async (req: Request, res: Response, next: NextFunct
         metadata: { refund: data.data as Prisma.InputJsonValue },
       },
     });
+    // Forensics: a money-state transition must leave a trail. Best-effort —
+    // audit failure must never roll back a completed provider refund.
+    try {
+      await prisma.auditLog.create({
+        data: {
+          actorId: userPayload.userId,
+          action: 'PAYMENT_REFUNDED',
+          resourceType: 'Payment',
+          resourceId: payment.id,
+          metadata: {
+            amount: Number(payment.amount),
+            appointmentId: payment.appointment?.id ?? null,
+          },
+          ipAddress: req.ip || '',
+          userAgent: req.headers['user-agent'] || '',
+        },
+      });
+    } catch (err) {
+      console.warn(`[payment] audit log failed for refund ${payment.id}`, err);
+    }
     return res
       .status(200)
       .json(successResponse({ refunded: updated.count === 1, paymentId: payment.id }));
