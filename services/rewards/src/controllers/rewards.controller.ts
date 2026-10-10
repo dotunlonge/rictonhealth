@@ -391,6 +391,15 @@ export const getTiers = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+/**
+ * Per-call ceiling for basePoints on the internal earn endpoint. The route
+ * is service-gated by a shared secret, but a compromised/buggy caller must
+ * not mint arbitrary points in one call: 10,000 base (≈11,500 after the top
+ * 1.15× tier multiplier) is far above any legitimate single event while
+ * keeping lifetime-tier economics (PLATINUM at 10,000) meaningful.
+ */
+export const MAX_EARN_BASE_POINTS = 10_000;
+
 // Internal endpoint for other services to award points
 export const earnPoints = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -408,6 +417,11 @@ export const earnPoints = async (req: Request, res: Response, next: NextFunction
     ) {
       throw new ValidationError(
         'Missing or invalid required fields. basePoints must be a positive integer.'
+      );
+    }
+    if (basePoints > MAX_EARN_BASE_POINTS) {
+      throw new ValidationError(
+        `basePoints exceeds the per-call maximum of ${MAX_EARN_BASE_POINTS}.`
       );
     }
 

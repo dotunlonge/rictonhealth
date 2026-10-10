@@ -7,6 +7,10 @@ import * as walletController from '../controllers/wallet.controller';
 const router = Router();
 
 const withdrawRateLimit = rateLimit({ windowMs: 60 * 1000, max: 5, keyPrefix: 'withdraw' });
+// Top-up mints Paystack transactions (provider cost per call); virtual-account
+// creation provisions bank rails. Both are idempotent but must be throttled.
+const topupRateLimit = rateLimit({ windowMs: 60 * 1000, max: 10, keyPrefix: 'topup' });
+const dvaRateLimit = rateLimit({ windowMs: 60 * 1000, max: 5, keyPrefix: 'dva' });
 
 /**
  * @openapi
@@ -57,6 +61,7 @@ router.get('/me', walletController.getMyWallet);
 router.post(
   '/virtual-account',
   requireActiveStatus,
+  dvaRateLimit,
   idempotency(prisma),
   walletController.createVirtualAccount
 );
@@ -86,7 +91,13 @@ router.post(
  *       200:
  *         description: Payment URL for wallet top-up
  */
-router.post('/topup', requireActiveStatus, idempotency(prisma), walletController.topupWallet);
+router.post(
+  '/topup',
+  requireActiveStatus,
+  topupRateLimit,
+  idempotency(prisma),
+  walletController.topupWallet
+);
 
 /**
  * @openapi
