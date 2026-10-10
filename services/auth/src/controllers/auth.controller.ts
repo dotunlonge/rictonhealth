@@ -161,7 +161,11 @@ const hashToken = (token: string): string => {
 // A hospital applicant may self-register, but remains PENDING and receives no
 // privileged access until a super-admin verifies the submitted facility.
 // SUPER_ADMIN is always provisioned through an authenticated admin flow.
-const PUBLIC_REGISTRABLE_ROLES = new Set(['PATIENT', 'CONSULTANT', 'PHARMACIST', 'HOSPITAL_ADMIN']);
+// Self-serve roles only. HOSPITAL_ADMIN is privileged: provisioned via
+// POST /api/admin/users or the one-off bootstrap — never self-registered,
+// and never ACTIVE-on-creation (OAuth creates ACTIVE, so the set must stay
+// free of privileged roles or OAuth mints facility admins).
+const PUBLIC_REGISTRABLE_ROLES = new Set(['PATIENT', 'CONSULTANT', 'PHARMACIST']);
 
 const generateSecureOtp = (): string => {
   return crypto.randomInt(100000, 1000000).toString();
@@ -522,7 +526,9 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
     if (!email && !phone) throw new ValidationError('Email or phone is required');
 
     const key = email || phone;
-    // #45 OTP spam: per-recipient throttle (60s TTL), best-effort on redis failure.
+    // #45 OTP spam: per-recipient throttle (60s TTL). Fail closed on redis
+    // failure — an unthrottled resend path is unlimited SMS/email spend and
+    // an enumeration oracle, worse than a retryable 503.
     try {
       const throttleKey = `otp:throttle:${key}`;
       const throttled = await redis.get(throttleKey);
@@ -532,7 +538,11 @@ export const sendOtp = async (req: Request, res: Response, next: NextFunction) =
       await redis.set(throttleKey, '1', 'EX', 60);
     } catch (e) {
       if (e instanceof AppError) throw e;
-      // redis unavailable: continue without throttle rather than blocking OTP
+      throw new AppError(
+        'Verification service is temporarily unavailable',
+        503,
+        'SERVICE_UNAVAILABLE'
+      );
     }
     const channel = phone ? 'SMS' : 'EMAIL';
     // Fail fast when no delivery path exists (same honesty as before, but
@@ -1481,8 +1491,14 @@ const sendVerificationOtp = async (
       where: { [channel]: value },
     });
 
+    // Never oracle account existence (mirrors passwordForgot): behave
+    // identically whether or not the contact belongs to an account.
     if (!user) {
-      throw new NotFoundError('User not found');
+      return res.status(200).json(
+        successResponse({
+          message: `If an account exists for this ${channel}, a verification code was sent.`,
+        })
+      );
     }
 
     if (channel === 'phone' && !isSmsConfigured()) {

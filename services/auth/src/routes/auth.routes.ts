@@ -125,11 +125,31 @@ router.post(
   authController.verifyOtpCode
 );
 
-router.post('/oauth/google', validateRequest(OAuthInputSchema), authController.oauthGoogle);
-router.post('/oauth/apple', validateRequest(OAuthInputSchema), authController.oauthApple);
+router.post(
+  '/oauth/google',
+  authRateLimit,
+  validateRequest(OAuthInputSchema),
+  authController.oauthGoogle
+);
+router.post(
+  '/oauth/apple',
+  authRateLimit,
+  validateRequest(OAuthInputSchema),
+  authController.oauthApple
+);
 
-router.post('/refresh', validateRequest(RefreshTokenInputSchema), authController.refresh);
-router.post('/logout', validateRequest(RefreshTokenInputSchema), authController.logout);
+router.post(
+  '/refresh',
+  authRateLimit,
+  validateRequest(RefreshTokenInputSchema),
+  authController.refresh
+);
+router.post(
+  '/logout',
+  authRateLimit,
+  validateRequest(RefreshTokenInputSchema),
+  authController.logout
+);
 
 // Session management endpoints (require authentication)
 router.post('/logout-all', requireAuth, authController.logoutAll);
