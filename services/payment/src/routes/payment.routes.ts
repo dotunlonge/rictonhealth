@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, requireActiveStatus } from '@ricton/auth-middleware';
+import { requireAuth, requireActiveStatus, requireRole } from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
 import { idempotency } from '@ricton/shared';
 import { prisma } from '@ricton/db';
@@ -86,7 +86,14 @@ router.post(
  */
 router.get('/verify/:reference', paymentController.verifyPayment);
 
-router.post('/:id/refund', idempotency(prisma), paymentController.refundPayment);
+// Route gate mirrors the controller: clinic admins only. Controller check
+// stays as defense-in-depth.
+router.post(
+  '/:id/refund',
+  requireRole('HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  idempotency(prisma),
+  paymentController.refundPayment
+);
 
 /**
  * @openapi

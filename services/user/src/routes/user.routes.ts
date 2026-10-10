@@ -1,5 +1,10 @@
 import { Router } from 'express';
-import { requireAuth, requireRole, optionalAuth } from '@ricton/auth-middleware';
+import {
+  requireAuth,
+  requireRole,
+  requireActiveStatus,
+  optionalAuth,
+} from '@ricton/auth-middleware';
 import { rateLimit } from '@ricton/shared';
 import * as userController from '../controllers/user.controller';
 import {
@@ -59,7 +64,15 @@ router.get(
   requireRole('CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
   userController.getPatients
 );
-router.get('/patients/:id', userController.getPatientById);
+// Route gate mirrors the controller: PATIENT (self only), CONSULTANT
+// (relationship), HOSPITAL_ADMIN (same hospital), SUPER_ADMIN. PHARMACIST
+// has no clinical-record access. Controller checks stay as defense-in-depth.
+router.get(
+  '/patients/:id',
+  requireRole('PATIENT', 'CONSULTANT', 'HOSPITAL_ADMIN', 'SUPER_ADMIN'),
+  requireActiveStatus,
+  userController.getPatientById
+);
 
 router.get(
   '/dashboard/hospital',
