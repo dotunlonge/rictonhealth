@@ -13,6 +13,7 @@ interface Transaction {
   description: string;
   amount: number;
   date: string;
+  createdAt: string;
   status: 'COMPLETED' | 'PENDING';
 }
 
@@ -59,6 +60,7 @@ export default function WalletPage() {
               month: 'short',
               day: 'numeric',
             }),
+            createdAt: t.createdAt || new Date().toISOString(),
             status: t.status || 'COMPLETED',
           }))
         );
@@ -163,6 +165,7 @@ export default function WalletPage() {
               month: 'short',
               day: 'numeric',
             }),
+            createdAt: t.createdAt || new Date().toISOString(),
             status: t.status || 'COMPLETED',
           }))
         );
@@ -183,7 +186,9 @@ export default function WalletPage() {
     const dayTotals: Record<string, number> = {};
     dayNames.forEach((d) => (dayTotals[d] = 0));
     transactions.forEach((t) => {
-      const parsed = new Date(t.date);
+      // Aggregate from the raw ISO timestamp — never re-parse the locale
+      // display string (locale-fragile and year-blind).
+      const parsed = new Date(t.createdAt);
       if (!isNaN(parsed.getTime())) {
         const dayName = dayNames[parsed.getDay()];
         dayTotals[dayName] += t.amount;
@@ -451,9 +456,7 @@ export default function WalletPage() {
               Loading payments...
             </div>
           ) : payments.length === 0 ? (
-            <p className="text-xs font-semibold text-slate-400">
-              No payments recorded yet.
-            </p>
+            <p className="text-xs font-semibold text-slate-400">No payments recorded yet.</p>
           ) : (
             <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin">
               {payments.map((p: any) => {
