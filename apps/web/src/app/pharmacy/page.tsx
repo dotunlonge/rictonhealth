@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
+import { createKeyScope } from '@/lib/idempotency';
 import Link from 'next/link';
 import { ShoppingBag, CheckCircle2, ShoppingCart, Search, Pill, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
@@ -50,6 +51,10 @@ export default function PharmacyPage() {
   const [orderMsg, setOrderMsg] = useState<string | null>(null);
   const [orderMsgError, setOrderMsgError] = useState(false);
   const [orderingId, setOrderingId] = useState<string | null>(null);
+  // Stable idempotency keys per order intent: double-clicks/timeout retries
+  // replay instead of duplicating. Reset on success so a later identical
+  // order is a new intent. Keys are secure-random (lib/idempotency).
+  const orderKeys = useRef(createKeyScope());
   const [payingId, setPayingId] = useState<string | null>(null);
   const [deliveryType, setDeliveryType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
   const [addressLine1, setAddressLine1] = useState('');
@@ -105,7 +110,10 @@ export default function PharmacyPage() {
 
   const handleOrderProduct = async (product: PharmacyProduct) => {
     if (product.requiresPrescription && !getRxPrescriptionId()) {
-      showOrderMsg('Failed: Send your signed prescription to this pharmacy before fulfillment.', true);
+      showOrderMsg(
+        'Failed: Send your signed prescription to this pharmacy before fulfillment.',
+        true
+      );
       return;
     }
     setOrderingId(product.id);
@@ -121,15 +129,24 @@ export default function PharmacyPage() {
       return;
     }
     const prescriptionId = getRxPrescriptionId();
-    if (deliveryType === 'DELIVERY' && (!addressLine1.trim() || !addressCity.trim() || !addressPhone.trim())) {
+    if (
+      deliveryType === 'DELIVERY' &&
+      (!addressLine1.trim() || !addressCity.trim() || !addressPhone.trim())
+    ) {
       setOrderingId(null);
       showOrderMsg('Failed: Add street address, city, and phone for DELIVERY orders.', true);
       return;
     }
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const orderIntent = [
+      product.id,
+      deliveryType,
+      prescriptionId || 'no-rx',
+      orderNotes.trim(),
+      deliveryType === 'DELIVERY'
+        ? `${addressLine1.trim()}|${addressCity.trim()}|${addressPhone.trim()}`
+        : 'pickup',
+    ];
+    const idempotencyKey = orderKeys.current.keyFor(...orderIntent);
     const res = await api.post<PharmacyOrder>(
       '/pharmacy/orders',
       {
@@ -152,6 +169,7 @@ export default function PharmacyPage() {
 
     setOrderingId(null);
     if (res.success && res.data) {
+      orderKeys.current.reset(...orderIntent);
       const order = res.data as PharmacyOrder & { id?: string };
       const orderId = order.id || (res.data as unknown as { id: string }).id;
       if (orderId) setOrders((prev) => [res.data as PharmacyOrder, ...prev]);
@@ -409,76 +427,84 @@ export default function PharmacyPage() {
                   const payStatus = ord.payment?.status;
                   const isPaid = payStatus === 'SUCCESS';
                   return (
-                  <details
-                    key={ord.id}
-                    className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs"
-                  >
-                    <summary className="flex items-center justify-between gap-3 flex-wrap cursor-pointer list-none">
-                      <div>
-                        <p className="font-bold text-slate-900">
-                          {ord.items.map((item) => item.drugName).join(', ') || `Order #${ord.id}`}
-                        </p>
-                        <p className="text-[10px] text-slate-400 font-semibold">
-                          {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString() : ''} ·{' '}
-                          {ord.status.replaceAll('_', ' ')} · <span className="text-[#1877F2]">Details</span>
-                        </p>
-                        <span
-                          className={`mt-1 inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                            isPaid
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-black text-[#1877F2]">
-                          ₦{Number(ord.totalAmount).toLocaleString()}
-                        </span>
-                        {!isPaid && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              handlePayExistingOrder(ord.id);
-                            }}
-                            disabled={payingId === ord.id}
-                            className="px-4 py-2 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs disabled:opacity-50"
+                    <details
+                      key={ord.id}
+                      className="p-4 bg-slate-50 border border-slate-200/60 rounded-2xl text-xs"
+                    >
+                      <summary className="flex items-center justify-between gap-3 flex-wrap cursor-pointer list-none">
+                        <div>
+                          <p className="font-bold text-slate-900">
+                            {ord.items.map((item) => item.drugName).join(', ') ||
+                              `Order #${ord.id}`}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-semibold">
+                            {ord.createdAt ? new Date(ord.createdAt).toLocaleDateString() : ''} ·{' '}
+                            {ord.status.replaceAll('_', ' ')} ·{' '}
+                            <span className="text-[#1877F2]">Details</span>
+                          </p>
+                          <span
+                            className={`mt-1 inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              isPaid
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
                           >
-                            {payingId === ord.id ? 'Starting payment…' : 'Pay now'}
-                          </button>
-                        )}
+                            {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-black text-[#1877F2]">
+                            ₦{Number(ord.totalAmount).toLocaleString()}
+                          </span>
+                          {!isPaid && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handlePayExistingOrder(ord.id);
+                              }}
+                              disabled={payingId === ord.id}
+                              className="px-4 py-2 bg-[#1877F2] hover:bg-[#1565C0] text-white font-bold rounded-full text-xs disabled:opacity-50"
+                            >
+                              {payingId === ord.id ? 'Starting payment…' : 'Pay now'}
+                            </button>
+                          )}
+                        </div>
+                      </summary>
+                      <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
+                        <p className="font-bold text-slate-900">Items</p>
+                        <ul className="space-y-1">
+                          {ord.items.map((item, idx) => (
+                            <li
+                              key={`${item.productId ?? item.drugName}-${idx}`}
+                              className="text-slate-600"
+                            >
+                              {item.drugName} × {item.quantity}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-slate-600">
+                          Status:{' '}
+                          <span className="font-bold text-slate-900">
+                            {ord.status.replaceAll('_', ' ')}
+                          </span>
+                        </p>
+                        <p className="text-slate-600">
+                          Payment:{' '}
+                          <span className="font-bold text-slate-900">
+                            {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
+                          </span>
+                        </p>
+                        <p className="text-slate-600">
+                          Track: order <span className="font-mono">{ord.id.slice(0, 8)}…</span> ·{' '}
+                          {ord.status === 'DELIVERED'
+                            ? 'Delivered — complete.'
+                            : ord.status === 'CANCELLED'
+                              ? 'Cancelled — terminal.'
+                              : 'In progress — the pharmacy updates status as it fulfills.'}
+                        </p>
                       </div>
-                    </summary>
-                    <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
-                      <p className="font-bold text-slate-900">Items</p>
-                      <ul className="space-y-1">
-                        {ord.items.map((item, idx) => (
-                          <li key={`${item.productId ?? item.drugName}-${idx}`} className="text-slate-600">
-                            {item.drugName} × {item.quantity}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="text-slate-600">
-                        Status: <span className="font-bold text-slate-900">{ord.status.replaceAll('_', ' ')}</span>
-                      </p>
-                      <p className="text-slate-600">
-                        Payment:{' '}
-                        <span className="font-bold text-slate-900">
-                          {isPaid ? 'Paid' : payStatus ? `Unpaid (${payStatus})` : 'Unpaid'}
-                        </span>
-                      </p>
-                      <p className="text-slate-600">
-                        Track: order <span className="font-mono">{ord.id.slice(0, 8)}…</span> ·{' '}
-                        {ord.status === 'DELIVERED'
-                          ? 'Delivered — complete.'
-                          : ord.status === 'CANCELLED'
-                            ? 'Cancelled — terminal.'
-                            : 'In progress — the pharmacy updates status as it fulfills.'}
-                      </p>
-                    </div>
-                  </details>
+                    </details>
                   );
                 })
               )}

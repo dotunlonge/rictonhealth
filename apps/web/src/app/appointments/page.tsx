@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
+import { createKeyScope } from '@/lib/idempotency';
 import { useAppStore } from '@/store/useAppStore';
 import { Calendar, Plus, Clock, CheckCircle2, XCircle, Search, User } from 'lucide-react';
 
@@ -125,19 +126,10 @@ function AppointmentsContent() {
   // across retries of the same selection so a timeout/double-click replays
   // instead of double-booking. Cleared on success or selection change, so a
   // later rebook of the same slot is a new intent with a fresh key.
-  const idempotencyKeys = useRef(new Map<string, string>());
-  const bookingKeyFor = (providerId: string, slot: string): string => {
-    const k = `${providerId}|${slot}`;
-    let existing = idempotencyKeys.current.get(k);
-    if (!existing) {
-      existing =
-        typeof crypto !== 'undefined' && 'randomUUID' in crypto
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-      idempotencyKeys.current.set(k, existing);
-    }
-    return existing;
-  };
+  // Keys come from lib/idempotency (secure randomness only, never Math.random).
+  const idempotencyKeys = useRef(createKeyScope());
+  const bookingKeyFor = (providerId: string, slot: string): string =>
+    idempotencyKeys.current.keyFor(providerId, slot);
   const [selectedDoctorId, setSelectedDoctorId] = useState(() => providerIdParam);
   const [rescheduling, setRescheduling] = useState<AppointmentRecord | null>(null);
   const [consultType, setConsultType] = useState<'VIDEO' | 'IN_PERSON'>('VIDEO');
@@ -428,7 +420,7 @@ function AppointmentsContent() {
     setBooking(false);
 
     if (res.success && res.data?.id) {
-      idempotencyKeys.current.delete(`${providerId}|${selectedSlot}`);
+      idempotencyKeys.current.reset(providerId, selectedSlot);
       const newAppt: AppointmentRecord = {
         id: res.data.id,
         patientName: user?.firstName
