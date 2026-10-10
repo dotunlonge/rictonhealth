@@ -16,9 +16,14 @@ function SuccessContent() {
   // Force-reconcile with Paystack (live lookup): webhooks may lag or never
   // reach local dev, so poll the verify endpoint while the payment is pending.
   const checkPayment = async (attempt: number): Promise<void> => {
+    // No reference means no payment to verify — never claim activation.
+    // (A direct visit without a Paystack redirect carries no proof.)
     if (!reference) {
       setVerifying(false);
-      setVerified(true);
+      setVerified(false);
+      setError(
+        'No payment reference was provided. If you just paid, return via the Paystack receipt link or check your subscription status.'
+      );
       return;
     }
 
