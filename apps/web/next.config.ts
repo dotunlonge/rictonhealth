@@ -7,18 +7,23 @@ const nextConfig: NextConfig = {
   // client chunks are blocked and pages render dead (no hydration, no clicks).
   allowedDevOrigins: ['127.0.0.1', 'localhost'],
   async rewrites() {
+    // Auth override exists so local runs survive port squatters (e.g. an
+    // unrelated project holding 3001): AUTH_INTERNAL_URL=http://localhost:3011
+    const AUTH_BASE = process.env.AUTH_INTERNAL_URL || 'http://localhost:3001';
+    const USER_BASE = process.env.USER_INTERNAL_URL || 'http://localhost:3002';
+    const APPT_BASE = process.env.APPT_INTERNAL_URL || 'http://localhost:3005';
     return [
       {
         source: '/api/auth/:path*',
-        destination: 'http://localhost:3001/api/auth/:path*',
+        destination: `${AUTH_BASE}/api/auth/:path*`,
       },
       {
         source: '/api/users/:path*',
-        destination: 'http://localhost:3002/api/users/:path*',
+        destination: `${USER_BASE}/api/users/:path*`,
       },
       {
         source: '/api/appointments/:path*',
-        destination: 'http://localhost:3005/api/appointments/:path*',
+        destination: `${APPT_BASE}/api/appointments/:path*`,
       },
       {
         source: '/api/prescriptions/:path*',

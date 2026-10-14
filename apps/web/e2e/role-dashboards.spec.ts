@@ -13,7 +13,8 @@ import bcrypt from 'bcrypt';
 // SUPER_ADMIN cannot self-register by design, so it is provisioned directly
 // (mirroring the admin provisioning flow) and cleaned up afterwards.
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:3100';
-const API = 'http://localhost:3001/api/auth';
+// Overridable so local runs survive port squatters on 3001 (default preserved).
+const API = process.env.E2E_AUTH_API || 'http://localhost:3001/api/auth';
 const stamp = Date.now().toString(36);
 const password = 'E2eSecure1!';
 

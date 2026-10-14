@@ -266,9 +266,9 @@ describe('CI test boundaries and migrations', () => {
     const compose = read('docker-compose.test.yml');
     const script = read('scripts/test-e2e.sh');
     expect(compose).toMatch(/test-redis:/);
-    expect(compose).toMatch(/127\.0\.0\.1:6381:6379/);
+    expect(compose).toMatch(/127\.0\.0\.1:6382:6379/);
     expect(compose).toMatch(/--requirepass ricton_test_redis_password/);
-    expect(script).toMatch(/REDIS_URL="redis:\/\/127\.0\.0\.1:6381"/);
+    expect(script).toMatch(/REDIS_URL="redis:\/\/127\.0\.0\.1:6382"/);
     expect(script).toMatch(/REDIS_PASSWORD="ricton_test_redis_password"/);
   });
 });

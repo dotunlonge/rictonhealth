@@ -64,8 +64,9 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
         pharmacyName: 'Ricton City Pharmacy',
         licenseNumber: `PHARM-LIC-${Date.now()}`,
         address: '10 Hospital Road, Lagos',
+        isVerified: true,
       },
-      update: {},
+      update: { isVerified: true },
     });
     pharmacistToken = jwt.sign(
       {
@@ -162,7 +163,11 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
       .send({
         items: [{ productId, quantity: 2 }],
         deliveryType: 'DELIVERY',
-        deliveryAddress: { address: '12 Victoria Island, Lagos' },
+        deliveryAddress: {
+          line1: '12 Victoria Island',
+          city: 'Lagos',
+          phone: '+2348012345678',
+        },
       });
 
     expect(res.status).toBe(201);
@@ -175,12 +180,13 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
   });
 
   it('2. should reject order when requested quantity exceeds available stock', async () => {
-    // Current stock is 8, try to order 50
+    // Current stock is 8, try to order 50 (PICKUP isolates the stock gate from address validation)
     const res = await request(app)
       .post('/api/pharmacy/orders')
       .set('Authorization', `Bearer ${patientTokenA}`)
       .send({
         items: [{ productId, quantity: 50 }],
+        deliveryType: 'PICKUP',
       });
 
     expect(res.status).toBe(400);
@@ -204,12 +210,14 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
         .set('Authorization', `Bearer ${patientTokenA}`)
         .send({
           items: [{ productId, quantity: 2 }],
+          deliveryType: 'PICKUP',
         }),
       request(app)
         .post('/api/pharmacy/orders')
         .set('Authorization', `Bearer ${patientTokenB}`)
         .send({
           items: [{ productId, quantity: 2 }],
+          deliveryType: 'PICKUP',
         }),
     ]);
 
@@ -230,6 +238,7 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
       .set('Authorization', `Bearer ${patientTokenA}`)
       .send({
         items: [{ productId, quantity: 1 }],
+        deliveryType: 'PICKUP',
       });
     expect(res1.status).toBe(201);
 
@@ -242,6 +251,7 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
       .set('Authorization', `Bearer ${patientTokenB}`)
       .send({
         items: [{ productId, quantity: 1 }],
+        deliveryType: 'PICKUP',
       });
     expect(res2.status).toBe(400);
     expect(res2.body.error.message).toMatch(/insufficient stock/i);
@@ -261,6 +271,7 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
       .set('Authorization', `Bearer ${patientTokenA}`)
       .send({
         items: [{ productId, quantity: 1 }],
+        deliveryType: 'PICKUP',
       });
 
     expect(res.status).toBe(404);
@@ -276,7 +287,7 @@ describe('Pharmacy Inventory & Stock Concurrency Resilience (TDD)', () => {
     const res = await request(app)
       .post('/api/pharmacy/orders')
       .set('Authorization', `Bearer ${patientTokenA}`)
-      .send({ items: [{ productId, quantity: 1 }] });
+      .send({ items: [{ productId, quantity: 1 }], deliveryType: 'PICKUP' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.message).toMatch(/prescription is required/i);

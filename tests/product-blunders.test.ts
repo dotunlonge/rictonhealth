@@ -378,6 +378,9 @@ describe('Round 7 - erasure/release/secops', () => {
   });
   it('security dashboard + push-token logout', () => {
     expect(read('apps/web/src/app/admin/security/page.tsx')).toMatch(/threats/i);
-    expect(read('apps/mobile/src/features/auth/auth-service.ts')).toMatch(/push-token/);
+    // Mobile revokes via canonical gateway constant (11/10: no hardcoded path).
+    const authSvc = read('apps/mobile/src/features/auth/auth-service.ts');
+    expect(authSvc).toMatch(/notificationPushToken|push-token/);
+    expect(authSvc).toMatch(/pushToken/);
   });
 });

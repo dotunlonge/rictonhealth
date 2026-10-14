@@ -175,6 +175,7 @@ model ProviderProfile {
   practiceLongitude Decimal? @db.Decimal(11, 8)
   practiceLocationVisible Boolean @default(false)
 
+  @@index([practiceLocationVisible, practiceLatitude, practiceLongitude])
   @@map("provider_profiles")
 }
 

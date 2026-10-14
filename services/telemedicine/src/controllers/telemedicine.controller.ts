@@ -40,6 +40,18 @@ export function assertAppointmentJoinWindow(appointment: {
   durationMinutes: number;
   status: AppointmentStatus;
 }) {
+  // Terminal states are never joinable — honest 410, not a payment nudge.
+  if (
+    appointment.status === AppointmentStatus.CANCELLED ||
+    appointment.status === AppointmentStatus.COMPLETED ||
+    appointment.status === AppointmentStatus.NO_SHOW
+  ) {
+    throw new AppError(
+      'This appointment is no longer eligible for video joining',
+      410,
+      'APPOINTMENT_ENDED'
+    );
+  }
   if (
     appointment.status !== AppointmentStatus.CONFIRMED &&
     appointment.status !== AppointmentStatus.IN_PROGRESS

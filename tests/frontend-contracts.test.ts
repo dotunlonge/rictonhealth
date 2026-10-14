@@ -165,10 +165,14 @@ describe('G2: every linked workflow has a wired page', () => {
     expect(hospital).toMatch(/api\.get[\s\S]{0,120}\/admin\/hospitals\/\$\{id\}/);
     expect(hospital).toMatch(/api\.put[\s\S]{0,120}\/admin\/hospitals\/\$\{id\}/);
 
-    const product = web('app/pharmacy/products/[id]/page.tsx');
-    expect(product).toMatch(/\/pharmacy\/products/);
-    expect(product).toMatch(/api\.post/);
-    expect(product).toMatch(/api\.put/);
+    const productPage = web('app/pharmacy/products/[id]/page.tsx');
+    // [id] page delegates to the shared ProductEditor (single source of truth).
+    expect(productPage).toMatch(/ProductEditor/);
+    expect(productPage).toMatch(/mode="edit"/);
+    const editor = web('components/pharmacy/ProductEditor.tsx');
+    expect(editor).toMatch(/\/pharmacy\/products/);
+    expect(editor).toMatch(/api\.post/);
+    expect(editor).toMatch(/api\.put/);
   });
 
   it('does not link pharmacy navigation to nonexistent sales or earnings pages', () => {
@@ -180,7 +184,10 @@ describe('G2: every linked workflow has a wired page', () => {
 describe('G2: pharmacist inventory and earnings are tenant-authoritative', () => {
   it('management screens use the caller-scoped inventory endpoint', () => {
     expect(web('app/pharmacy/products/page.tsx')).toMatch(/\/pharmacy\/inventory/);
-    expect(web('app/pharmacy/products/[id]/page.tsx')).toMatch(/\/pharmacy\/inventory\/\$\{id\}/);
+    // [id] page loads via shared ProductEditor against caller-scoped inventory.
+    const editor = web('components/pharmacy/ProductEditor.tsx');
+    expect(editor).toMatch(/\/pharmacy\/inventory\/\$\{(id|productId)\}/);
+    expect(web('app/pharmacy/products/[id]/page.tsx')).toMatch(/ProductEditor/);
     expect(web('app/dashboard/pharmacy/page.tsx')).toMatch(/\/pharmacy\/inventory/);
   });
 
@@ -285,7 +292,10 @@ describe('G2: appointments + admin + onboarding envelopes', () => {
 
   it('privileged roles are provisioned by admins, never self-registered', () => {
     const register = web('app/(auth)/register/page.tsx');
-    expect(register).not.toMatch(/HOSPITAL_ADMIN/);
+    // No self-registration path: no selectable option, no state, no submit branch.
+    expect(register).not.toMatch(/key:\s*['"]HOSPITAL_ADMIN['"]/);
+    expect(register).not.toMatch(/useState<[^>]*HOSPITAL_ADMIN/);
+    expect(register).not.toMatch(/role === 'HOSPITAL_ADMIN'/);
     expect(register).not.toMatch(/SUPER_ADMIN/);
     const picker = web('app/(auth)/oauth/select-role/page.tsx');
     expect(picker).not.toMatch(/HOSPITAL_ADMIN/);

@@ -3019,6 +3019,12 @@ components:
           type: string
         search:
           type: string
+        latitude:
+          type: string
+        longitude:
+          type: string
+        radiusKm:
+          type: string
         limit:
           type: string
         offset:
@@ -3379,7 +3385,6 @@ components:
           enum:
             - HOSPITAL_ADMIN
             - SUPER_ADMIN
-          description: HOSPITAL_ADMIN requires hospitalId; SUPER_ADMIN must not set hospitalId
         hospitalId:
           type: string
           format: uuid
@@ -3463,6 +3468,38 @@ components:
           maxLength: 8
       required:
         - code
+    UpdatePracticeLocation:
+      type: object
+      properties:
+        practiceAddress:
+          type: string
+          minLength: 5
+          maxLength: 300
+        practiceCity:
+          type: string
+          minLength: 2
+          maxLength: 100
+        practiceState:
+          type: string
+          minLength: 2
+          maxLength: 100
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        visible:
+          type: boolean
+          default: true
+      required:
+        - practiceAddress
+        - practiceCity
+        - practiceState
+        - latitude
+        - longitude
   parameters: {}
 paths:
   /api/addresses:
@@ -5101,7 +5138,8 @@ paths:
                   description: Alias for providerId
                 hospitalId:
                   type: string
-                  description: Required for SUPER_ADMIN; HOSPITAL_ADMIN is bound to their own hospital
+                  description: Required for SUPER_ADMIN; HOSPITAL_ADMIN is bound to their own
+                    hospital
       responses:
         '200':
           description: Successful operation

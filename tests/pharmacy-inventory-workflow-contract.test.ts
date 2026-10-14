@@ -6,11 +6,14 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
 
 describe('pharmacy inventory workflow contract', () => {
   it('collects the compliance and traceability fields required by the API', () => {
+    // [id] page delegates to shared ProductEditor — assert through the editor.
     const page = read('apps/web/src/app/pharmacy/products/[id]/page.tsx');
+    expect(page).toMatch(/ProductEditor/);
+    const editor = read('apps/web/src/components/pharmacy/ProductEditor.tsx');
     for (const field of ['nafdacRegNo', 'batchNumber', 'supplierName', 'expiryDate']) {
-      expect(page).toContain(field);
+      expect(editor).toContain(field);
     }
-    expect(page).toContain('type="date"');
+    expect(editor).toContain('type="date"');
   });
 
   it('stores traceability and will not expose expired or unreviewed stock', () => {

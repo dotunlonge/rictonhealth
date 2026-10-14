@@ -302,9 +302,7 @@ export const register = async (req: Request, res: Response, next: NextFunction) 
     }
 
     if (!PUBLIC_REGISTRABLE_ROLES.has(role)) {
-      throw new ForbiddenError(
-        'Registration is limited to patient, clinician, pharmacist, or hospital applications.'
-      );
+      throw new ForbiddenError('Registration is limited to PATIENT, CONSULTANT, or PHARMACIST');
     }
 
     const existingUser = await prisma.user.findFirst({

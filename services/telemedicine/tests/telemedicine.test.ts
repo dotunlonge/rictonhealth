@@ -90,13 +90,17 @@ describe('Telemedicine Video Rooms & RTC Sessions (TDD)', () => {
       }
     );
 
-    // 1. Doctor
+    // 1. Doctor (verified — #23 gate: appointment rooms require verified provider)
     doctor = await createUser({
       role: UserRole.CONSULTANT,
       status: UserStatus.ACTIVE,
       password: 'Password123!',
       firstName: 'Dr. Video',
       lastName: 'Consultant',
+    });
+    await prisma.providerProfile.update({
+      where: { userId: doctor.id },
+      data: { isVerified: true },
     });
     doctorToken = jwt.sign(
       {

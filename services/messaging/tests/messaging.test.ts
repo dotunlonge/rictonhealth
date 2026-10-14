@@ -5,7 +5,7 @@ process.env.REFRESH_SECRET = 'test-refresh-secret';
 import request from 'supertest';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma, UserRole, UserStatus } from '@ricton/db';
+import { prisma, UserRole, UserStatus, AppointmentType } from '@ricton/db';
 import { errorResponse } from '@ricton/shared';
 import messagingRoutes from '../src/routes/messaging.routes';
 import { createUser } from '../../../packages/shared/src/__tests__/factories';
@@ -98,6 +98,18 @@ describe('Messaging & Real-Time Chat Thread Service (TDD)', () => {
       },
       'test-jwt-secret'
     );
+
+    // Care-team thread (#40/#65 gate): patient A + doctor B share an appointment.
+    await prisma.appointment.create({
+      data: {
+        patientId: userA.id,
+        providerId: userB.id,
+        scheduledAt: new Date(Date.now() + 60 * 60_000),
+        durationMinutes: 30,
+        type: AppointmentType.VIDEO,
+        reason: 'Care-team thread fixture',
+      },
+    });
   });
 
   afterAll(async () => {
@@ -111,6 +123,9 @@ describe('Messaging & Real-Time Chat Thread Service (TDD)', () => {
       where: { userId: { in: [userA.id, userB.id, outsider.id] } },
     });
     await prisma.chatThread.deleteMany({});
+    await prisma.appointment.deleteMany({
+      where: { patientId: userA.id, providerId: userB.id },
+    });
     await prisma.patientProfile.deleteMany({
       where: { userId: { in: [userA.id, outsider.id] } },
     });

@@ -6,7 +6,7 @@ import request from 'supertest';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma, UserRole, UserStatus, PrescriptionStatus } from '@ricton/db';
-import { errorResponse } from '@ricton/shared';
+import { errorResponse, redis, hashOtp } from '@ricton/shared';
 import prescriptionRoutes from '../src/routes/prescription.routes';
 import { createUser, createAppointment } from '../../../packages/shared/src/__tests__/factories';
 
@@ -255,6 +255,8 @@ describe('Prescription Service Lifecycle & Safety (TDD)', () => {
   });
 
   it('4. should allow verified consultant to digitally sign draft prescription', async () => {
+    // #51 OTP sign-off: seed the mocked Redis with a real OTP hash for this provider.
+    await redis.set(`otp:${doctor.email}`, JSON.stringify({ hash: hashOtp('123456') }));
     const res = await request(app)
       .post(`/api/prescriptions/${createdPrescriptionId}/sign`)
       .set('Authorization', `Bearer ${doctorToken}`)

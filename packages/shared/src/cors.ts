@@ -6,7 +6,13 @@ function getDefaultOrigins(): string[] {
   if (isProduction) {
     return [];
   }
-  return ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:19006'];
+  // 3100 is the repo's web dev port (3000 belongs to an unrelated project).
+  return [
+    'http://localhost:3000',
+    'http://localhost:3100',
+    'http://localhost:5173',
+    'http://localhost:19006',
+  ];
 }
 
 export function createCors() {

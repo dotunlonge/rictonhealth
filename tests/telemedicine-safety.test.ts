@@ -109,7 +109,10 @@ describe('G4: leave ≠ end', () => {
   it('exposes a leave route that only marks the caller departed', () => {
     expect(routes()).toMatch(/leave/);
     expect(ctrl()).toMatch(/export const leaveRoom/);
-    const leaveFn = ctrl().slice(ctrl().indexOf('export const leaveRoom'));
+    const start = ctrl().indexOf('export const leaveRoom');
+    const nextExport = ctrl().indexOf('export const', start + 1);
+    const leaveFn = ctrl().slice(start, nextExport === -1 ? undefined : nextExport);
+    expect(leaveFn).toMatch(/leftAt/);
     expect(leaveFn).not.toMatch(/status:\s*TelemedicineRoomStatus\.ENDED/);
   });
 

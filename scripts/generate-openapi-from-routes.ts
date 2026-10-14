@@ -97,6 +97,26 @@ function summarize(def: RouteDef): string {
 export { serviceRoutes };
 export interface OpenApiRouteDef extends RouteDef {}
 
+/**
+ * Serialize the spec in the committed file's quote style (single quotes for
+ * response-code keys, $refs, and /api path keys). The `yaml` v2 default emits
+ * double quotes for these, which churns every line on each run and obscures
+ * real content changes. The patterns below never contain apostrophes
+ * (numeric codes, #/components refs, route paths, empty strings), so the rewrite is safe.
+ */
+export function serializeOpenApiSpec(spec: unknown): string {
+  return yaml
+    .stringify(spec)
+    .replace(/^(\s*)"(\d{3})":/gm, "$1'$2':")
+    .replace(/\$ref: "([^"]*)"/g, "$ref: '$1'")
+    .replace(/^(\s*)"(\/api[^"]*)":/gm, "$1'$2':")
+    .replace(/^([-\s]*)""$/gm, "$1''");
+}
+
+export function writeOpenApiSpec(specPath: string, spec: unknown): void {
+  fs.writeFileSync(specPath, serializeOpenApiSpec(spec));
+}
+
 export function syncOpenApiRouteCoverage() {
   const routes = serviceRoutes();
   console.log(`Discovered ${routes.length} route registrations.`);
@@ -282,7 +302,7 @@ export function syncOpenApiRouteCoverage() {
   }
   if (promoted > 0) console.log(`Promoted ${promoted} operations to full request schemas.`);
 
-  fs.writeFileSync(specPath, yaml.stringify(spec));
+  writeOpenApiSpec(specPath, spec);
   console.log(`Added ${added} missing path operations to openapi.yaml.`);
 }
 

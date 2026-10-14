@@ -8,9 +8,9 @@ import { test, expect, request } from '@playwright/test';
 // Requires: docker backend on published ports (Next rewrites proxy to them)
 // and a migrated dev database. Timestamped accounts isolate parallel runs.
 
-const API = 'http://localhost:3001/api/auth';
-const USER_API = 'http://localhost:3002/api/users';
-const APPT_API = 'http://localhost:3005/api/appointments';
+const API = process.env.E2E_AUTH_API || 'http://localhost:3001/api/auth';
+const USER_API = process.env.E2E_USER_API || 'http://localhost:3002/api/users';
+const APPT_API = process.env.E2E_APPT_API || 'http://localhost:3005/api/appointments';
 
 const stamp = Date.now().toString(36);
 const patientEmail = `e2e-patient-${stamp}@example.com`;
