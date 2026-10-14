@@ -1,6 +1,7 @@
 import { PrismaClient, UserRole, UserStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import { seedDoctors } from '../src/seed-doctors-helper';
+import { DEFAULT_PHARMACY_PASSWORD_HASH } from '../src/seed-pharmacy-helper';
 
 const prisma = new PrismaClient();
 
@@ -115,12 +116,17 @@ async function main() {
   const seededCount = await seedDoctors(prisma);
   console.log(`Seeded ${seededCount} specialist doctors with weekly schedules.`);
 
-  // Create Pharmacist
+  // Create Pharmacist.
+  // Single source of truth: the pharmacy auto-bootstrap
+  // (ensurePharmacySeeded) upserts this same account with
+  // DEFAULT_PHARMACY_PASSWORD_HASH whenever the catalog is empty, so this
+  // seed must use that hash too — otherwise the credential depends on boot
+  // order. Demo password: RictonDoctor2026! (same as seeded doctors).
   const pharmacist = await prisma.user.create({
     data: {
       email: 'pharmacy@ricton.health',
       phone: '+2348000000003',
-      passwordHash,
+      passwordHash: DEFAULT_PHARMACY_PASSWORD_HASH,
       role: UserRole.PHARMACIST,
       status: UserStatus.ACTIVE,
       emailVerified: true,

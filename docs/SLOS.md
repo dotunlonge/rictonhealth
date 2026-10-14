@@ -26,3 +26,12 @@ Staging smoke gates (enforced by `scripts/load-smoke.js`):
   rooms, message fan-out, push fan-out, DB write rate, queue depth.
 - Run `scripts/load-smoke.js` with `LOAD_CONNECTIONS`/`LOAD_DURATION_S`
   scaled to 3× projected peak; record results in the release checklist.
+
+## Measured runs
+
+- 2026-10-14 (local mesh, isolated Postgres 16 + Redis 7 test DB, 20 conns ×
+  20 s, `GET /health` per service — staging gate p99 < 1500 ms, 0 errors,
+  0 5xx): appointment :3005 — 2410 reqs, p99 442 ms, PASS; auth :3031 —
+  2384 reqs, p99 720 ms, PASS; pharmacy :3014 — 1928 reqs, p99 810 ms, PASS.
+  Authenticated-write and 3×-peak runs remain (need staging with Gateway +
+  seeded load profile).

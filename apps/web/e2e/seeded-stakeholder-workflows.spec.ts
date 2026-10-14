@@ -2,6 +2,14 @@ import { test, expect, type Browser } from '@playwright/test';
 
 // These development fixtures are created by prisma/seed.ts. The tests drive
 // real browser sessions against the real local services; nothing is mocked.
+//
+// Demo credentials (single source of truth: prisma/seed.ts + the
+// seed-doctors/seed-pharmacy helpers — the pharmacy auto-bootstrap upserts the
+// same pharmacist hash, so boot order never changes the password):
+// - patient / hospital-admin / super-admin: password123
+// - consultant + pharmacist (clinical demo accounts): RictonDoctor2026!
+const STAFF_PASSWORD = 'RictonDoctor2026!';
+const DEFAULT_PASSWORD = 'password123';
 const roles = {
   patient: {
     email: 'patient@ricton.health',
@@ -30,15 +38,19 @@ const roles = {
   },
 } as const;
 
-async function login(browser: Browser, email: string) {
+async function login(browser: Browser, email: string, password = DEFAULT_PASSWORD) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto('/login');
   await page.getByPlaceholder('Email address or phone').fill(email);
-  await page.getByPlaceholder('Password').fill('password123');
+  await page.getByPlaceholder('Password').fill(password);
   await page.getByRole('button', { name: 'Log In', exact: true }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 20_000 });
   return { context, page };
+}
+
+function passwordFor(role: string): string {
+  return role === 'consultant' || role === 'pharmacist' ? STAFF_PASSWORD : DEFAULT_PASSWORD;
 }
 
 test.describe('seeded stakeholder workflows', () => {
@@ -46,7 +58,7 @@ test.describe('seeded stakeholder workflows', () => {
     test(`${role} can enter its workspace and every navigation surface loads`, async ({
       browser,
     }) => {
-      const { context, page } = await login(browser, workflow.email);
+      const { context, page } = await login(browser, workflow.email, passwordFor(role));
       await expect(page).toHaveURL(new RegExp(workflow.home.replaceAll('/', '\\/')), {
         timeout: 20_000,
       });
@@ -69,7 +81,7 @@ test.describe('seeded stakeholder workflows', () => {
   test('pharmacist can enter inventory and admin can reach its review queue', async ({
     browser,
   }) => {
-    const pharmacist = await login(browser, roles.pharmacist.email);
+    const pharmacist = await login(browser, roles.pharmacist.email, passwordFor('pharmacist'));
     await pharmacist.page.goto('/pharmacy/products/new');
     await expect(pharmacist.page.getByLabel(/NAFDAC registration/i)).toBeVisible();
     await expect(pharmacist.page.getByLabel(/Batch number/i)).toBeVisible();
