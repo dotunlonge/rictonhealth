@@ -89,7 +89,7 @@ export default function RegisterPage() {
   // for staff so a stale in-memory profile can't hide an unfinished setup.
   const redirectAfterAuth = async (u: any) => {
     let full = u;
-    if (u?.role === 'CONSULTANT' || u?.role === 'PHARMACIST' || u?.role === 'HOSPITAL_ADMIN') {
+    if (u?.role === 'CONSULTANT' || u?.role === 'PHARMACIST') {
       try {
         const fresh = await useAppStore.getState().fetchUser();
         if (fresh) full = fresh;
