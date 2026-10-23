@@ -89,7 +89,7 @@ export default function PharmacyPage() {
     setPayingId(orderId);
     const payRes = await api.post<{ authorization_url?: string; reference?: string }>(
       '/payments/initialize',
-      { type: 'PHARMACY_ORDER', referenceId: orderId }
+      { email: user?.email, type: 'PHARMACY_ORDER', referenceId: orderId }
     );
     setPayingId(null);
     if (payRes.success && payRes.data?.authorization_url) {

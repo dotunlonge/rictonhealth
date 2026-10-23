@@ -35,6 +35,33 @@ jest.mock('@react-native-async-storage/async-storage', () => {
   };
 });
 
+// The nearby-doctor map renders inside a WebView. Jest has no native webview,
+// so back it with a plain View that keeps the testID + onMessage handler and
+// exposes the imperative injectJavaScript bridge the component uses.
+jest.mock('react-native-webview', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { View } = require('react-native');
+  // Shared spy so tests can assert the RN→WebView injection bridge.
+  const injectJavaScript = jest.fn();
+  (global as Record<string, unknown>).__rictonWebViewInject = injectJavaScript;
+  const MockWebView = React.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+    React.useImperativeHandle(ref, () => ({ injectJavaScript }));
+    return React.createElement(View, props, null);
+  });
+  return { __esModule: true, default: MockWebView };
+});
+
+// expo-location has no native module under jest; return a fixed Lagos fix.
+jest.mock('expo-location', () => ({
+  Accuracy: { Balanced: 3, High: 4, Low: 2, Lowest: 1 },
+  requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
+  getCurrentPositionAsync: jest.fn(async () => ({
+    coords: { latitude: 6.5244, longitude: 3.3792 },
+  })),
+}));
+
 // lucide-react-native ships ESM (.mjs) that jest won't transform; icons are
 // presentational, so stub them globally for component tests.
 jest.mock('lucide-react-native', () => {

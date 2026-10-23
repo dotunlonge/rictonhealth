@@ -1,0 +1,562 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Ricton backend runtime in eu-west-2. This is the current launch shape:
+  an EC2 Docker Compose host running Kong and all services, backed by private
+  RDS PostgreSQL. DNS remains external at GoDaddy and is deliberately not
+  changed by this stack.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedPattern: '^[a-z0-9-]+$'
+  InstanceType:
+    Type: String
+    Default: m7i-flex.large
+    AllowedValues:
+      - m7i-flex.large
+      - c7i-flex.large
+      - t3.small
+      - t3.micro
+    Description: >-
+      t3a.xlarge is the minimum supported size for the 18-container Compose
+      workload. Select a larger type before a sustained production launch.
+  DatabaseInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.r6g.large
+      - db.r6g.xlarge
+  AlertEmail:
+    Type: String
+    Default: ''
+    Description: Optional operations email. Confirmation is required by AWS after stack creation.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, '']]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref Vpc
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.0.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.20.1.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-public-b
+
+  PrivateDatabaseSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: 10.20.10.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-database-a
+
+  PrivateDatabaseSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: 10.20.11.0/24
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-database-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-public
+
+  PublicInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetA
+
+  PublicSubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetB
+
+  BackendSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public Kong edge for Ricton; management is SSM-only.
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - Description: Kong HTTP for ACME HTTP-01 redirects and certificate issuance
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - Description: Kong HTTPS API edge
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-backend
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private PostgreSQL access from the Ricton Compose host only.
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupIngress:
+        - Description: PostgreSQL from the backend host
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BackendSecurityGroup
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-postgres
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Isolated Ricton PostgreSQL subnets.
+      DBSubnetGroupName: !Sub ricton-${Environment}-database
+      SubnetIds:
+        - !Ref PrivateDatabaseSubnetA
+        - !Ref PrivateDatabaseSubnetB
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      # This launch profile stays inside the RDS free-tier envelope. Scale this
+      # deliberately after go-live; Multi-AZ, a larger class, extended backups,
+      # and 100+ GB storage are all billable production choices.
+      AllocatedStorage: '20'
+      BackupRetentionPeriod: 1
+      CopyTagsToSnapshot: true
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      DBInstanceIdentifier: !Sub ricton-${Environment}
+      DBName: ricton
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DeletionProtection: true
+      EnablePerformanceInsights: true
+      Engine: postgres
+      EngineVersion: '16'
+      ManageMasterUserPassword: true
+      MasterUsername: ricton
+      MaxAllocatedStorage: 20
+      MultiAZ: false
+      Port: 5432
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      StorageType: gp3
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}
+
+  AvatarBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub ricton-avatars-${AWS::AccountId}-eu-west-2
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins: ['https://app.rictonhealth.com']
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-multipart-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  ApplicationSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: >-
+        Ricton production application secrets. Populate real provider credentials
+        and runtime secrets before the first deployment; never put them in source.
+      Name: !Sub ricton/${Environment}/app
+      SecretString: '{}'
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: pull-ricton-images-and-upload-avatars
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/ricton-*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub ${AvatarBucket.Arn}/*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  BackendHost:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicInternetRoute
+    Properties:
+      IamInstanceProfile: !Ref InstanceProfile
+      ImageId: '{{resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id}}'
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref BackendSecurityGroup
+          SubnetId: !Ref PublicSubnetA
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: false
+            Encrypted: true
+            VolumeSize: 100
+            VolumeType: gp3
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-backend
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg awscli
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $$(. /etc/os-release && echo $$VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+          mkdir -p /opt/ricton/gateway /opt/ricton/scripts
+          chown -R ubuntu:ubuntu /opt/ricton
+          # GitHub Actions deploys the signed release bundle here using SSM;
+          # this bootstrap deliberately contains no application secrets.
+
+  BackendElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ricton-${Environment}-api
+
+  BackendElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt BackendElasticIp.AllocationId
+      InstanceId: !Ref BackendHost
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: RictonOps
+      Subscription: !If
+        - HasAlertEmail
+        - - Endpoint: !Ref AlertEmail
+            Protocol: email
+        - !Ref AWS::NoValue
+      TopicName: !Sub ricton-${Environment}-alarms
+
+  CpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmActions: [!Ref AlarmTopic]
+      AlarmDescription: Ricton backend host sustained CPU pressure.
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref BackendHost
+      EvaluationPeriods: 3
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: 300
+      Statistic: Average
+      Threshold: 80
+      TreatMissingData: notBreaching
+
+  EcrAuth:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-auth,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrUser:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-user,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrAppointment:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-appointment,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrPrescription:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-prescription,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrTelemedicine:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-telemedicine,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrAddress:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-address,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrAnalytics:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-analytics,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrPharmacy:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-pharmacy,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrPayment:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-payment,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrWallet:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-wallet,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrNotification:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-notification,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrMessaging:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-messaging,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrSubscription:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-subscription,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrRewards:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-rewards,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrAdmin:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-admin,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrSmartguard:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-smartguard,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrDocs:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-docs,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrDatabase:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-db,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+  EcrWeb:
+    Type: AWS::ECR::Repository
+    Properties:
+      {
+        RepositoryName: ricton-web,
+        ImageTagMutability: IMMUTABLE,
+        ImageScanningConfiguration: { ScanOnPush: true },
+      }
+
+Outputs:
+  AccountId:
+    Value: !Ref AWS::AccountId
+  Region:
+    Value: !Ref AWS::Region
+  ApiElasticIp:
+    Description: Create GoDaddy A record api.rictonhealth.com to this address after validation.
+    Value: !Ref BackendElasticIp
+  DatabaseEndpoint:
+    Value: !GetAtt Database.Endpoint.Address
+  DatabasePort:
+    Value: !GetAtt Database.Endpoint.Port
+  DatabaseMasterSecretArn:
+    Description: Generated by RDS. Do not export the password to source control.
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+  ApplicationSecretArn:
+    Value: !Ref ApplicationSecret
+  AvatarBucketName:
+    Value: !Ref AvatarBucket
+  BackendInstanceId:
+    Value: !Ref BackendHost
+  BackendRoleArn:
+    Value: !GetAtt InstanceRole.Arn

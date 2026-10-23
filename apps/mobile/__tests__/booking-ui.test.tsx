@@ -2,9 +2,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
+const mockRouterPush = jest.fn();
+
 jest.mock('expo-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
   useLocalSearchParams: jest.fn(() => ({ providerId: 'prov-1' })),
 }));
 
@@ -59,6 +61,74 @@ describe('booking discover', () => {
     mockedList.mockResolvedValue({ providers: [], meta: { total: 0 } });
     await render(<DiscoverScreen />);
     expect(await screen.findByTestId('booking.empty')).toBeTruthy();
+  });
+
+  it('uses location to search nearby and renders the map', async () => {
+    mockedList.mockResolvedValue({
+      providers: [
+        {
+          id: 'prov-1',
+          userId: 'prov-1',
+          email: 'doc@example.com',
+          providerProfile: {
+            firstName: 'Emeka',
+            lastName: 'E2E',
+            specialty: 'Cardiology',
+            practiceLatitude: 6.45,
+            practiceLongitude: 3.4,
+          },
+          distanceKm: 12.3,
+        },
+      ],
+    });
+    await render(<DiscoverScreen />);
+    await fireEvent.press(screen.getByTestId('booking.use-location'));
+    await waitFor(() =>
+      expect(mockedList).toHaveBeenCalledWith(
+        expect.objectContaining({ latitude: 6.5244, longitude: 3.3792, radiusKm: 25 })
+      )
+    );
+    expect(await screen.findByTestId('booking.nearby-map')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('booking.map-toggle'));
+    expect(await screen.findByText('12.3 km away')).toBeTruthy();
+  });
+
+  it('routes from a map pin selection back into booking', async () => {
+    mockedList.mockResolvedValue({
+      providers: [
+        {
+          id: 'prov-1',
+          userId: 'prov-1',
+          providerProfile: {
+            firstName: 'Emeka',
+            lastName: 'E2E',
+            specialty: 'Cardiology',
+            practiceLatitude: 6.45,
+            practiceLongitude: 3.4,
+          },
+        },
+      ],
+    });
+    await render(<DiscoverScreen />);
+    await fireEvent.press(screen.getByTestId('booking.use-location'));
+    const webView = await screen.findByTestId('booking.nearby-map');
+    fireEvent(webView, 'onMessage', {
+      nativeEvent: { data: JSON.stringify({ type: 'select', id: 'prov-1' }) },
+    });
+    expect(mockRouterPush).toHaveBeenCalledWith('./prov-1');
+  });
+
+  it('re-queries with the selected search radius', async () => {
+    mockedList.mockResolvedValue({ providers: [] });
+    await render(<DiscoverScreen />);
+    await fireEvent.press(screen.getByTestId('booking.use-location'));
+    await waitFor(() =>
+      expect(mockedList).toHaveBeenCalledWith(expect.objectContaining({ radiusKm: 25 }))
+    );
+    await fireEvent.press(screen.getByTestId('booking.radius-50'));
+    await waitFor(() =>
+      expect(mockedList).toHaveBeenCalledWith(expect.objectContaining({ radiusKm: 50 }))
+    );
   });
 });
 

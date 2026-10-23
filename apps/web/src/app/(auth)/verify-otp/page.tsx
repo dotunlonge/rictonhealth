@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api-client';
 import { useAppStore } from '@/store/useAppStore';
+import { onboardingForRole, landingForUser } from '@/lib/role-home';
 
 function VerifyOtpContent() {
   const router = useRouter();
@@ -17,6 +18,14 @@ function VerifyOtpContent() {
   const [successMsg, setSuccessMsg] = useState('');
   const [cooldown, setCooldown] = useState(0);
 
+  // Snapshot the session as it was when this page mounted (lazy state runs
+  // once). A user who arrives already signed in should be bounced to their
+  // workspace; a user who verifies on this page must NOT be bounced by that
+  // same effect (it used to race the onboarding redirect and always won, so
+  // staff never saw onboarding).
+  const [arrivedSignedIn] = useState(() => Boolean(user?.role));
+  const justVerifiedRef = useRef(false);
+
   useEffect(() => {
     if (cooldown <= 0) return;
     const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
@@ -24,12 +33,12 @@ function VerifyOtpContent() {
   }, [cooldown]);
 
   useEffect(() => {
-    if (user?.role) {
-      router.replace('/dashboard');
+    if (user?.role && arrivedSignedIn && !justVerifiedRef.current) {
+      router.replace(landingForUser(user));
     }
-  }, [user, router]);
+  }, [user, router, arrivedSignedIn]);
 
-  if (user?.role) {
+  if (arrivedSignedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center max-w-md w-full space-y-4">
@@ -77,6 +86,8 @@ function VerifyOtpContent() {
     setIsLoading(false);
 
     if (res.success) {
+      // Mark first so the "arrived signed in" bounce effect stays out of the way.
+      justVerifiedRef.current = true;
       if (res.data?.token) {
         api.setToken(res.data.token, res.data.refreshToken ?? null, res.data?.user?.role ?? null);
       }
@@ -85,16 +96,9 @@ function VerifyOtpContent() {
       }
       const role = res.data?.user.role;
       setSuccessMsg('Account verified successfully! Redirecting to setup...');
+      // Route staff straight into setup; patients go to the dashboard.
       setTimeout(() => {
-        if (role === 'HOSPITAL_ADMIN') {
-          router.replace('/onboarding/hospital');
-        } else if (role === 'CONSULTANT') {
-          router.replace('/onboarding/doctor');
-        } else if (role === 'PHARMACIST') {
-          router.replace('/onboarding/pharmacy');
-        } else {
-          router.replace('/dashboard');
-        }
+        router.replace(onboardingForRole(role));
       }, 1000);
     } else {
       setErrorMsg(res.error?.message || 'Invalid verification code. Please try again.');

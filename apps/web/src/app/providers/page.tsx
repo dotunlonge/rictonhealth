@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
 import {
@@ -18,6 +19,14 @@ import { useRouter } from 'next/navigation';
 import { mapProviderSummary, type ProviderSummary } from '@/lib/api-contract-mappers';
 import { SPECIALTIES } from '@/lib/specialties';
 import { useCurrentUser } from '@/store/useAppStore';
+
+// Leaflet touches `window`; render it client-side only.
+const NearbyDoctorMap = dynamic(() => import('@/components/NearbyDoctorMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-80 animate-pulse rounded-3xl border border-blue-100 bg-slate-50" />
+  ),
+});
 
 export default function ProvidersPage() {
   const router = useRouter();
@@ -242,7 +251,7 @@ export default function ProvidersPage() {
               </div>
             )}
             {coordinates && mapView && (
-              <NearbyMap
+              <NearbyDoctorMap
                 providers={filteredProviders}
                 onSelect={(id) => router.push(`/providers/${id}`)}
               />
@@ -334,68 +343,5 @@ export default function ProvidersPage() {
         )}
       </div>
     </SidebarLayout>
-  );
-}
-
-function NearbyMap({
-  providers,
-  onSelect,
-}: {
-  providers: ProviderSummary[];
-  onSelect: (id: string) => void;
-}) {
-  const located = providers.filter(
-    (provider) => provider.latitude !== undefined && provider.longitude !== undefined
-  );
-  if (!located.length)
-    return (
-      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-xs font-semibold text-slate-500">
-        No public practice locations fall within this area. Try a wider search or browse
-        telemedicine doctors.
-      </div>
-    );
-  const lats = located.map((p) => p.latitude!);
-  const lngs = located.map((p) => p.longitude!);
-  const latSpan = Math.max(...lats) - Math.min(...lats) || 0.02;
-  const lngSpan = Math.max(...lngs) - Math.min(...lngs) || 0.02;
-  return (
-    <div
-      className="relative h-80 overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-sky-100 via-blue-50 to-emerald-50"
-      role="region"
-      aria-label="Map of nearby doctor practice locations"
-    >
-      <div
-        className="absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            'linear-gradient(#93c5fd 1px, transparent 1px), linear-gradient(90deg, #93c5fd 1px, transparent 1px)',
-          backgroundSize: '36px 36px',
-        }}
-      />
-      {located.map((provider) => {
-        const left = 10 + ((provider.longitude! - Math.min(...lngs)) / lngSpan) * 80;
-        const top = 12 + (1 - (provider.latitude! - Math.min(...lats)) / latSpan) * 72;
-        return (
-          <button
-            key={provider.id}
-            type="button"
-            onClick={() => onSelect(provider.id)}
-            style={{ left: `${left}%`, top: `${top}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2 group"
-            aria-label={`View ${provider.name}`}
-          >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1877F2] text-white shadow-lg ring-4 ring-white">
-              <MapPin className="w-4 h-4" />
-            </span>
-            <span className="absolute left-1/2 top-10 hidden w-max max-w-44 -translate-x-1/2 rounded-lg bg-slate-900 px-2 py-1 text-[10px] font-bold text-white group-hover:block">
-              {provider.name}
-            </span>
-          </button>
-        );
-      })}
-      <p className="absolute bottom-3 left-4 text-[10px] font-bold text-slate-500">
-        Public clinic locations · Tap a pin for doctor details
-      </p>
-    </div>
   );
 }

@@ -74,4 +74,14 @@ describe('mobile E2E seed fixtures', () => {
     expect(E2E_REWARD.name.length).toBeGreaterThan(0);
     expect(E2E_REWARD_POINTS).toBeGreaterThan(E2E_REWARD.pointsCost);
   });
+
+  it('gives the provider a public practice location for nearby discovery', () => {
+    expect(E2E_PROVIDER.practiceLocationVisible).toBe(true);
+    expect(E2E_PROVIDER.practiceLatitude).toBeGreaterThanOrEqual(-90);
+    expect(E2E_PROVIDER.practiceLatitude).toBeLessThanOrEqual(90);
+    expect(E2E_PROVIDER.practiceLongitude).toBeGreaterThanOrEqual(-180);
+    expect(E2E_PROVIDER.practiceLongitude).toBeLessThanOrEqual(180);
+    expect(E2E_PROVIDER.practiceCity.length).toBeGreaterThan(0);
+    expect(E2E_PROVIDER.practiceState.length).toBeGreaterThan(0);
+  });
 });

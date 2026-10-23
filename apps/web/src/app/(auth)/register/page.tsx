@@ -6,6 +6,7 @@ import { api } from '@/lib/api-client';
 import { loginWithGoogleToken, triggerAppleAuth } from '@/lib/oauth';
 import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
+import { onboardingForRole, landingForUser } from '@/lib/role-home';
 import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 import {
   AppleIcon,
@@ -83,15 +84,20 @@ export default function RegisterPage() {
   const [errorMsg, setErrorMsg] = useState('');
   // Apple Sign-In is part of the auth design and always renders (see login).
 
-  const redirectAfterAuth = (u: any) => {
-    const r = u?.role;
-    if (r === 'CONSULTANT') {
-      router.replace('/dashboard');
-    } else if (r === 'PHARMACIST') {
-      router.replace('/dashboard/pharmacy');
-    } else {
-      router.replace('/dashboard');
+  // Already signed in? Land on setup if the staff profile is incomplete,
+  // otherwise the role home. Mirrors the login page: consult a fresh /users/me
+  // for staff so a stale in-memory profile can't hide an unfinished setup.
+  const redirectAfterAuth = async (u: any) => {
+    let full = u;
+    if (u?.role === 'CONSULTANT' || u?.role === 'PHARMACIST' || u?.role === 'HOSPITAL_ADMIN') {
+      try {
+        const fresh = await useAppStore.getState().fetchUser();
+        if (fresh) full = fresh;
+      } catch {
+        /* fall through with what we have */
+      }
     }
+    router.replace(landingForUser(full) ?? '/dashboard');
   };
 
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
@@ -198,17 +204,16 @@ export default function RegisterPage() {
       const res = await loginWithGoogleToken(credential, role);
       setOauthBusy(false);
       if (res.success && res.data?.token) {
-        api.setToken(res.data.token, res.data?.refreshToken ?? null, res.data?.user?.role ?? role);
+        // Trust the role the SERVER returned: the backend only applies the
+        // requested role when creating an account, so an existing account keeps
+        // its real role. Routing off the local form state sent people to the
+        // wrong home (and skipped onboarding entirely).
+        const serverRole = res.data?.user?.role ?? role;
+        api.setToken(res.data.token, res.data?.refreshToken ?? null, serverRole);
         if (res.data.user) {
           setUser(res.data.user);
         }
-        if (role === 'CONSULTANT') {
-          router.push('/onboarding/doctor');
-        } else if (role === 'PHARMACIST') {
-          router.push('/onboarding/pharmacy');
-        } else {
-          router.push('/dashboard');
-        }
+        router.push(onboardingForRole(serverRole));
       } else {
         setErrorMsg(res.error?.message || 'Google Sign-Up failed.');
       }
@@ -226,11 +231,14 @@ export default function RegisterPage() {
       const res = await triggerAppleAuth(role);
       setIsLoading(false);
       if (res.success && res.data?.token) {
-        api.setToken(res.data.token, res.data?.refreshToken ?? null, res.data?.user?.role ?? role);
+        const serverRole = res.data?.user?.role ?? role;
+        api.setToken(res.data.token, res.data?.refreshToken ?? null, serverRole);
         if (res.data.user) {
           setUser(res.data.user);
         }
-        router.push('/dashboard');
+        // Apple used to hardcode /dashboard, so doctor/pharmacist sign-ups
+        // never reached setup until they signed out and back in.
+        router.push(onboardingForRole(serverRole));
       } else {
         setErrorMsg(res.error?.message || 'Apple Sign-Up failed.');
       }

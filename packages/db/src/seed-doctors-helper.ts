@@ -126,6 +126,65 @@ export const SEED_DOCTORS: SeedDoctorData[] = [
   },
 ];
 
+/**
+ * Public practice locations for the demo doctors (never home addresses).
+ * Powers the nearby-doctor map in local/demo environments.
+ */
+const PRACTICE_LOCATIONS: Record<
+  string,
+  { address: string; city: string; state: string; latitude: number; longitude: number }
+> = {
+  'dr.olaniyi@ricton.com': {
+    address: '12 Adeola Odeku St, Victoria Island',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4281,
+    longitude: 3.4219,
+  },
+  'dr.amadi@ricton.com': {
+    address: '44 Awolowo Road, Ikoyi',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4488,
+    longitude: 3.4386,
+  },
+  'dr.bello@ricton.com': {
+    address: '8 Ahmadu Bello Way, Victoria Island',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4311,
+    longitude: 3.4102,
+  },
+  'dr.eze@ricton.com': {
+    address: '21 Admiralty Way, Lekki Phase 1',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4474,
+    longitude: 3.4723,
+  },
+  'dr.adeyemi@ricton.com': {
+    address: '5 Bourdillon Road, Ikoyi',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4501,
+    longitude: 3.4251,
+  },
+  'dr.alhassan@ricton.com': {
+    address: '31 Opebi Road, Ikeja',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.6018,
+    longitude: 3.3515,
+  },
+  'dr.johnson@ricton.com': {
+    address: '17 Coral Drive, Lekki Phase 1',
+    city: 'Lagos',
+    state: 'Lagos',
+    latitude: 6.4432,
+    longitude: 3.4658,
+  },
+};
+
 export async function seedDoctors(prisma: PrismaClient): Promise<number> {
   // #96: never auto-seed demo doctors in production (would overwrite/seed PII-adjacent fixtures).
   if (process.env.NODE_ENV === 'production') {
@@ -155,6 +214,14 @@ export async function seedDoctors(prisma: PrismaClient): Promise<number> {
       },
     });
 
+    const practice = PRACTICE_LOCATIONS[doc.email] ?? {
+      address: 'Ricton Health Centre, Lagos',
+      city: 'Lagos',
+      state: 'Lagos',
+      latitude: 6.4531,
+      longitude: 3.3958,
+    };
+
     await prisma.providerProfile.upsert({
       where: { userId: user.id },
       update: {
@@ -169,6 +236,12 @@ export async function seedDoctors(prisma: PrismaClient): Promise<number> {
         bio: doc.bio,
         avatarUrl: doc.avatarUrl,
         isVerified: true,
+        practiceAddress: practice.address,
+        practiceCity: practice.city,
+        practiceState: practice.state,
+        practiceLatitude: practice.latitude,
+        practiceLongitude: practice.longitude,
+        practiceLocationVisible: true,
       },
       create: {
         userId: user.id,
@@ -183,6 +256,12 @@ export async function seedDoctors(prisma: PrismaClient): Promise<number> {
         bio: doc.bio,
         avatarUrl: doc.avatarUrl,
         isVerified: true,
+        practiceAddress: practice.address,
+        practiceCity: practice.city,
+        practiceState: practice.state,
+        practiceLatitude: practice.latitude,
+        practiceLongitude: practice.longitude,
+        practiceLocationVisible: true,
       },
     });
 

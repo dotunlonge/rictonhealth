@@ -20,6 +20,14 @@ export const E2E_PROVIDER = {
   lastName: 'E2E',
   specialty: 'Cardiology',
   consultationFee: 15000,
+  // Public practice location (never a home address) so nearby-doctor discovery
+  // has deterministic geo data for the map E2E journeys.
+  practiceAddress: '1 E2E Cardiology Way, Victoria Island',
+  practiceCity: 'Lagos',
+  practiceState: 'Lagos',
+  practiceLatitude: 6.4531,
+  practiceLongitude: 3.3958,
+  practiceLocationVisible: true,
 } as const;
 
 export const E2E_PHARMACY = {

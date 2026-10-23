@@ -49,6 +49,12 @@
           "microphonePermission": "Allow Ricton Health to use your microphone so your clinician can hear you.",
           "recordAudioAndroid": true
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Ricton Health to use your location to find doctors and pharmacies near you."
+        }
       ]
     ],
     "experiments": {

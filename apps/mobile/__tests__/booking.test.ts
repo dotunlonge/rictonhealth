@@ -19,6 +19,33 @@ describe('BookingService (Phase 3)', () => {
     expect(d.api.get).toHaveBeenCalledWith(expect.stringContaining('name=derma'));
   });
 
+  it('sends nearby coordinates and radius when locating', async () => {
+    const d = deps();
+    (d.api.get as jest.Mock).mockResolvedValue({ providers: [] });
+    const s = new BookingService(d.api);
+    await s.listProviders({
+      latitude: 6.5244,
+      longitude: 3.3792,
+      radiusKm: 10,
+      limit: 50,
+    });
+    const called = (d.api.get as jest.Mock).mock.calls[0][0] as string;
+    expect(called).toContain('/providers');
+    expect(called).toContain('latitude=6.5244');
+    expect(called).toContain('longitude=3.3792');
+    expect(called).toContain('radiusKm=10');
+  });
+
+  it('omits geo parameters when no location is shared', async () => {
+    const d = deps();
+    (d.api.get as jest.Mock).mockResolvedValue({ providers: [] });
+    const s = new BookingService(d.api);
+    await s.listProviders({ search: 'cardio' });
+    const called = (d.api.get as jest.Mock).mock.calls[0][0] as string;
+    expect(called).not.toContain('latitude=');
+    expect(called).not.toContain('radiusKm=');
+  });
+
   it('unwraps API envelopes for slots into a stable screen shape', async () => {
     const d = deps();
     (d.api.get as jest.Mock).mockResolvedValue({ data: ['2026-09-10T09:00:00Z'] });

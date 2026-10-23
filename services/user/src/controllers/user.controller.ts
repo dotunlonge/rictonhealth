@@ -13,6 +13,10 @@ import {
   invalidateCache,
   makeCacheKey,
   AppError,
+  isValidCoordinatePair,
+  clampRadiusKm,
+  withDistances,
+  withinRadius,
 } from '@ricton/shared';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -576,13 +580,13 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
     const take = Math.min(Math.max(Number(limit) || 20, 1), 50);
     const skip = Math.max(Number(offset) || 0, 0);
     const searchTerm = (name || search) as string | undefined;
-    const patientLatitude = latitude === undefined ? undefined : Number(latitude);
-    const patientLongitude = longitude === undefined ? undefined : Number(longitude);
-    const hasCoordinates = Number.isFinite(patientLatitude) && Number.isFinite(patientLongitude);
+    const patientLatitude = latitude === undefined ? Number.NaN : Number(latitude);
+    const patientLongitude = longitude === undefined ? Number.NaN : Number(longitude);
+    const hasCoordinates = isValidCoordinatePair(patientLatitude, patientLongitude);
     if ((latitude !== undefined || longitude !== undefined) && !hasCoordinates) {
       throw new ValidationError('Latitude and longitude must both be valid coordinates');
     }
-    const radius = Math.min(Math.max(Number(radiusKm) || 25, 1), 200);
+    const radius = clampRadiusKm(radiusKm);
 
     // No runtime auto-seeding: demo doctors are dev fixtures only, seeded
     // explicitly via `prisma db seed`. An empty directory returns empty —
@@ -642,41 +646,35 @@ export const getProviders = async (req: Request, res: Response, next: NextFuncti
     ]);
 
     const toNumber = (value: unknown) => Number(value);
-    const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
-      const radians = (value: number) => (value * Math.PI) / 180;
-      const dLat = radians(lat2 - lat1);
-      const dLng = radians(lng2 - lng1);
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
-      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-    const nearbyProviders = hasCoordinates
-      ? providers
-          .filter(
-            (provider) =>
-              provider.practiceLocationVisible &&
-              provider.practiceLatitude !== null &&
-              provider.practiceLongitude !== null
-          )
-          .map((provider) => ({
-            ...provider,
-            distanceKm: Number(
-              distanceKm(
-                patientLatitude!,
-                patientLongitude!,
-                toNumber(provider.practiceLatitude),
-                toNumber(provider.practiceLongitude)
-              ).toFixed(1)
-            ),
-          }))
-          .filter((provider) => provider.distanceKm <= radius)
-          .sort((a, b) => a.distanceKm - b.distanceKm)
-          .slice(skip, skip + take)
-      : providers;
+    let nearbyProviders = providers;
+    let totalCount = total;
+    if (hasCoordinates) {
+      // Only public practice locations participate in nearby search; a
+      // provider's home address is never exposed here.
+      const visible = providers.filter(
+        (provider) =>
+          provider.practiceLocationVisible &&
+          provider.practiceLatitude !== null &&
+          provider.practiceLongitude !== null
+      );
+      const located = withDistances(
+        visible,
+        { latitude: patientLatitude, longitude: patientLongitude },
+        (provider) => ({
+          latitude: toNumber(provider.practiceLatitude),
+          longitude: toNumber(provider.practiceLongitude),
+        })
+      );
+      const within = withinRadius(located, radius);
+      totalCount = within.length;
+      nearbyProviders = within.slice(skip, skip + take).map((entry) => ({
+        ...entry.item,
+        distanceKm: entry.distanceKm,
+      }));
+    }
     const result = {
       providers: nearbyProviders,
-      total: hasCoordinates ? nearbyProviders.length : total,
+      total: totalCount,
       limit: take,
       offset: skip,
       ...(hasCoordinates ? { radiusKm: radius } : {}),

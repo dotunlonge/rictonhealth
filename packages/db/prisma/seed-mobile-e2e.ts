@@ -90,6 +90,12 @@ async function main() {
           specialty: E2E_PROVIDER.specialty,
           isVerified: true,
           consultationFee: E2E_PROVIDER.consultationFee,
+          practiceAddress: E2E_PROVIDER.practiceAddress,
+          practiceCity: E2E_PROVIDER.practiceCity,
+          practiceState: E2E_PROVIDER.practiceState,
+          practiceLatitude: E2E_PROVIDER.practiceLatitude,
+          practiceLongitude: E2E_PROVIDER.practiceLongitude,
+          practiceLocationVisible: E2E_PROVIDER.practiceLocationVisible,
         },
       },
     },
@@ -157,7 +163,15 @@ async function main() {
   });
   await prisma.providerProfile.update({
     where: { userId: provider.id },
-    data: { hospitalId: hospital.id },
+    data: {
+      hospitalId: hospital.id,
+      practiceAddress: E2E_PROVIDER.practiceAddress,
+      practiceCity: E2E_PROVIDER.practiceCity,
+      practiceState: E2E_PROVIDER.practiceState,
+      practiceLatitude: E2E_PROVIDER.practiceLatitude,
+      practiceLongitude: E2E_PROVIDER.practiceLongitude,
+      practiceLocationVisible: E2E_PROVIDER.practiceLocationVisible,
+    },
   });
 
   await prisma.product.deleteMany({ where: { pharmacyId: pharmacy.id } });

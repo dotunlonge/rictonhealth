@@ -3,7 +3,7 @@ import { CalendarDays, ClipboardList, Home, UserRound } from 'lucide-react-nativ
 
 import { Screen, StateNotice } from '@/components/ui';
 import { useSession } from '@/features/auth/session-provider';
-import { colors, spacing, typography } from '@/theme/tokens';
+import { colors, spacing } from '@/theme/tokens';
 
 export default function PatientTabsLayout() {
   const { user, signOut } = useSession();
@@ -36,7 +36,7 @@ export default function PatientTabsLayout() {
           borderTopColor: colors.slate200,
           backgroundColor: colors.white,
         },
-        tabBarLabelStyle: { ...typography.caption, fontSize: 11 },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
       }}
     >
       <Tabs.Screen

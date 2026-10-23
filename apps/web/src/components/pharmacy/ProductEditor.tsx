@@ -53,6 +53,8 @@ export default function ProductEditor({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [isError, setIsError] = useState(false);
+  // Tracks whether an existing listing is live in the patient store yet.
+  const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
     async function loadProduct() {
@@ -69,6 +71,7 @@ export default function ProductEditor({
         batchNumber?: string | null;
         supplierName?: string | null;
         expiryDate?: string | null;
+        isActive?: boolean;
       }>(`/pharmacy/inventory/${productId}`);
       if (res.success && res.data) {
         setForm({
@@ -84,6 +87,7 @@ export default function ProductEditor({
           supplierName: res.data.supplierName || '',
           expiryDate: res.data.expiryDate ? String(res.data.expiryDate).slice(0, 10) : '',
         });
+        setIsActive(res.data.isActive !== false);
       } else {
         setIsError(true);
         setMessage(res.error?.message || 'Unable to load this product.');
@@ -117,7 +121,11 @@ export default function ProductEditor({
     setSaving(false);
     if (res.success) {
       setIsError(false);
-      setMessage(isNew ? 'Product created.' : 'Product updated.');
+      setMessage(
+        isNew
+          ? 'Product created. It is hidden from patients until a Ricton admin reviews it.'
+          : 'Product updated.'
+      );
       if (isNew && res.data?.id) router.replace(`/pharmacy/products/${res.data.id}`);
     } else {
       setIsError(true);
@@ -159,6 +167,12 @@ export default function ProductEditor({
           className={`rounded-xl border p-3 text-xs font-bold ${isError ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}
         >
           {message}
+        </div>
+      )}
+      {!isNew && !loading && !isActive && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-700">
+          Hidden from patients — awaiting admin review. A Ricton admin must approve this
+          product before it appears in the patient store.
         </div>
       )}
       {loading ? (

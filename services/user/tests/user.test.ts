@@ -280,6 +280,103 @@ describe('User Controller Integration', () => {
     });
   });
 
+  describe('GET /api/users/providers nearby search', () => {
+    const createdProviderIds: string[] = [];
+
+    const makeProvider = async (opts: {
+      firstName: string;
+      latitude: number;
+      longitude: number;
+      visible: boolean;
+    }) => {
+      const user = await prisma.user.create({
+        data: {
+          email: `nearby.${opts.firstName.toLowerCase()}@example.com`,
+          passwordHash: 'hashed',
+          role: UserRole.CONSULTANT,
+          status: UserStatus.ACTIVE,
+          providerProfile: {
+            create: {
+              firstName: opts.firstName,
+              lastName: 'Geo',
+              specialty: 'General Practice',
+              isVerified: true,
+              practiceLatitude: opts.latitude,
+              practiceLongitude: opts.longitude,
+              practiceLocationVisible: opts.visible,
+            },
+          },
+        },
+      });
+      createdProviderIds.push(user.id);
+      return user;
+    };
+
+    beforeAll(async () => {
+      // Deterministic Lagos-area coordinates around Victoria Island.
+      await makeProvider({ firstName: 'Near', latitude: 6.4281, longitude: 3.4219, visible: true });
+      await makeProvider({ firstName: 'Mid', latitude: 6.5244, longitude: 3.3792, visible: true });
+      await makeProvider({ firstName: 'Far', latitude: 6.6018, longitude: 3.3515, visible: true });
+      await makeProvider({ firstName: 'Hidden', latitude: 6.43, longitude: 3.42, visible: false });
+    });
+
+    afterAll(async () => {
+      await prisma.providerProfile.deleteMany({ where: { userId: { in: createdProviderIds } } });
+      await prisma.user.deleteMany({ where: { id: { in: createdProviderIds } } });
+    });
+
+    it('sorts nearby providers nearest-first and reports distance', async () => {
+      const res = await request(app)
+        .get('/api/users/providers?latitude=6.4281&longitude=3.4219&radiusKm=50')
+        .set('Authorization', `Bearer ${patientToken}`);
+
+      expect(res.status).toBe(200);
+      const providers = res.body.data.providers as Array<{
+        firstName?: string;
+        distanceKm?: number;
+      }>;
+      const nearIndex = providers.findIndex((p) => p.firstName === 'Near');
+      const midIndex = providers.findIndex((p) => p.firstName === 'Mid');
+      const farIndex = providers.findIndex((p) => p.firstName === 'Far');
+
+      expect(nearIndex).toBeGreaterThanOrEqual(0);
+      expect(midIndex).toBeGreaterThan(nearIndex);
+      expect(farIndex).toBeGreaterThan(midIndex);
+      expect(providers[nearIndex].distanceKm).toBe(0);
+    });
+
+    it('excludes providers without a public practice location', async () => {
+      const res = await request(app)
+        .get('/api/users/providers?latitude=6.4281&longitude=3.4219&radiusKm=50')
+        .set('Authorization', `Bearer ${patientToken}`);
+
+      const names = (res.body.data.providers as Array<{ firstName?: string }>).map(
+        (p) => p.firstName
+      );
+      expect(names).not.toContain('Hidden');
+    });
+
+    it('filters by the requested radius', async () => {
+      const res = await request(app)
+        .get('/api/users/providers?latitude=6.4281&longitude=3.4219&radiusKm=1')
+        .set('Authorization', `Bearer ${patientToken}`);
+
+      const names = (res.body.data.providers as Array<{ firstName?: string }>).map(
+        (p) => p.firstName
+      );
+      expect(names).toContain('Near');
+      expect(names).not.toContain('Mid');
+    });
+
+    it('rejects invalid coordinates with 400', async () => {
+      const res = await request(app)
+        .get('/api/users/providers?latitude=999&longitude=3.4')
+        .set('Authorization', `Bearer ${patientToken}`);
+
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('GET /api/users/providers/:id', () => {
     it('should get a provider by id', async () => {
       const res = await request(app)

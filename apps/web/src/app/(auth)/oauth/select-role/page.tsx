@@ -11,6 +11,7 @@ import {
 } from '@/lib/oauth';
 import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
+import { onboardingForRole, landingForUser } from '@/lib/role-home';
 
 function SelectRoleContent() {
   const router = useRouter();
@@ -25,9 +26,11 @@ function SelectRoleContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // A user who arrives here already holding a session goes to setup if their
+  // staff profile is incomplete — not blindly to /dashboard.
   useEffect(() => {
     if (user?.role) {
-      router.replace('/dashboard');
+      router.replace(landingForUser(user));
     }
   }, [user, router]);
 
@@ -69,17 +72,14 @@ function SelectRoleContent() {
 
       if (res.success && res.data?.token) {
         clearPendingOAuthRoleSelection();
-        api.setToken(res.data.token, res.data?.refreshToken ?? null, res.data?.user?.role ?? null);
+        // Route off the role the server actually persisted, not the pill the
+        // user tapped — an existing account keeps its real role.
+        const serverRole = res.data?.user?.role ?? selectedRole;
+        api.setToken(res.data.token, res.data?.refreshToken ?? null, serverRole);
         if (res.data.user) {
           setUser(res.data.user);
         }
-        if (selectedRole === 'CONSULTANT') {
-          router.push('/onboarding/doctor');
-        } else if (selectedRole === 'PHARMACIST') {
-          router.push('/onboarding/pharmacy');
-        } else {
-          router.push('/dashboard');
-        }
+        router.push(onboardingForRole(serverRole));
       } else {
         setErrorMsg(res.error?.message || 'Role selection failed. Please try again.');
       }

@@ -51,12 +51,63 @@ Do **not** point the same hostname at Vercel and the AWS host. DNS can only dire
 
 ## Exact launch procedure
 
+### 0. Provision the replacement AWS foundation — engineering / AWS owner
+
+The live Compose deployment needs an AWS foundation before any release can be
+sent to the new account. The reviewed definition is
+[`infra/cloudformation/ricton-backend-eu-west-2.yml`](/Users/apple/Documents/GitHub/Ricton/infra/cloudformation/ricton-backend-eu-west-2.yml).
+Apply it in AWS CloudFormation in account `786644101986`, Region **Europe
+(London) / `eu-west-2`**, with stack name `ricton-production`.
+
+It creates the infrastructure the current backend actually consumes:
+
+- a dedicated VPC, two public subnets, and two isolated database subnets;
+- an SSM-only EC2 Docker host, encrypted 100-GB EBS volume, Elastic IP, and
+  only ports 80/443 exposed for Kong—no public SSH, database, Redis, or
+  service ports;
+- encrypted private Multi-AZ PostgreSQL, with RDS-managed credentials,
+  snapshots on replacement/deletion, seven-day retention, and deletion
+  protection;
+- immutable, scan-on-push ECR repositories for all images built by
+  `scripts/aws-ecr-push.sh`;
+- a private, encrypted, versioned avatar bucket scoped to
+  `https://app.rictonhealth.com`, plus the instance IAM permissions required
+  to pull images, use SSM, and upload avatars;
+- Secrets Manager placeholders and an EC2 CPU alarm.
+
+It deliberately **does not** create ElastiCache: the current production
+Compose file operates Redis in its own container and Kong is configured to use
+that internal host. Creating managed Redis today would add expense without
+being used. It also deliberately avoids an ALB/WAF layer: Kong owns ACME TLS
+for the API hostname in the present architecture. Move to ALB/ACM/WAF only as
+a coordinated application deployment migration.
+
+After `CREATE_COMPLETE`, retrieve the stack outputs; do not expose database
+credentials:
+
+1. Save `ApiElasticIp` for the GoDaddy API record below.
+2. Set `DATABASE_URL` using `DatabaseEndpoint`, port `5432`, the RDS-managed
+   secret, database name `ricton`, and `sslmode=require`.
+3. Set `AWS_S3_BUCKET_NAME` from `AvatarBucketName`.
+4. Populate the `ApplicationSecretArn` secret and GitHub deployment secrets
+   with generated runtime secrets and real provider credentials. Never commit
+   those values.
+5. Use Systems Manager Session Manager for host access; the stack intentionally
+   creates no EC2 key pair and opens no inbound SSH path.
+
+The current GitHub workflow still deploys by SSH. Before the first real
+release, migrate that step to SSM Run Command (or provision a tightly scoped
+deployment path) and configure GitHub OIDC rather than issuing long-lived AWS
+access keys. This is an explicit remaining deployment integration task, not a
+reason to weaken the host security group.
+
 ### 1. Prepare DNS and the AWS API endpoint — owner, with repository automation support
 
 1. Allocate and associate a stable Elastic IP to the Compose EC2 host. Record it as `<API_IP>`.
-2. In the DNS provider's authoritative zone, create `A api.rictonhealth.com -> <API_IP>` with a short TTL (for example 300) during cutover. If the zone is Route 53 and the deployment GitHub identity has permission, the workflow can upsert this record; still verify the result independently.
+2. **GoDaddy DNS:** create `A` record `api` → the CloudFormation `ApiElasticIp`, with TTL 300 during cutover. GoDaddy remains authoritative, so the repository's Route 53 helper cannot create this record. Do not create a conflicting Route 53 hosted zone unless the domain's authoritative nameservers are intentionally migrated.
 3. Ensure the EC2 security group allows TCP 80 and 443 from the internet, and allows TCP 22 only from approved operator IPs or a bastion/SSM. Do not expose service ports 3000–3017, Redis, Postgres, or Kong Admin.
-4. Set GitHub repository secrets:
+4. **GoDaddy DNS:** add `CNAME` record `app` → the exact Vercel target returned after assigning `app.rictonhealth.com` in Vercel. Add the apex/`www` records only as instructed by Vercel, then configure redirects to `app.rictonhealth.com`.
+5. Set GitHub repository secrets:
 
    - `API_DOMAIN=api.rictonhealth.com`
    - `ACME_EMAIL=<operations email>`
@@ -66,8 +117,8 @@ Do **not** point the same hostname at Vercel and the AWS host. DNS can only dire
    - production `STAGING_HOST`, `STAGING_USER`, and `STAGING_SSH_PRIVATE_KEY` until the workflow is renamed/split for production
    - all existing database, Redis, JWT, Paystack, OAuth, SMS, email, LiveKit, S3, Sentry, and AWS secrets.
 
-5. Run the AWS deploy workflow. Its Kong render will request the certificate after public DNS points to the host. Confirm `https://api.rictonhealth.com/docs` and a public API health/smoke request both negotiate a valid certificate.
-6. If ACME issuance fails, first check public DNS propagation and that inbound port 80 reaches Kong. Do not repeatedly redeploy: repeated failed ACME attempts can hit certificate-authority rate limits.
+6. Run the AWS deploy workflow. Its Kong render will request the certificate after public DNS points to the host. Confirm `https://api.rictonhealth.com/docs` and a public API health/smoke request both negotiate a valid certificate.
+7. If ACME issuance fails, first check public DNS propagation and that inbound port 80 reaches Kong. Do not repeatedly redeploy: repeated failed ACME attempts can hit certificate-authority rate limits.
 
 ### 2. Create the Vercel project — owner
 

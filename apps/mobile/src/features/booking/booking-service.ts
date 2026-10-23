@@ -9,6 +9,9 @@ function rel(canonical: string): string {
 export interface ProviderQuery {
   search?: string;
   specialty?: string;
+  latitude?: number;
+  longitude?: number;
+  radiusKm?: number;
   limit?: number;
   offset?: number;
 }
@@ -46,6 +49,11 @@ export class BookingService {
     const params = new URLSearchParams();
     if (query.search) params.set('name', query.search);
     if (query.specialty) params.set('specialty', query.specialty);
+    if (query.latitude !== undefined && query.longitude !== undefined) {
+      params.set('latitude', String(query.latitude));
+      params.set('longitude', String(query.longitude));
+    }
+    if (query.radiusKm !== undefined) params.set('radiusKm', String(query.radiusKm));
     params.set('limit', String(query.limit ?? 20));
     params.set('offset', String(query.offset ?? 0));
     return unwrapData(await this.api.get(`${rel(GATEWAY_PATHS.providers)}?${params.toString()}`));
