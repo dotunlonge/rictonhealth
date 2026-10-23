@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  output: process.env.VERCEL ? undefined : 'standalone',
   deploymentId: process.env.DEPLOYMENT_VERSION,
   // Dev only: allow the loopback aliases developers actually use, otherwise
   // client chunks are blocked and pages render dead (no hydration, no clicks).
