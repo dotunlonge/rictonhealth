@@ -57,7 +57,7 @@ plugins:
   # is a single replication group — no new infra.
   - name: rate-limiting
     config:
-      minute: 60
+      minute: 600
       policy: redis
       redis_host: redis
       redis_port: 6379
@@ -73,7 +73,7 @@ services:
       # limiters remain authoritative; this sheds bot floods before they do.
       - name: rate-limiting
         config:
-          minute: 30
+          minute: 120
           policy: redis
           redis_host: redis
           redis_port: 6379

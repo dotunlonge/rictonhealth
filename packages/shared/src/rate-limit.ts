@@ -6,16 +6,19 @@ interface RateLimitOptions {
   windowMs: number;
   max: number;
   keyPrefix?: string;
+  failClosed?: boolean;
 }
 
 export function rateLimit(options: RateLimitOptions) {
-  const { windowMs, max, keyPrefix = 'rl' } = options;
+  const { windowMs, max, keyPrefix = 'rl', failClosed = false } = options;
 
   return (req: Request, res: Response, next: NextFunction) => {
     if (process.env.NODE_ENV === 'test') {
       return next();
     }
-    const key = `${keyPrefix}:${req.ip}:${req.path}`;
+    const user = (req as any).user;
+    const identifier = user?.id || user?.userId || req.ip;
+    const key = `${keyPrefix}:${identifier}:${req.path}`;
     const now = Date.now();
 
     redis
@@ -44,7 +47,7 @@ export function rateLimit(options: RateLimitOptions) {
         const ttl = Math.ceil(windowMs / 1000);
 
         redis.set(key, JSON.stringify({ count: newCount, resetTime }), 'EX', ttl).catch((err) => {
-          console.error('[RateLimit] Redis error, failing closed:', err);
+          console.error('[RateLimit] Redis error:', err);
         });
 
         res.setHeader('X-RateLimit-Limit', String(max));
@@ -52,12 +55,15 @@ export function rateLimit(options: RateLimitOptions) {
         next();
       })
       .catch((err) => {
-        console.error('[RateLimit] Redis unavailable, failing closed:', err);
-        res.setHeader('X-RateLimit-Limit', String(max));
-        res.setHeader('X-RateLimit-Remaining', '0');
-        res
-          .status(429)
-          .json(errorResponse('Service temporarily unavailable', 'RATE_LIMIT_UNAVAILABLE'));
+        console.error('[RateLimit] Redis unavailable:', err);
+        if (failClosed) {
+          res.setHeader('X-RateLimit-Limit', String(max));
+          res.setHeader('X-RateLimit-Remaining', '0');
+          return res
+            .status(429)
+            .json(errorResponse('Service temporarily unavailable', 'RATE_LIMIT_UNAVAILABLE'));
+        }
+        next();
       });
   };
 }

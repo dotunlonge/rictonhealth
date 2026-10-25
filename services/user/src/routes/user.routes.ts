@@ -19,7 +19,7 @@ import {
 
 const router = Router();
 
-const userRateLimit = rateLimit({ windowMs: 60 * 1000, max: 20, keyPrefix: 'user' });
+const userRateLimit = rateLimit({ windowMs: 60 * 1000, max: 300, keyPrefix: 'user' });
 
 // Provider search is public (with optional authentication)
 router.get(

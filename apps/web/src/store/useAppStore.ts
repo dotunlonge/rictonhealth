@@ -197,7 +197,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       } finally {
         inFlightFetchUser = null;
       }
-      return null;
+      return get().user;
     })();
     return inFlightFetchUser;
   },
@@ -205,7 +205,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   fetchAppointments: async () => {
     try {
       const res = await api.get<{ appointments: Appointment[] }>('/appointments');
-      if (res.success && Array.isArray(res.data?.appointments)) {
+      if (res.success && res.data && Array.isArray(res.data.appointments)) {
         set({ appointments: res.data.appointments });
       }
     } catch (err: unknown) {

@@ -45,6 +45,7 @@ export interface RequestOptions extends RequestInit {
   idempotencyKey?: string;
   /** Skip the silent-refresh retry (used by the refresh call itself). */
   skipRefreshRetry?: boolean;
+  skipRetry429?: boolean;
 }
 
 // Refresh-token storage.
@@ -347,7 +348,12 @@ class ApiClient {
   public async request<T = any>(
     endpoint: string,
     init: RequestInit = {},
-    opts: { timeoutMs?: number; idempotencyKey?: string; skipRefreshRetry?: boolean } = {}
+    opts: {
+      timeoutMs?: number;
+      idempotencyKey?: string;
+      skipRefreshRetry?: boolean;
+      skipRetry429?: boolean;
+    } = {}
   ): Promise<ApiResponse<T>> {
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const controller = new AbortController();
@@ -425,6 +431,19 @@ class ApiClient {
           if (refreshed && accessToken) {
             return this.request<T>(endpoint, init, { ...opts, skipRefreshRetry: true });
           }
+        }
+        if (
+          response.status === 429 &&
+          !opts.skipRetry429 &&
+          (!init.method || init.method.toUpperCase() === 'GET')
+        ) {
+          const retryHeader = response.headers.get('Retry-After');
+          const delayMs =
+            retryHeader && !Number.isNaN(Number(retryHeader))
+              ? Math.min(Number(retryHeader) * 1000, 3000)
+              : 1000;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return this.request<T>(endpoint, init, { ...opts, skipRetry429: true });
         }
         if (data && typeof data === 'object' && 'success' in (data as object)) {
           return data as ApiResponse<T>;
