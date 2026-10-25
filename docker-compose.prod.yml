@@ -49,6 +49,9 @@ services:
       KONG_ADMIN_ACCESS_LOG: /dev/stdout
       KONG_PROXY_ERROR_LOG: /dev/stderr
       KONG_ADMIN_ERROR_LOG: /dev/stderr
+      # Required by the ACME plugin to verify Let's Encrypt's certificate chain.
+      KONG_LUA_SSL_TRUSTED_CERTIFICATE: system
+      KONG_LUA_SSL_VERIFY_DEPTH: 3
       # #89: Admin API listens inside container only and is NOT published to
       # the host (no 8001/8444 port mapping below) — never expose 0.0.0.0:8001 publicly.
       KONG_ADMIN_LISTEN: 0.0.0.0:8001
@@ -59,6 +62,8 @@ services:
       - '443:8443'
     volumes:
       - ./gateway/kong.yml:/kong/declarative/kong.yml
+      # Use the host's maintained CA bundle for ACME outbound certificate validation.
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -117,6 +122,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       REFRESH_SECRET: ${REFRESH_SECRET}
       OTP_SECRET: ${OTP_SECRET}
       NODE_ENV: production
@@ -155,6 +161,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -182,6 +189,7 @@ services:
     restart: always
     environment:
       NODE_ENV: production
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
@@ -209,6 +217,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -235,6 +244,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -261,6 +271,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -317,6 +328,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
@@ -346,6 +358,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -374,6 +387,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -400,6 +414,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -426,6 +441,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -453,6 +469,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -483,6 +500,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -509,6 +527,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}
@@ -563,6 +582,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET}
       NODE_ENV: production
       # #103: Sentry on every Node service (DSN empty = disabled); 0.1 sample in prod.
       SENTRY_DSN: ${SENTRY_DSN}

@@ -46,7 +46,17 @@ services:
           # login path must not go unthrottled during a Redis outage.
           fault_tolerant: false
     routes:
+      # ACME must have a hostname-and-path match so it can intercept the
+      # HTTP-01 challenge before proxying to the auth upstream.
+      - name: acme-http01-routes
+        hosts:
+          - ${API_DOMAIN}
+        paths:
+          - /.well-known/acme-challenge
+        strip_path: false
       - name: auth-routes
+        hosts:
+          - ${API_DOMAIN}
         paths:
           - /api/auth
         strip_path: false
