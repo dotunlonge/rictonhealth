@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { api } from '@/lib/api-client';
@@ -40,7 +40,7 @@ type Hospital = {
   createdAt?: string;
 };
 
-export default function AdminHospitalsPage() {
+function AdminHospitalsContent() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') === 'pending' ? 'PENDING' : 'ALL';
 
@@ -666,3 +666,23 @@ export default function AdminHospitalsPage() {
     </SidebarLayout>
   );
 }
+
+export default function AdminHospitalsPage() {
+  return (
+    <Suspense
+      fallback={
+        <SidebarLayout allowedRoles={['SUPER_ADMIN']}>
+          <div className="p-8 max-w-7xl mx-auto flex items-center justify-center min-h-[50vh]">
+            <div className="flex items-center gap-3 text-slate-500 font-medium">
+              <RefreshCw className="w-5 h-5 animate-spin text-blue-600" />
+              <span>Loading Hospital Management...</span>
+            </div>
+          </div>
+        </SidebarLayout>
+      }
+    >
+      <AdminHospitalsContent />
+    </Suspense>
+  );
+}
+
