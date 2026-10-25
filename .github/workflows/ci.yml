@@ -73,19 +73,18 @@ jobs:
 
       - name: Start test Postgres and ephemeral Redis
         run: |
-          docker compose -f docker-compose.test.yml up -d
+          docker compose -f docker-compose.test.yml up -d --wait
           docker run -d --name e2e-redis -p 6390:6379 redis:7-alpine redis-server --save '' --appendonly no
-          sleep 8
 
       - name: Migrate test database
-        run: DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public" npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
+        run: DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5435/ricton_test_db?schema=public" npx prisma migrate deploy --schema=packages/db/prisma/schema.prisma
 
       - name: Build web app
         run: npm -w apps/web run build
 
       - name: Start backend services and web
         run: |
-          export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5433/ricton_test_db?schema=public"
+          export DATABASE_URL="postgresql://ricton_test_user:ricton_test_password@127.0.0.1:5435/ricton_test_db?schema=public"
           export REDIS_URL="redis://localhost:6390"
           export JWT_SECRET="e2e-jwt-secret"
           export REFRESH_SECRET="e2e-refresh-secret"
