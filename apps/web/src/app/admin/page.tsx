@@ -146,11 +146,11 @@ export default function AdminDashboard() {
       color: 'from-emerald-500 to-teal-600',
     },
     {
-      label: 'Hospital Applications',
-      href: '/admin/hospital-applications',
+      label: 'Hospital Management',
+      href: '/admin/hospitals',
       icon: Building2,
-      desc: 'Accredit health facilities, verify CAC registration & activate facility admins',
-      badge: 'Review Queue',
+      desc: 'Onboard licensed hospitals, review accreditation applications, and oversee facilities',
+      badge: 'Facilities',
       color: 'from-amber-500 to-orange-600',
     },
     {

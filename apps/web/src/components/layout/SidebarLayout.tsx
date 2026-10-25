@@ -253,16 +253,10 @@ const roleNavigationMap: Record<UserRole, NavItem[]> = {
       keywords: 'verify approve doctors specialists pharmacists',
     },
     {
-      label: 'Hospital Applications',
-      href: '/admin/hospital-applications',
-      icon: Building2,
-      keywords: 'hospital applications facility review onboarding pending',
-    },
-    {
-      label: 'Hospital Directory',
+      label: 'Hospital Management',
       href: '/admin/hospitals',
       icon: Building2,
-      keywords: 'hospitals clinics medical centers directory',
+      keywords: 'hospitals clinics facilities onboard add applications',
     },
     {
       label: 'Product Review',
