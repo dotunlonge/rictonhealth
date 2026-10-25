@@ -32,8 +32,9 @@ import {
   Heart,
 } from 'lucide-react';
 import { api } from '@/lib/api-client';
-import { useWalletState, useCurrentUser, useAppStore } from '@/store/useAppStore';
+import { useWalletState, useCurrentUser, useAppStore, UserRole } from '@/store/useAppStore';
 
+const DASHBOARD_ALLOWED_ROLES: UserRole[] = ['PATIENT', 'CONSULTANT'];
 const calendarDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function formatDate(iso: string) {
@@ -248,6 +249,7 @@ export default function DashboardPage() {
       try {
         // 1. User Profile API
         const userRes = await api.get('/users/me');
+        const role = userRes.data?.role || currentUser?.role || 'PATIENT';
         if (userRes.success && userRes.data) {
           setUserProfile(userRes.data);
           if (userRes.data.providerProfile?.rating) {
@@ -256,8 +258,8 @@ export default function DashboardPage() {
         }
 
         // 2. Dashboard Stats & Appointments API
-        const isPatient = userRes.data?.role === 'PATIENT';
-        const dashEndpoint = isPatient ? '/users/dashboard/patient' : '/users/dashboard/provider';
+        const isDoctor = role === 'CONSULTANT';
+        const dashEndpoint = isDoctor ? '/users/dashboard/provider' : '/users/dashboard/patient';
         const dashRes = await api.get(dashEndpoint);
         if (dashRes.success && dashRes.data) {
           setProviderStats(dashRes.data.stats);
@@ -287,10 +289,12 @@ export default function DashboardPage() {
           setWeeklyTransactions(totalWeekly);
         }
 
-        // 4. Analytics Revenue API
-        const revRes = await api.get('/analytics/revenue');
-        if (revRes.success && revRes.data?.trend) {
-          setRevenueTrend(revRes.data.trend);
+        // 4. Analytics Revenue API (only for admin roles)
+        if (role === 'HOSPITAL_ADMIN' || role === 'SUPER_ADMIN') {
+          const revRes = await api.get('/analytics/revenue');
+          if (revRes.success && revRes.data?.trend) {
+            setRevenueTrend(revRes.data.trend);
+          }
         }
 
         // 5. Rewards Balance API
@@ -366,7 +370,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <SidebarLayout allowedRoles={['PATIENT', 'CONSULTANT']}>
+    <SidebarLayout allowedRoles={DASHBOARD_ALLOWED_ROLES}>
       <div className="space-y-8">
         {/* Welcome Header Banner */}
         <div className="flex flex-wrap items-center justify-between gap-4">

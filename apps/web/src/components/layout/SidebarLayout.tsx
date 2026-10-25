@@ -345,8 +345,12 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   // Instant zero-blink render: if user is already present in memory or
   // localStorage, render immediately without blocking behind a full-screen spinner.
   const [sessionChecked, setSessionChecked] = useState(() => !!useAppStore.getState().user);
+  const initialFetchDone = useRef(false);
 
   useEffect(() => {
+    if (initialFetchDone.current) return;
+    initialFetchDone.current = true;
+
     let cancelled = false;
     (async () => {
       // If a stale `ricton_session` cookie survived without a refresh token
@@ -367,11 +371,13 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
     return () => {
       cancelled = true;
     };
-  }, [fetchUser, fetchNotifications]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const display = useMemo(() => resolveUserDisplay(user), [user]);
 
   // Route Protection & Role Guard (client mirror of middleware.ts)
+  const allowedRolesKey = allowedRoles?.join(',') ?? '';
   useEffect(() => {
     if (!sessionChecked) return;
     if (!user) {
@@ -386,7 +392,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
       else if (currentRole === 'SUPER_ADMIN') router.replace('/admin');
       else router.replace('/dashboard');
     }
-  }, [sessionChecked, user, allowedRoles, router]);
+  }, [sessionChecked, user?.role, allowedRolesKey, router]);
 
   const navItems = roleNavigationMap[display.role] || roleNavigationMap.PATIENT;
 
