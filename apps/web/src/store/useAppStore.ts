@@ -121,7 +121,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   isLoading: false,
   error: null,
 
-  setUser: (user) => {
+  setUser: (user: UserProfile | null) => {
     if (user) {
       const existing = get().user || ({} as UserProfile);
       const merged = { ...existing, ...user };
@@ -142,7 +142,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  updateUserOptimistic: (patch) => {
+  updateUserOptimistic: (patch: Partial<UserProfile>) => {
     const current = get().user;
     if (current) {
       set({ user: { ...current, ...patch } });
@@ -213,7 +213,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  addAppointmentOptimistic: (appt) => {
+  addAppointmentOptimistic: (appt: Appointment) => {
     set({ appointments: [appt, ...get().appointments] });
   },
 
@@ -227,7 +227,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }
   },
 
-  addPrescriptionOptimistic: (rx) => {
+  addPrescriptionOptimistic: (rx: Prescription) => {
     set({ prescriptions: [rx, ...get().prescriptions] });
   },
 

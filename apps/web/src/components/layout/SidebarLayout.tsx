@@ -472,10 +472,10 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
 
   if (!sessionChecked && !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[var(--ricton-surface-muted)]">
+      <div className="min-h-screen flex items-center justify-center bg-(--ricton-surface-muted)">
         <div className="text-center space-y-3" role="status" aria-live="polite">
-          <div className="w-8 h-8 border-4 border-[var(--ricton-action)] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs font-bold text-[var(--ricton-ink-muted)]">Verifying session…</p>
+          <div className="w-8 h-8 border-4 border-(--ricton-action) border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-(--ricton-ink-muted)">Verifying session…</p>
         </div>
       </div>
     );
