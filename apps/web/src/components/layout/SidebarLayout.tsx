@@ -521,7 +521,10 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
       {navItems.map((item) => {
         const IconComponent = item.icon;
         const isActive =
-          pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
+          pathname === item.href ||
+          (item.href !== '/dashboard' &&
+            item.href !== '/admin' &&
+            pathname.startsWith(`${item.href}/`));
         return (
           <Link
             key={`${idPrefix}-${item.href}`}
