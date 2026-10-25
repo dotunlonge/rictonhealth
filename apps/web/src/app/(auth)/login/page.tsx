@@ -101,6 +101,9 @@ export default function LogInPage() {
     if (isExplicitReset) {
       api.clearToken();
       clearStalePresenceCookies(true);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
       return;
     }
 

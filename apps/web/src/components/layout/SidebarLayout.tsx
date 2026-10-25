@@ -356,8 +356,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
       clearStalePresenceCookies();
       const restored = await fetchUser();
       if (!cancelled) {
-        if (!restored) {
-          logout();
+        if (!useAppStore.getState().user && !restored) {
           const { clearStalePresenceCookies: forceClear } = await import('@/lib/api-client');
           forceClear(true);
         }
@@ -368,7 +367,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
     return () => {
       cancelled = true;
     };
-  }, [fetchUser, fetchNotifications, logout]);
+  }, [fetchUser, fetchNotifications]);
 
   const display = useMemo(() => resolveUserDisplay(user), [user]);
 
@@ -376,8 +375,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   useEffect(() => {
     if (!sessionChecked) return;
     if (!user) {
-      logout();
-      window.location.replace('/login?expired=1');
+      router.replace('/login?expired=1');
       return;
     }
     const currentRole: UserRole = user.role || 'PATIENT';

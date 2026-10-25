@@ -13,6 +13,43 @@ consumers:
         algorithm: HS256
 
 plugins:
+  - name: cors
+    config:
+      origins:
+        - https://rictonhealth.com
+        - https://app.rictonhealth.com
+        - https://admin.rictonhealth.com
+        - https://ricton.com
+        - https://app.ricton.com
+        - https://admin.ricton.com
+        - http://localhost:3000
+        - http://localhost:3100
+        - http://localhost:5173
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+        - HEAD
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - Authorization
+        - X-API-Version
+        - X-Request-Id
+        - Idempotency-Key
+      exposed_headers:
+        - X-Request-Id
+        - X-API-Version
+      credentials: true
+      max_age: 3600
+
   # #95 Redis DB index separation: single shared Redis instance.
   # App sessions/cache/pubsub use DB 0 (REDIS_URL without /N suffix).
   # Kong rate-limiting counters use DB 1 (redis_database: 1) so FLUSHDB /
