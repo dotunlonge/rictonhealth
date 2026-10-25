@@ -93,7 +93,8 @@ export default function TelemedicinePage() {
       setLoading(false);
     }
     loadMeetings();
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.role]);
 
   const handleCreateMeeting = async () => {
     setCreating(true);

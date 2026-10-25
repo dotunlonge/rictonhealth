@@ -323,6 +323,7 @@ export default function DashboardPage() {
     }
 
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const nextAppointment = upcomingAppointments[0] || null;

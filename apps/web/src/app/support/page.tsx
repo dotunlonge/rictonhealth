@@ -53,7 +53,8 @@ export default function SupportPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

@@ -40,7 +40,8 @@ export default function NotificationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [fetchNotifications]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleMarkAllRead = async () => {
     try {

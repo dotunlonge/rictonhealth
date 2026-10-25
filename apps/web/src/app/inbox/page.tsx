@@ -89,7 +89,7 @@ export default function InboxPage() {
       setLoading(false);
     }
     loadThreads();
-  }, [user, threadsReload]);
+  }, [user?.id, threadsReload]);
 
   // Load the complete conversation (server-authoritative messages) on selection.
   useEffect(() => {
@@ -112,7 +112,8 @@ export default function InboxPage() {
       setMessagesLoading(false);
     }
     loadMessages();
-  }, [selectedThread]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedThread?.id]);
 
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedThread) return;

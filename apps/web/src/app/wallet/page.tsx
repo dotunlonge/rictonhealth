@@ -84,7 +84,8 @@ export default function WalletPage() {
       setLoading(false);
     }
     loadData();
-  }, [fetchWallet]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [topUpAmount, setTopUpAmount] = useState('10000');
   const [toppingUp, setToppingUp] = useState(false);

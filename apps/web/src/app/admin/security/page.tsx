@@ -105,7 +105,8 @@ export default function AdminSecurityPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const acknowledge = async (id: string) => {
     setActing(id);

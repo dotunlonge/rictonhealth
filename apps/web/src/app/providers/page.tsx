@@ -78,7 +78,8 @@ export default function ProvidersPage() {
 
   useEffect(() => {
     loadProviders();
-  }, [loadProviders]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coordinates?.latitude, coordinates?.longitude, radiusKm]);
 
   const useMyLocation = () => {
     setLocationError(null);

@@ -392,6 +392,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
       else if (currentRole === 'SUPER_ADMIN') router.replace('/admin');
       else router.replace('/dashboard');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionChecked, user?.role, allowedRolesKey, router]);
 
   const navItems = roleNavigationMap[display.role] || roleNavigationMap.PATIENT;

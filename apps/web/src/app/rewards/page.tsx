@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import SidebarLayout from '@/components/layout/SidebarLayout';
 import { useAppStore } from '@/store/useAppStore';
 import { api } from '@/lib/api-client';
@@ -32,7 +32,7 @@ export default function RewardsPage() {
   const [redemptions, setRedemptions] = useState<any[]>([]);
   const [tiers, setTiers] = useState<any[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
-  const [loadedTabs, setLoadedTabs] = useState<Record<string, boolean>>({});
+  const loadedTabs = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     async function loadRewards() {
@@ -66,7 +66,7 @@ export default function RewardsPage() {
 
   useEffect(() => {
     async function loadTab() {
-      if (activeTab === 'vouchers' || loadedTabs[activeTab]) return;
+      if (activeTab === 'vouchers' || loadedTabs.current[activeTab]) return;
       setTabLoading(true);
       if (activeTab === 'earnings') {
         const res = await api.get<{ earnings: any[] }>('/rewards/earnings');
@@ -78,11 +78,11 @@ export default function RewardsPage() {
         const res = await api.get<{ tiers: any[] }>('/rewards/tiers');
         if (res.success && Array.isArray(res.data?.tiers)) setTiers(res.data.tiers);
       }
-      setLoadedTabs((prev) => ({ ...prev, [activeTab]: true }));
+      loadedTabs.current[activeTab] = true;
       setTabLoading(false);
     }
     loadTab();
-  }, [activeTab, loadedTabs]);
+  }, [activeTab]);
 
   const handleRedeem = async (gift: VoucherGift) => {
     if (balance < gift.points) {

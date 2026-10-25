@@ -102,6 +102,13 @@ interface AppState {
   setUser: (user: UserProfile | null) => void;
 }
 
+// Single-flight in-flight promise registries to deduplicate concurrent calls
+// across components and prevent gateway/rate-limit hammering.
+let inFlightFetchUser: Promise<UserProfile | null> | null = null;
+let inFlightFetchNotifications: Promise<void> | null = null;
+let inFlightFetchWallet: Promise<void> | null = null;
+let inFlightFetchRewards: Promise<void> | null = null;
+
 export const useAppStore = create<AppState>()((set, get) => ({
   user: null,
   appointments: [],
@@ -150,45 +157,49 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   fetchUser: async () => {
-    try {
-      const res = await api.get('/users/me');
-      if (res.success && res.data) {
-        const u = res.data as UserProfile;
-        const existing = get().user;
-        const merged: UserProfile = {
-          ...u,
-          avatarUrl:
-            u.avatarUrl ||
-            u.patientProfile?.avatarUrl ||
-            u.providerProfile?.avatarUrl ||
-            existing?.avatarUrl,
-          firstName:
-            u.firstName ||
-            u.patientProfile?.firstName ||
-            u.providerProfile?.firstName ||
-            existing?.firstName,
-          lastName:
-            u.lastName ||
-            u.patientProfile?.lastName ||
-            u.providerProfile?.lastName ||
-            existing?.lastName,
-        };
-        set({ user: merged });
-        setLastKnownUser({
-          email: merged.email,
-          firstName: merged.firstName,
-          lastName: merged.lastName,
-          role: merged.role,
-          avatarUrl: merged.avatarUrl,
-        });
-        return merged;
+    if (inFlightFetchUser) return inFlightFetchUser;
+    inFlightFetchUser = (async () => {
+      try {
+        const res = await api.get('/users/me');
+        if (res.success && res.data) {
+          const u = res.data as UserProfile;
+          const existing = get().user;
+          const merged: UserProfile = {
+            ...u,
+            avatarUrl:
+              u.avatarUrl ||
+              u.patientProfile?.avatarUrl ||
+              u.providerProfile?.avatarUrl ||
+              existing?.avatarUrl,
+            firstName:
+              u.firstName ||
+              u.patientProfile?.firstName ||
+              u.providerProfile?.firstName ||
+              existing?.firstName,
+            lastName:
+              u.lastName ||
+              u.patientProfile?.lastName ||
+              u.providerProfile?.lastName ||
+              existing?.lastName,
+          };
+          set({ user: merged });
+          setLastKnownUser({
+            email: merged.email,
+            firstName: merged.firstName,
+            lastName: merged.lastName,
+            role: merged.role,
+            avatarUrl: merged.avatarUrl,
+          });
+          return merged;
+        }
+      } catch (err: unknown) {
+        console.warn('Failed fetching current user profile', err);
+      } finally {
+        inFlightFetchUser = null;
       }
-    } catch (err: unknown) {
-      console.warn('Failed fetching current user profile', err);
-    }
-    // No server user = no authenticated user. Returning the stale in-memory
-    // user here used to paint dashboards as "Account"/"User" with no session.
-    return null;
+      return null;
+    })();
+    return inFlightFetchUser;
   },
 
   fetchAppointments: async () => {
@@ -221,14 +232,20 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   fetchNotifications: async () => {
-    try {
-      const res = await api.get('/notifications');
-      if (res.success && Array.isArray(res.data?.notifications)) {
-        set({ notifications: res.data.notifications });
+    if (inFlightFetchNotifications) return inFlightFetchNotifications;
+    inFlightFetchNotifications = (async () => {
+      try {
+        const res = await api.get('/notifications');
+        if (res.success && Array.isArray(res.data?.notifications)) {
+          set({ notifications: res.data.notifications });
+        }
+      } catch (err: unknown) {
+        console.warn('Failed fetching notifications', err);
+      } finally {
+        inFlightFetchNotifications = null;
       }
-    } catch (err: unknown) {
-      console.warn('Failed fetching notifications', err);
-    }
+    })();
+    return inFlightFetchNotifications;
   },
 
   markNotificationRead: async (id: string) => {
@@ -252,39 +269,55 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   fetchWallet: async () => {
-    set({ walletStatus: 'loading', walletError: null });
-    try {
-      const res = await api.get<{ balance: number }>('/wallets/me');
-      if (res.success && res.data?.balance !== undefined) {
-        set({ walletBalance: res.data.balance, walletStatus: 'ready', walletError: null });
-      } else {
+    if (inFlightFetchWallet) return inFlightFetchWallet;
+    inFlightFetchWallet = (async () => {
+      set({ walletStatus: 'loading', walletError: null });
+      try {
+        const res = await api.get<{ balance: number }>('/wallets/me');
+        if (res.success && res.data?.balance !== undefined) {
+          set({ walletBalance: res.data.balance, walletStatus: 'ready', walletError: null });
+        } else {
+          set({
+            walletStatus: 'error',
+            walletError: res.error?.message || 'Wallet balance could not be loaded',
+          });
+        }
+      } catch (err: unknown) {
+        console.warn('Failed fetching wallet balance', err);
         set({
           walletStatus: 'error',
-          walletError: res.error?.message || 'Wallet balance could not be loaded',
+          walletError: err instanceof Error ? err.message : 'Wallet balance could not be loaded',
         });
+      } finally {
+        inFlightFetchWallet = null;
       }
-    } catch (err: unknown) {
-      console.warn('Failed fetching wallet balance', err);
-      set({
-        walletStatus: 'error',
-        walletError: err instanceof Error ? err.message : 'Wallet balance could not be loaded',
-      });
-    }
+    })();
+    return inFlightFetchWallet;
   },
 
   fetchRewards: async () => {
-    try {
-      const res = await api.get('/rewards/balance');
-      if (res.success && res.data?.balance !== undefined) {
-        set({ rewardsPoints: res.data.balance });
+    if (inFlightFetchRewards) return inFlightFetchRewards;
+    inFlightFetchRewards = (async () => {
+      try {
+        const res = await api.get('/rewards/balance');
+        if (res.success && res.data?.balance !== undefined) {
+          set({ rewardsPoints: res.data.balance });
+        }
+      } catch (err: unknown) {
+        console.warn('Failed fetching rewards balance', err);
+      } finally {
+        inFlightFetchRewards = null;
       }
-    } catch (err: unknown) {
-      console.warn('Failed fetching rewards balance', err);
-    }
+    })();
+    return inFlightFetchRewards;
   },
 
   logout: () => {
     api.logout();
+    inFlightFetchUser = null;
+    inFlightFetchNotifications = null;
+    inFlightFetchWallet = null;
+    inFlightFetchRewards = null;
     set({
       user: null,
       appointments: [],

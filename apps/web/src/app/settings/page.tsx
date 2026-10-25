@@ -216,7 +216,8 @@ export default function SettingsPage() {
       setLoading(false);
     }
     load();
-  }, [fetchUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async (field: string) => {
     setSaving(true);

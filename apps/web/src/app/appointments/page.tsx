@@ -172,7 +172,8 @@ function AppointmentsContent() {
     if (!user) return;
     if (user.role === 'PHARMACIST') router.replace('/dashboard/pharmacy');
     else if (user.role === 'SUPER_ADMIN') router.replace('/admin');
-  }, [user, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.role, router]);
   useEffect(() => {
     if (!isPatient) {
       setShowBookModal(false);
@@ -268,7 +269,8 @@ function AppointmentsContent() {
       setLoading(false);
     }
     loadData();
-  }, [providerIdParam, selectedDoctorId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerIdParam, isPatient]);
 
   const closeBookModal = () => {
     setShowBookModal(false);
