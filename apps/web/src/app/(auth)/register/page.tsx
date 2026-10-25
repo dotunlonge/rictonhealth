@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api-client';
+import { api, clearStalePresenceCookies } from '@/lib/api-client';
 import { loginWithGoogleToken, triggerAppleAuth } from '@/lib/oauth';
 import Navbar from '@/components/Navbar';
 import { useAppStore } from '@/store/useAppStore';
@@ -97,12 +97,31 @@ export default function RegisterPage() {
         /* fall through with what we have */
       }
     }
-    router.replace(landingForUser(full) ?? '/dashboard');
+    const dest = landingForUser(full) ?? '/dashboard';
+    if (typeof window !== 'undefined') {
+      window.location.href = dest;
+    } else {
+      router.replace(dest);
+    }
   };
 
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
   // the registration form and land on the correct dashboard for the role.
   useEffect(() => {
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    const isExplicitReset =
+      search.includes('expired') || search.includes('logout') || search.includes('force');
+    if (isExplicitReset) {
+      api.clearToken();
+      clearStalePresenceCookies(true);
+      setUser(null);
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+      return;
+    }
+    clearStalePresenceCookies();
+
     const currentUser = useAppStore.getState().user;
     if (currentUser) {
       redirectAfterAuth(currentUser);
@@ -138,11 +157,33 @@ export default function RegisterPage() {
             </svg>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Already Signed In
+            Signed In
           </h2>
           <p className="text-sm font-medium text-slate-500">
             Redirecting to your healthcare dashboard…
           </p>
+          <div className="pt-2 text-xs text-slate-400">
+            <span>Taking too long? </span>
+            <button
+              type="button"
+              onClick={() => redirectAfterAuth(user)}
+              className="text-sky-600 hover:text-sky-700 font-semibold underline mr-2"
+            >
+              Continue to dashboard
+            </button>
+            <span>or </span>
+            <button
+              type="button"
+              onClick={() => {
+                api.logout();
+                setUser(null);
+                clearStalePresenceCookies(true);
+              }}
+              className="text-rose-500 hover:text-rose-600 font-semibold underline"
+            >
+              sign out
+            </button>
+          </div>
         </div>
       </main>
     );

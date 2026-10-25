@@ -55,6 +55,7 @@ export default function LogInPage() {
   const [totpCode, setTotpCode] = useState('');
   const [oauthProvider, setOauthProvider] = useState<'GOOGLE' | 'APPLE' | null>(null);
   const [oauthToken, setOauthToken] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const user = useAppStore((state) => state.user);
   const [lastUserLabel] = useState(() => {
     try {
@@ -87,7 +88,12 @@ export default function LogInPage() {
         // Fall through to the role-based default below.
       }
     }
-    router.replace(landingForUser(full) ?? homeForRole(u?.role));
+    const dest = landingForUser(full) ?? homeForRole(u?.role);
+    if (typeof window !== 'undefined') {
+      window.location.href = dest;
+    } else {
+      router.replace(dest);
+    }
   };
 
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
@@ -101,6 +107,7 @@ export default function LogInPage() {
     if (isExplicitReset) {
       api.clearToken();
       clearStalePresenceCookies(true);
+      setUser(null);
       if (typeof window !== 'undefined' && window.history?.replaceState) {
         window.history.replaceState({}, '', window.location.pathname);
       }
@@ -147,11 +154,33 @@ export default function LogInPage() {
             </svg>
           </div>
           <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Already Signed In
+            {isSigningIn ? 'Signing you in…' : 'Signed In'}
           </h2>
           <p className="text-sm font-medium text-slate-500">
             Redirecting to your healthcare dashboard…
           </p>
+          <div className="pt-2 text-xs text-slate-400">
+            <span>Taking too long? </span>
+            <button
+              type="button"
+              onClick={() => redirectAfterAuth(user)}
+              className="text-sky-600 hover:text-sky-700 font-semibold underline mr-2"
+            >
+              Continue to dashboard
+            </button>
+            <span>or </span>
+            <button
+              type="button"
+              onClick={() => {
+                api.logout();
+                setUser(null);
+                clearStalePresenceCookies(true);
+              }}
+              className="text-rose-500 hover:text-rose-600 font-semibold underline"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -160,6 +189,7 @@ export default function LogInPage() {
   const executeLoginWithCode = async (codeStr: string) => {
     if (codeStr.length !== 6 || isLoading) return;
     setIsLoading(true);
+    setIsSigningIn(true);
     setErrorMsg('');
 
     let res: any;
@@ -176,8 +206,6 @@ export default function LogInPage() {
       });
     }
 
-    setIsLoading(false);
-
     const accessToken = res.data?.token || res.data?.accessToken;
     if (res.success && accessToken) {
       api.setToken(accessToken, res.data?.refreshToken ?? null, res.data?.user?.role ?? null);
@@ -186,6 +214,8 @@ export default function LogInPage() {
       }
       redirectAfterAuth(res.data.user);
     } else {
+      setIsLoading(false);
+      setIsSigningIn(false);
       setErrorMsg(res.error?.message || '2FA verification failed. Please enter valid code.');
     }
   };
@@ -200,6 +230,7 @@ export default function LogInPage() {
     }
 
     setIsLoading(true);
+    setIsSigningIn(true);
     setErrorMsg('');
 
     const res = await api.post('/auth/login', {
@@ -208,9 +239,9 @@ export default function LogInPage() {
       password,
     });
 
-    setIsLoading(false);
-
     if (res.data?.requires2FA) {
+      setIsLoading(false);
+      setIsSigningIn(false);
       setRequires2FA(true);
       setOauthProvider(null);
       setOauthToken('');
@@ -228,6 +259,8 @@ export default function LogInPage() {
       }
       redirectAfterAuth(res.data.user);
     } else {
+      setIsLoading(false);
+      setIsSigningIn(false);
       setErrorMsg(res.error?.message || 'Login failed. Please check your credentials.');
     }
   };
