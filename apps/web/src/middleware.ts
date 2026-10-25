@@ -45,6 +45,18 @@ export function middleware(req: NextRequest) {
 
   const isAuthPage = AUTH_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (isAuthPage) {
+    const isExplicitAuthAction =
+      req.nextUrl.searchParams.has('expired') ||
+      req.nextUrl.searchParams.has('logout') ||
+      req.nextUrl.searchParams.has('force');
+
+    if (isExplicitAuthAction) {
+      const res = NextResponse.next();
+      res.cookies.delete('ricton_session');
+      res.cookies.delete('ricton_role');
+      return res;
+    }
+
     if (authed) {
       const role = sessionRole(req);
       const home =

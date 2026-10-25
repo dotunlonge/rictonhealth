@@ -357,8 +357,9 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
       const restored = await fetchUser();
       if (!cancelled) {
         if (!restored) {
-          const { clearStalePresenceCookies: clearAgain } = await import('@/lib/api-client');
-          clearAgain();
+          logout();
+          const { clearStalePresenceCookies: forceClear } = await import('@/lib/api-client');
+          forceClear(true);
         }
         setSessionChecked(true);
       }
@@ -367,7 +368,7 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
     return () => {
       cancelled = true;
     };
-  }, [fetchUser, fetchNotifications]);
+  }, [fetchUser, fetchNotifications, logout]);
 
   const display = useMemo(() => resolveUserDisplay(user), [user]);
 
@@ -375,7 +376,8 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   useEffect(() => {
     if (!sessionChecked) return;
     if (!user) {
-      router.replace('/login');
+      logout();
+      window.location.replace('/login?expired=1');
       return;
     }
     const currentRole: UserRole = user.role || 'PATIENT';
@@ -477,10 +479,21 @@ export default function SidebarLayout({ children, allowedRoles }: SidebarLayoutP
   if (sessionChecked && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--ricton-surface-muted)]">
-        <div className="text-center space-y-3" role="status" aria-live="polite">
+        <div className="text-center space-y-3 max-w-sm px-4" role="status" aria-live="polite">
           <div className="w-8 h-8 border-4 border-[var(--ricton-action)] border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-xs font-bold text-[var(--ricton-ink-muted)]">
             Session expired — redirecting to sign in…
+          </p>
+          <p className="text-xs text-[var(--ricton-ink-muted)]">
+            If you are not redirected automatically,{' '}
+            <a
+              href="/login?expired=1"
+              onClick={() => logout()}
+              className="text-[var(--ricton-action)] underline font-medium hover:opacity-80"
+            >
+              click here to sign in
+            </a>
+            .
           </p>
         </div>
       </div>

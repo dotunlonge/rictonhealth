@@ -3,7 +3,12 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, clearStalePresenceCookies, getLastKnownUser, lastKnownDisplayName } from '@/lib/api-client';
+import {
+  api,
+  clearStalePresenceCookies,
+  getLastKnownUser,
+  lastKnownDisplayName,
+} from '@/lib/api-client';
 import { homeForRole, landingForUser } from '@/lib/role-home';
 import {
   triggerAppleAuth,
@@ -88,6 +93,17 @@ export default function LogInPage() {
   // Already signed in (restored session, or middleware-hinted cookie)? Skip
   // the form immediately and land on the correct dashboard for the role.
   useEffect(() => {
+    // If arriving from an expired session or explicit logout, purge all tokens
+    // and cookies immediately so we don't attempt to restore a dead session.
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    const isExplicitReset =
+      search.includes('expired') || search.includes('logout') || search.includes('force');
+    if (isExplicitReset) {
+      api.clearToken();
+      clearStalePresenceCookies(true);
+      return;
+    }
+
     // Drop a stale presence cookie left over from a previous tab/session that
     // has no refresh token behind it. Without this, middleware bounces /login
     // straight to /dashboard and the app looks "already logged in" as a

@@ -189,8 +189,8 @@ function setPresenceCookies(role: string | null) {
       document.cookie = `ricton_session=1; path=/; SameSite=Lax`;
       document.cookie = `ricton_role=${encodeURIComponent(role)}; path=/; SameSite=Lax`;
     } else {
-      document.cookie = `ricton_session=; path=/; max-age=0; SameSite=Lax`;
-      document.cookie = `ricton_role=; path=/; max-age=0; SameSite=Lax`;
+      document.cookie = `ricton_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+      document.cookie = `ricton_role=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
     }
   } catch {
     // ignore cookie errors (private mode etc.)
@@ -219,13 +219,13 @@ export function hasStoredRefreshToken(): boolean {
  * Call this on app/login mount: if there is no refresh token to back the
  * cookie, drop the cookie so the user sees a real login form.
  */
-export function clearStalePresenceCookies(): boolean {
+export function clearStalePresenceCookies(force = false): boolean {
   if (typeof document === 'undefined' || typeof window === 'undefined') return false;
-  if (hasStoredRefreshToken()) return false;
+  if (!force && hasStoredRefreshToken()) return false;
   if (!hasSessionHints()) return false;
   try {
-    document.cookie = `ricton_session=; path=/; max-age=0; SameSite=Lax`;
-    document.cookie = `ricton_role=; path=/; max-age=0; SameSite=Lax`;
+    document.cookie = `ricton_session=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    document.cookie = `ricton_role=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
     return true;
   } catch {
     return false;
