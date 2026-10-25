@@ -22,9 +22,9 @@ export const tokens = {
     action: '#1877F2',
     actionDark: '#1565C0',
     actionSoft: '#E8F1FE',
-    /** Periwinkle primary action for auth screens (login/register mockups). */
-    authAction: '#B3CDF2',
-    authActionDark: '#93B8EC',
+    /** Primary action for auth screens (login/register). */
+    authAction: '#1877F2',
+    authActionDark: '#1565C0',
     success: '#059669',
     successSoft: '#D1FAE5',
     warning: '#D97706',

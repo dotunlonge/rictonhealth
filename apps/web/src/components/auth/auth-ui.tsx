@@ -151,10 +151,10 @@ export function AuthPrimaryButton({
     <button
       type="submit"
       disabled={disabled}
-      className={`h-16 w-full rounded-[20px] text-lg font-bold text-white shadow-lg shadow-[var(--ricton-auth-action)]/40 transition-all active:scale-[0.99] ${
+      className={`h-16 w-full rounded-[20px] text-lg font-bold transition-all active:scale-[0.99] ${
         disabled
-          ? 'cursor-not-allowed bg-[var(--ricton-auth-action)] opacity-55'
-          : 'bg-[var(--ricton-auth-action)] hover:bg-[var(--ricton-auth-action-dark)]'
+          ? 'cursor-not-allowed bg-slate-200 text-slate-400 shadow-none'
+          : 'cursor-pointer bg-[#1877F2] hover:bg-[#1565C0] text-white shadow-lg shadow-blue-500/30'
       }`}
     >
       {children}

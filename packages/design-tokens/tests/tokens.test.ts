@@ -24,8 +24,8 @@ describe('design tokens', () => {
   });
 
   it('publishes the auth action palette from the login/register mockups', () => {
-    expect(tokens.color.authAction).toBe('#B3CDF2');
-    expect(tokens.color.authActionDark).toBe('#93B8EC');
+    expect(tokens.color.authAction).toBe('#1877F2');
+    expect(tokens.color.authActionDark).toBe('#1565C0');
     expect(cssVariables['--ricton-auth-action']).toBe(tokens.color.authAction);
   });
   it('builds a :root declaration block for globals.css', () => {
