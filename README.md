@@ -541,6 +541,4 @@ npx jest services/auth/tests/
 
 ## License
 
-Proprietary — Ricton Health Technologies
-
-# ricton
+Free to use for all.
