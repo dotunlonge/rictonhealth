@@ -1,0 +1,60 @@
+Custom Software License with Specific Entity Exclusion
+Copyright (c) 2026 Dotun Longe. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+==============================================================================
+SPECIFIC ENTITY EXCLUSION CLAUSE (EXPRESS WITHHOLDING OF LICENSE)
+==============================================================================
+
+NOTWITHSTANDING ANY OTHER PROVISION OF THIS LICENSE OR ANY OTHER AGREEMENT,
+NO LICENSE, RIGHT, PRIVILEGE, COVENANT NOT TO SUE, OR PERMISSION OF ANY KIND
+(WHETHER EXPRESS, IMPLIED, ARISING BY CUSTOM, ESTOPPEL, OR OTHERWISE) IS
+GRANTED TO, CONFERRED UPON, OR EXTENDED FOR THE BENEFIT OF:
+
+1. Ricton Health Technologies, Ricton Health Technologies Ltd, RictonTech, or
+   any related, affiliated, associated, or successor corporate entities,
+   trade names, partnerships, or business ventures (collectively, the
+   "Excluded Entities").
+
+2. Any founder, director, officer, partner, employee, contractor, agent, or
+   legal representative of any Excluded Entity, whether acting in a corporate
+   or personal capacity.
+
+3. Any parent company, subsidiary, holding entity, affiliate, joint venture,
+   assign, or purchaser of assets of any Excluded Entity.
+
+4. Any third party, contractor, hosting provider, or service vendor to the
+   extent that such third party is deploying, hosting, running, maintaining,
+   modifying, integrating, or utilizing the Software directly or indirectly
+   for, on behalf of, or for the commercial benefit of any Excluded Entity.
+
+All intellectual property rights in and to the Software are retained
+exclusively by the copyright holder. Because complete payment for development
+services was never rendered, no transfer of title, assignment of ownership, or
+license grant to any Excluded Entity has occurred.
+
+Any use, reproduction, distribution, execution, modification, deployment, or
+exploitation of the Software or any derivative work thereof by, with, or for
+the benefit of any Excluded Entity is strictly unauthorized and constitutes
+willful copyright infringement and intellectual property misappropriation.
+
+==============================================================================
+DISCLAIMER OF WARRANTY AND LIMITATION OF LIABILITY
+==============================================================================
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

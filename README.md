@@ -541,4 +541,4 @@ npx jest services/auth/tests/
 
 ## License
 
-Free to use for all.
+Free to use for all, **except** Ricton Health Technologies and its affiliates. See [LICENSE](LICENSE) for the full terms and exclusion clause.
